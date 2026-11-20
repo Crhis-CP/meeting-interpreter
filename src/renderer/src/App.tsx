@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { lang } from '@core/lang/languages';
 import { api, useEvent, useMeetingState, useSettings } from './api';
 import { GlossaryPage } from './pages/Glossary';
 import { HistoryPage } from './pages/History';
@@ -65,7 +66,7 @@ export function App() {
           <div className="logo">译</div>
           <div>
             会议同传助手
-            <small>中文 ⇄ Español</small>
+            <small>{lang(settings.languages.remote).base === 'en' ? '中文 ⇄ English' : '中文 ⇄ Español'}</small>
           </div>
         </div>
         {NAV.map((n) => (

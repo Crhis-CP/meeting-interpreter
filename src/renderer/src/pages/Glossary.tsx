@@ -85,7 +85,7 @@ export function GlossaryPage() {
     if (l[0]) select(l[0].id);
   };
 
-  const entries = (draft?.entries ?? []).filter((e) => !filter || [e.zh, e.es, e.note, ...e.aliasesZh, ...e.aliasesEs].some((x) => x.toLowerCase().includes(filter.toLowerCase())));
+  const entries = (draft?.entries ?? []).filter((e) => !filter || [e.zh, e.es, e.en ?? '', e.note, ...e.aliasesZh, ...e.aliasesEs, ...(e.aliasesEn ?? [])].some((x) => x.toLowerCase().includes(filter.toLowerCase())));
 
   return (
     <div>
@@ -135,8 +135,10 @@ export function GlossaryPage() {
                 <th style={{ width: 40 }}>启用</th>
                 <th>中文</th>
                 <th>Español</th>
+                <th>English</th>
                 <th>中文别名（常被识别成）</th>
                 <th>西语别名</th>
+                <th>英语别名</th>
                 <th>备注</th>
                 <th style={{ width: 40 }} />
               </tr>
@@ -154,10 +156,16 @@ export function GlossaryPage() {
                     <input type="text" value={e.es} onChange={(ev) => setEntry(e.id, { es: ev.target.value })} />
                   </td>
                   <td>
+                    <input type="text" value={e.en ?? ''} onChange={(ev) => setEntry(e.id, { en: ev.target.value })} />
+                  </td>
+                  <td>
                     <input type="text" value={e.aliasesZh.join('；')} placeholder="用；分隔" onChange={(ev) => setEntry(e.id, { aliasesZh: split(ev.target.value) })} />
                   </td>
                   <td>
                     <input type="text" value={e.aliasesEs.join('; ')} onChange={(ev) => setEntry(e.id, { aliasesEs: split(ev.target.value) })} />
+                  </td>
+                  <td>
+                    <input type="text" value={(e.aliasesEn ?? []).join('; ')} onChange={(ev) => setEntry(e.id, { aliasesEn: split(ev.target.value) })} />
                   </td>
                   <td>
                     <input type="text" value={e.note} onChange={(ev) => setEntry(e.id, { note: ev.target.value })} />
@@ -174,11 +182,11 @@ export function GlossaryPage() {
           <button
             className="btn"
             style={{ marginTop: 10 }}
-            onClick={() => update((g) => g.entries.push({ id: newEntryId(), zh: '', es: '', aliasesZh: [], aliasesEs: [], note: '', enabled: true }))}
+            onClick={() => update((g) => g.entries.push({ id: newEntryId(), zh: '', es: '', en: '', aliasesZh: [], aliasesEs: [], aliasesEn: [], note: '', enabled: true }))}
           >
             + 添加术语
           </button>
-          <p className="hint">导入格式：CSV（Excel 另存为“CSV UTF-8”），列为 中文, Español, 中文别名, 西语别名, 备注；也可以直接从 Excel 复制两列粘贴成文本文件导入。</p>
+          <p className="hint">导入格式：CSV（Excel 另存为“CSV UTF-8”），列为 中文, Español, English, 中文别名, 西语别名, 英语别名, 备注（只填需要的列即可，例如只和英语客户开会就只填中文和 English）。例：中文填“西瓜尔纳一号”，中文别名填“西瓜那一号；西瓜尔那一号”，English 或 Español 填双方约定的叫法。</p>
         </div>
       )}
     </div>

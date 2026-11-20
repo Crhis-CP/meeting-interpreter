@@ -59,7 +59,7 @@ export const MODELS: Readonly<Record<ModelId, ModelSpec>> = {
   },
   'whisper-base': {
     id: 'whisper-base',
-    label: '西班牙语识别（Whisper base，较快）',
+    label: '西语 / 英语识别（Whisper base，较快）',
     repo: WHISPER_BASE_REPO,
     files: [
       file(WHISPER_BASE_REPO, 'encoder', 'base-encoder.int8.onnx', 29_120_534),
@@ -69,7 +69,7 @@ export const MODELS: Readonly<Record<ModelId, ModelSpec>> = {
   },
   'whisper-small': {
     id: 'whisper-small',
-    label: '西班牙语识别（Whisper small，更准）',
+    label: '西语 / 英语识别（Whisper small，更准）',
     repo: WHISPER_SMALL_REPO,
     files: [
       file(WHISPER_SMALL_REPO, 'encoder', 'small-encoder.int8.onnx', 112_442_483),
@@ -85,6 +85,7 @@ export const DEFAULT_WHISPER: WhisperModelId = 'whisper-small';
 export const LANG_MODELS = {
   zh: { recommended: ['silero-vad', 'sensevoice'] },
   es: { recommended: ['silero-vad', 'whisper-small'], light: ['silero-vad', 'whisper-base'] },
+  en: { recommended: ['silero-vad', 'whisper-small'], light: ['silero-vad', 'whisper-base'] },
 } as const satisfies Record<LangBase, { recommended: readonly ModelId[]; light?: readonly ModelId[] }>;
 
 /** The recogniser model for a language: SenseVoice for Chinese, Whisper for Spanish. */

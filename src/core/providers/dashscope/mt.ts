@@ -6,7 +6,7 @@ import { DASHSCOPE_DEFAULTS, authHeaders, dashscopeError, dashscopeHost, errorTe
 
 /** Qwen-MT domain prompt (must be English). */
 export const QWEN_MT_DOMAINS =
-  "Spoken business meeting between Chinese and Spanish speakers. Keep the speaker's register, be concise, no explanations.";
+  "Spoken business meeting between Chinese and Spanish- or English-speaking participants. Keep the speaker's register, be concise, no explanations.";
 
 const TIMEOUT_MS = 15_000;
 /**

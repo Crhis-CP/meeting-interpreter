@@ -77,7 +77,7 @@ export const DRIVER_GUIDES: DriverGuide[] = [
     os: 'mac',
     title: 'macOS：安装 BlackHole（免费）',
     steps: [
-      '下载并安装 BlackHole 2ch（让会议软件听到西语译音必需）。也可在终端运行：brew install blackhole-2ch',
+      '下载并安装 BlackHole 2ch（让会议软件听到译音必需）。也可在终端运行：brew install blackhole-2ch',
       '可选：再装 BlackHole 16ch，作为“虚拟扬声器”采集会议声音并压低原声；macOS 14.2 及以上可以直接用“系统声音”，不必安装。',
       '安装后重启会议软件，回到这里点“刷新设备”。',
       '首次用“系统声音”时，在 系统设置 › 隐私与安全性 › 录屏与系统录音 中允许“MeetingInterpreter”。',
@@ -92,7 +92,7 @@ export const DRIVER_GUIDES: DriverGuide[] = [
     title: 'Windows：安装 VB-CABLE（免费，捐赠软件）',
     steps: [
       '下载 VB-CABLE Driver Pack，解压后右键“以管理员身份运行” VBCABLE_Setup_x64.exe，点 Install Driver，然后重启电脑。',
-      '安装后会出现“CABLE Input”（播放设备，本应用往里送西语译音）和“CABLE Output”（录音设备，会议软件的麦克风选它）。',
+      '安装后会出现“CABLE Input”（播放设备，本应用往里送译音）和“CABLE Output”（录音设备，会议软件的麦克风选它）。',
       'Windows 11 可直接用“系统声音”采集会议；Windows 10 若要听中文译音，建议再装一个虚拟线（VB-Audio Hi-Fi Cable 或 VoiceMeeter）作为“虚拟扬声器”。',
     ],
     links: [

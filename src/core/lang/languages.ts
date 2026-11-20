@@ -1,6 +1,9 @@
 import type { LangCode } from '../types';
 
-export type LangBase = 'zh' | 'es';
+export type LangBase = 'zh' | 'es' | 'en';
+
+/** Languages written in Latin script (word boundaries, accents). */
+export const isLatin = (b: LangBase): boolean => b !== 'zh';
 
 export interface LanguageInfo {
   code: LangCode;
@@ -45,6 +48,18 @@ function spanish(code: string, region: string, regionNative: string, deeplTarget
   };
 }
 
+function english(code: string, region: string, regionNative: string, deeplTarget: string): LanguageInfo {
+  return {
+    code,
+    base: 'en',
+    nameZh: `英语（${region}）`,
+    nameNative: `English (${regionNative})`,
+    englishName: 'English',
+    script: 'latin',
+    codes: { azure: code, dashscope: 'en', qwenMt: 'English', deeplSource: 'EN', deeplTarget, openai: 'en' },
+  };
+}
+
 export const LANGUAGES: Record<LangCode, LanguageInfo> = {
   'zh-CN': zh,
   'es-ES': spanish('es-ES', '西班牙', 'España'),
@@ -54,10 +69,12 @@ export const LANGUAGES: Record<LangCode, LanguageInfo> = {
   'es-CO': spanish('es-CO', '哥伦比亚', 'Colombia', 'ES-419'),
   'es-CL': spanish('es-CL', '智利', 'Chile', 'ES-419'),
   'es-PE': spanish('es-PE', '秘鲁', 'Perú', 'ES-419'),
+  'en-US': english('en-US', '美国', 'US', 'EN-US'),
+  'en-GB': english('en-GB', '英国', 'UK', 'EN-GB'),
 };
 
 export const SELF_LANGUAGES: LangCode[] = ['zh-CN'];
-export const REMOTE_LANGUAGES: LangCode[] = ['es-MX', 'es-ES', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE'];
+export const REMOTE_LANGUAGES: LangCode[] = ['es-MX', 'es-ES', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'en-US', 'en-GB'];
 
 export function lang(code: LangCode): LanguageInfo {
   const info = LANGUAGES[code];
@@ -66,6 +83,7 @@ export function lang(code: LangCode): LanguageInfo {
   const base = code.split('-')[0]?.toLowerCase();
   if (base === 'zh') return zh;
   if (base === 'es') return LANGUAGES['es-ES']!;
+  if (base === 'en') return LANGUAGES['en-US']!;
   throw new Error(`不支持的语言：${code}`);
 }
 

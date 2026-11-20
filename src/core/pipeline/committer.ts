@@ -1,4 +1,4 @@
-import type { LangBase } from '../lang/languages';
+import { isLatin, type LangBase } from '../lang/languages';
 
 /**
  * Decides which pieces of recognised speech become translation units.
@@ -67,14 +67,14 @@ export function snapToWordStart(text: string, idx: number, base: LangBase): numb
   const Seg = (Intl as unknown as { Segmenter?: new (l: string, o: { granularity: 'word' }) => { segment(s: string): Iterable<{ index: number; segment: string }> } }).Segmenter;
   if (Seg) {
     let start = 0;
-    for (const s of new Seg(base === 'zh' ? 'zh' : 'es', { granularity: 'word' }).segment(text)) {
+    for (const s of new Seg(base, { granularity: 'word' }).segment(text)) {
       if (s.index > idx) break;
       start = s.index;
       if (s.index + s.segment.length > idx) return s.index === idx ? idx : start;
     }
     return start;
   }
-  if (base === 'es') {
+  if (isLatin(base)) {
     const sp = text.lastIndexOf(' ', idx - 1);
     return sp < 0 ? 0 : sp + 1;
   }
@@ -101,7 +101,7 @@ export class Committer {
   }
 
   private enoughContent(s: string): boolean {
-    if (this.base === 'zh') return (s.match(/\p{Script=Han}/gu)?.length ?? 0) >= this.minChars;
+    if (!isLatin(this.base)) return (s.match(/\p{Script=Han}/gu)?.length ?? 0) >= this.minChars;
     return s.trim().split(/\s+/).filter((w) => /\p{L}/u.test(w)).length >= this.minWords;
   }
 

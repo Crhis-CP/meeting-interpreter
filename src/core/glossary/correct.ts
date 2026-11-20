@@ -1,7 +1,7 @@
 import { pinyin } from 'pinyin-pro';
-import type { LangBase } from '../lang/languages';
+import { isLatin, type LangBase } from '../lang/languages';
 import { foldLatin } from './match';
-import type { GlossaryEntry } from './types';
+import { aliasesOf, termOf, type GlossaryEntry } from './types';
 
 export interface Correction {
   text: string;
@@ -46,8 +46,8 @@ export function correctText(text: string, base: LangBase, entries: GlossaryEntry
   let out = text;
   for (const e of entries) {
     if (!e.enabled) continue;
-    const term = base === 'zh' ? e.zh : e.es;
-    const aliases = base === 'zh' ? e.aliasesZh : e.aliasesEs;
+    const term = termOf(e, base);
+    const aliases = aliasesOf(e, base);
     if (!term) continue;
     for (const alias of aliases) {
       if (!alias || alias === term) continue;
@@ -96,20 +96,21 @@ export function correctText(text: string, base: LangBase, entries: GlossaryEntry
     }
   }
 
-  if (base === 'es') {
+  if (isLatin(base)) {
     // Restore the canonical capitalisation/accents of Spanish terms the recogniser wrote differently.
     for (const e of entries) {
-      if (!e.enabled || !e.es) continue;
-      const re = new RegExp(`(^|[^\\p{L}\\p{N}])(${escapeRegExp(e.es)})(?=$|[^\\p{L}\\p{N}])`, 'giu');
-      out = out.replace(re, (m, pre: string, word: string) => (word === e.es ? m : `${pre}${e.es}`));
+      const t = termOf(e, base);
+      if (!e.enabled || !t) continue;
+      const re = new RegExp(`(^|[^\\p{L}\\p{N}])(${escapeRegExp(t)})(?=$|[^\\p{L}\\p{N}])`, 'giu');
+      out = out.replace(re, (m, pre: string, word: string) => (word === t ? m : `${pre}${t}`));
       // Accent-insensitive variant ("nebula" → "Nébula").
-      const folded = foldLatin(e.es);
-      if (folded !== e.es.toLowerCase()) {
+      const folded = foldLatin(t);
+      if (folded !== t.toLowerCase()) {
         const re2 = new RegExp(`(^|[^\\p{L}\\p{N}])(${escapeRegExp(folded)})(?=$|[^\\p{L}\\p{N}])`, 'giu');
         out = out.replace(re2, (m, pre: string, word: string) => {
           if (foldLatin(word) !== folded) return m;
-          edits.push({ from: word, to: e.es });
-          return `${pre}${e.es}`;
+          edits.push({ from: word, to: t });
+          return `${pre}${t}`;
         });
       }
     }

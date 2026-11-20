@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { decodeFrame, encodeAudioUp, ROOM_PROTOCOL_VERSION, type RoomPeer, type ServerMessage } from '@core/room/protocol';
 import type { TranscriptSegment } from '@core/types';
 
-type UiLang = 'zh' | 'es';
+type UiLang = 'zh' | 'es' | 'en';
 
 const T = {
   zh: {
@@ -51,6 +51,29 @@ const T = {
     failed: '(traducción fallida)',
     host: 'Anfitrión',
   },
+  en: {
+    title: 'Interpreting room',
+    name: 'Your name',
+    namePh: 'e.g. John',
+    pick: 'Choose the language you speak',
+    join: 'Join',
+    joining: 'Joining…',
+    hold: 'Hold to talk',
+    talking: 'Talking… release to send',
+    continuous: 'Talk hands-free',
+    continuousOn: 'Talking hands-free (tap to stop)',
+    headphones: 'Wear headphones: you will hear an English interpretation of what is said in Chinese.',
+    voice: 'Interpretation voice',
+    leave: 'Leave',
+    empty: 'Nobody has spoken yet. Hold the button below to talk.',
+    peers: 'Online',
+    reconnecting: 'Connection lost, reconnecting…',
+    ended: 'The room has been closed.',
+    micDenied: 'Cannot use the microphone: allow microphone access for this page in your browser.',
+    translating: 'Translating…',
+    failed: '(translation failed)',
+    host: 'Host',
+  },
 };
 
 const isZh = (code: string) => code.toLowerCase().startsWith('zh');
@@ -58,7 +81,10 @@ const isZh = (code: string) => code.toLowerCase().startsWith('zh');
 export function RoomClient() {
   const params = new URLSearchParams(location.search);
   const token = params.get('t') ?? '';
-  const [ui, setUi] = useState<UiLang>(() => (localStorage.getItem('mi-lang') ?? navigator.language).toLowerCase().startsWith('zh') ? 'zh' : 'es');
+  // The room's other language, from the link (e.g. es-MX or en-US).
+  const remoteCode = params.get('l') || 'es';
+  const foreign: 'es' | 'en' = remoteCode.toLowerCase().startsWith('en') ? 'en' : 'es';
+  const [ui, setUi] = useState<UiLang>(() => ((localStorage.getItem('mi-lang') ?? navigator.language).toLowerCase().startsWith('zh') ? 'zh' : foreign));
   const [name, setName] = useState(() => localStorage.getItem('mi-name') ?? '');
   const [joined, setJoined] = useState(false);
   const [joining, setJoining] = useState(false);
@@ -128,7 +154,7 @@ export function RoomClient() {
     ws.current = sock;
     sock.onopen = () => {
       retry.current = 0;
-      sock.send(JSON.stringify({ t: 'join', name, lang: ui === 'zh' ? 'zh-CN' : 'es', token, v: ROOM_PROTOCOL_VERSION }));
+      sock.send(JSON.stringify({ t: 'join', name, lang: ui === 'zh' ? 'zh-CN' : remoteCode, token, v: ROOM_PROTOCOL_VERSION }));
     };
     sock.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) {
@@ -264,18 +290,18 @@ export function RoomClient() {
     setJoined(false);
   };
 
-  if (!token) return <div style={{ padding: 24 }}>链接缺少房间码，请重新扫码。 / Falta el código de la sala, escanea de nuevo.</div>;
+  if (!token) return <div style={{ padding: 24 }}>链接缺少房间码，请重新扫码。 / Falta el código de la sala, escanea de nuevo. / The link has no room code, scan again.</div>;
 
   if (!joined) {
     return (
       <div style={{ padding: '32px 22px', maxWidth: 480, margin: '0 auto' }}>
-        <h1 style={{ fontSize: 24, margin: '8px 0 4px' }}>同传房间 · Sala</h1>
-        <p style={{ opacity: 0.7, marginTop: 0 }}>中文 ⇄ Español</p>
+        <h1 style={{ fontSize: 24, margin: '8px 0 4px' }}>同传房间 · {foreign === 'en' ? 'Room' : 'Sala'}</h1>
+        <p style={{ opacity: 0.7, marginTop: 0 }}>中文 ⇄ {foreign === 'en' ? 'English' : 'Español'}</p>
         <p style={{ marginTop: 28, marginBottom: 10, opacity: 0.85 }}>{t.pick}</p>
         <div style={{ display: 'flex', gap: 10 }}>
-          {(['zh', 'es'] as const).map((l) => (
+          {(['zh', foreign] as const).map((l) => (
             <button key={l} onClick={() => setUi(l)} style={{ ...choice, ...(ui === l ? choiceOn : {}) }}>
-              {l === 'zh' ? '中文' : 'Español'}
+              {l === 'zh' ? '中文' : l === 'en' ? 'English' : 'Español'}
             </button>
           ))}
         </div>

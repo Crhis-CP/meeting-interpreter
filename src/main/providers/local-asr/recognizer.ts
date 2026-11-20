@@ -133,7 +133,7 @@ const WHISPER_JUNK: RegExp[] = [
 export function cleanText(raw: string, lang: LangBase): string {
   const text = raw.replace(/\s+/g, ' ').trim();
   if (!/[\p{L}\p{N}]/u.test(text)) return '';
-  if (lang === 'es' && WHISPER_JUNK.some((re) => re.test(text))) return '';
+  if (lang !== 'zh' && WHISPER_JUNK.some((re) => re.test(text))) return '';
   return text;
 }
 
@@ -193,7 +193,7 @@ export class LocalRecognizer {
             debug: false,
           }
         : {
-            whisper: { encoder: path(this.model, 'encoder'), decoder: path(this.model, 'decoder'), language: 'es', task: 'transcribe' },
+            whisper: { encoder: path(this.model, 'encoder'), decoder: path(this.model, 'decoder'), language: this.lang, task: 'transcribe' },
             tokens: path(this.model, 'tokens'),
             numThreads,
             provider: 'cpu',

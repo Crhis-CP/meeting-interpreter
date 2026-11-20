@@ -3,8 +3,11 @@ export interface GlossaryEntry {
   id: string;
   zh: string;
   es: string;
+  /** English translation (optional; used when the other side speaks English). */
+  en?: string;
   aliasesZh: string[];
   aliasesEs: string[];
+  aliasesEn?: string[];
   note: string;
   enabled: boolean;
 }
@@ -30,5 +33,15 @@ export function newEntryId(): string {
 }
 
 export function activeEntries(glossaries: Glossary[]): GlossaryEntry[] {
-  return glossaries.filter((g) => g.enabled).flatMap((g) => g.entries.filter((e) => e.enabled && (e.zh || e.es)));
+  return glossaries.filter((g) => g.enabled).flatMap((g) => g.entries.filter((e) => e.enabled && (e.zh || e.es || e.en)));
+}
+
+/** The entry's term in a language. */
+export function termOf(e: GlossaryEntry, base: 'zh' | 'es' | 'en'): string {
+  return (base === 'zh' ? e.zh : base === 'es' ? e.es : e.en) ?? '';
+}
+
+/** Known mis-recognitions of the term in a language. */
+export function aliasesOf(e: GlossaryEntry, base: 'zh' | 'es' | 'en'): string[] {
+  return (base === 'zh' ? e.aliasesZh : base === 'es' ? e.aliasesEs : e.aliasesEn) ?? [];
 }

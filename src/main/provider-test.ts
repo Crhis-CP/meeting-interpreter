@@ -6,7 +6,8 @@ import { collectPcm, type Llm } from '../core/providers/types';
 import type { Direction } from '../core/types';
 import type { ProviderTestStep } from '../shared/ipc';
 
-const SAMPLES: Record<'zh' | 'es', string> = {
+const SAMPLES: Record<'zh' | 'es' | 'en', string> = {
+  en: 'Good morning, today we will discuss the delivery time and the price.',
   zh: '大家好，我们今天讨论一下交货时间和价格。',
   es: 'Buenos días, hoy vamos a hablar del plazo de entrega y del precio.',
 };

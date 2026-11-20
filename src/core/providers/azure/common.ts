@@ -72,6 +72,8 @@ export const AZURE_VOICES: Record<LangCode, VoiceInfo[]> = {
   'es-CO': [voice('es-CO-SalomeNeural', 'Salomé（女声，哥伦比亚）', 'female'), voice('es-CO-GonzaloNeural', 'Gonzalo（男声，哥伦比亚）', 'male')],
   'es-CL': [voice('es-CL-CatalinaNeural', 'Catalina（女声，智利）', 'female'), voice('es-CL-LorenzoNeural', 'Lorenzo（男声，智利）', 'male')],
   'es-PE': [voice('es-PE-CamilaNeural', 'Camila（女声，秘鲁）', 'female'), voice('es-PE-AlexNeural', 'Alex（男声，秘鲁）', 'male')],
+  'en-US': [voice('en-US-AvaNeural', 'Ava（女声，美国）', 'female'), voice('en-US-AndrewNeural', 'Andrew（男声，美国）', 'male'), voice('en-US-JennyNeural', 'Jenny（女声，美国）', 'female')],
+  'en-GB': [voice('en-GB-SoniaNeural', 'Sonia（女声，英国）', 'female'), voice('en-GB-RyanNeural', 'Ryan（男声，英国）', 'male')],
 };
 
 /** Voices for `code`, falling back to the base language's list (`es-419` → `es-ES`); [] if unsupported. */
@@ -84,7 +86,7 @@ export function azureVoicesFor(code: LangCode): VoiceInfo[] {
   } catch {
     return [];
   }
-  return AZURE_VOICES[base === 'zh' ? 'zh-CN' : 'es-ES'] ?? [];
+  return AZURE_VOICES[base === 'zh' ? 'zh-CN' : base === 'en' ? 'en-US' : 'es-ES'] ?? [];
 }
 
 /** The default voice id for a language. Throws for languages the app does not support. */

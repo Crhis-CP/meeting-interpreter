@@ -1,21 +1,23 @@
 import { z } from 'zod';
-import type { GlossaryEntry } from '../glossary/types';
+import { termOf, type GlossaryEntry } from '../glossary/types';
+import { baseOf } from '../lang/languages';
 import type { Llm } from '../providers/types';
 import type { MeetingMeta, TranscriptSegment } from '../types';
-import { formatClock, speakerLabel } from './transcript';
+import { formatClock, speakerLabel, type UiLang } from './transcript';
 
-const Bi = z.object({ zh: z.string().default(''), es: z.string().default('') });
+const Bi = z.object({ zh: z.string().default(''), es: z.string().default(''), en: z.string().default('') });
+const EMPTY = { zh: '', es: '', en: '' };
 const Evidence = z.array(z.string()).default([]);
 
 export const MeetingSummarySchema = z.object({
-  title: Bi.default({ zh: '', es: '' }),
-  summary: Bi.default({ zh: '', es: '' }),
+  title: Bi.default(EMPTY),
+  summary: Bi.default(EMPTY),
   topics: z
     .array(
       z.object({
         start: z.number().default(0),
-        title: Bi.default({ zh: '', es: '' }),
-        summary: Bi.default({ zh: '', es: '' }),
+        title: Bi.default(EMPTY),
+        summary: Bi.default(EMPTY),
         points: z.array(z.object({ text: Bi, evidence: Evidence })).default([]),
       }),
     )
@@ -31,7 +33,7 @@ export const MeetingSummarySchema = z.object({
       }),
     )
     .default([]),
-  terms: z.array(z.object({ zh: z.string().default(''), es: z.string().default(''), note: z.string().default('') })).default([]),
+  terms: z.array(z.object({ zh: z.string().default(''), es: z.string().default(''), en: z.string().default(''), note: z.string().default('') })).default([]),
 });
 
 export type MeetingSummary = z.infer<typeof MeetingSummarySchema>;
@@ -63,9 +65,12 @@ export function buildSummaryPrompt(
   template: SummaryTemplate,
   part?: { index: number; of: number; offset: number },
 ): { system: string; user: string } {
+  const f = baseOf(meta.remoteLang) === 'en' ? 'en' : 'es';
+  const fName = f === 'en' ? 'English' : 'Spanish';
+  const bi = `{"zh":"","${f}":""}`;
   const system = [
-    'You write meeting minutes for a bilingual meeting between Chinese and Spanish speakers.',
-    'Every text field must be given in BOTH Simplified Chinese ("zh") and Spanish ("es"), each written naturally in that language (not a word-for-word translation).',
+    `You write meeting minutes for a bilingual meeting between Chinese and ${fName} speakers.`,
+    `Every text field must be given in BOTH Simplified Chinese ("zh") and ${fName} ("${f}"), each written naturally in that language (not a word-for-word translation).`,
     TEMPLATE_FOCUS[template],
     'Rules:',
     '- Only state what the transcript says. Never invent facts, numbers, names or dates.',
@@ -75,14 +80,14 @@ export function buildSummaryPrompt(
     '- owner: "我方" (our side), "对方" (the other side), a person\'s name, or null; due: a date or deadline as said, or null.',
     '- terms: names and jargon a reader might not know, with their equivalent in the other language (at most 10).',
     '- Reply with one JSON object only, no markdown, matching exactly:',
-    '{"title":{"zh":"","es":""},"summary":{"zh":"2-4 sentences","es":""},"topics":[{"start":seconds,"title":{"zh":"","es":""},"summary":{"zh":"","es":""},"points":[{"text":{"zh":"","es":""},"evidence":["L1"]}]}],"decisions":[{"text":{"zh":"","es":""},"evidence":["L2"]}],"todos":[{"text":{"zh":"","es":""},"owner":"我方","due":null,"evidence":["L3"]}],"terms":[{"zh":"","es":"","note":""}]}',
+    `{"title":${bi},"summary":${bi},"topics":[{"start":seconds,"title":${bi},"summary":${bi},"points":[{"text":${bi},"evidence":["L1"]}]}],"decisions":[{"text":${bi},"evidence":["L2"]}],"todos":[{"text":${bi},"owner":"我方","due":null,"evidence":["L3"]}],"terms":[{"zh":"","${f}":"","note":""}]}`,
   ].join('\n');
 
   const header: string[] = [];
   header.push(`Meeting: ${meta.title || '(untitled)'}; started ${meta.startedAt}; languages ${meta.selfLang} and ${meta.remoteLang}.`);
-  header.push('Speakers: 我方 = our side (Chinese speakers), 对方 = the other side (Spanish speakers); names are room participants.');
-  const terms = glossary.filter((g) => g.enabled && g.zh && g.es).slice(0, 80);
-  if (terms.length) header.push(`Glossary (correct spellings): ${terms.map((t) => `${t.zh} = ${t.es}`).join('; ')}`);
+  header.push(`Speakers: 我方 = our side (Chinese speakers), 对方 = the other side (${fName} speakers); names are room participants.`);
+  const terms = glossary.filter((g) => g.enabled && g.zh && termOf(g, f)).slice(0, 80);
+  if (terms.length) header.push(`Glossary (correct spellings): ${terms.map((t) => `${t.zh} = ${termOf(t, f)}`).join('; ')}`);
   if (part) header.push(`The meeting is long, so it is summarised in parts. This is part ${part.index} of ${part.of}; summarise only these lines.`);
   header.push('Transcript (id, time, speaker, original ‖ translation):');
   const offset = part?.offset ?? 0;
@@ -109,7 +114,7 @@ export function parseSummary(raw: string): MeetingSummary {
 /** Accepts plain strings where bilingual objects are expected (some models drop one language). */
 function normalize(v: unknown, key = ''): unknown {
   const biKeys = new Set(['title', 'summary', 'text']);
-  if (typeof v === 'string' && biKeys.has(key)) return { zh: v, es: v };
+  if (typeof v === 'string' && biKeys.has(key)) return { zh: v, es: v, en: v };
   if (Array.isArray(v)) return v.map((x) => normalize(x, key === 'evidence' ? 'evidence' : ''));
   if (v && typeof v === 'object') {
     const out: Record<string, unknown> = {};
@@ -198,24 +203,31 @@ export async function summarize(
   return merged;
 }
 
-/** Minutes as Markdown in one language. */
-export function summaryToMarkdown(sum: MeetingSummary, lang: 'zh' | 'es', meta?: MeetingMeta): string {
-  const zh = lang === 'zh';
-  const L = (b: { zh: string; es: string }) => (zh ? b.zh || b.es : b.es || b.zh);
+const LABELS = {
+  zh: { minutes: '会议纪要', date: '时间', summary: '摘要', topics: '议题', decisions: '结论', todos: '待办', terms: '术语', none: '（无）', owner: '负责人：', due: '截止：', cols: '| 中文 | 外文 | 说明 |', locale: 'zh-CN' },
+  es: { minutes: 'Acta de la reunión', date: 'Fecha', summary: 'Resumen', topics: 'Temas', decisions: 'Acuerdos', todos: 'Tareas', terms: 'Términos', none: '(ninguno)', owner: 'Responsable: ', due: 'Plazo: ', cols: '| Chino | Español | Nota |', locale: 'es-ES' },
+  en: { minutes: 'Meeting minutes', date: 'Date', summary: 'Summary', topics: 'Topics', decisions: 'Decisions', todos: 'Action items', terms: 'Terms', none: '(none)', owner: 'Owner: ', due: 'Due: ', cols: '| Chinese | English | Note |', locale: 'en-US' },
+} as const;
+
+/** Minutes as Markdown in one language (`zh`, or the other side's `es`/`en`). */
+export function summaryToMarkdown(sum: MeetingSummary, lang: UiLang, meta?: MeetingMeta): string {
+  const T = LABELS[lang];
+  const foreign = meta && baseOf(meta.remoteLang) === 'en' ? 'en' : lang === 'zh' ? 'es' : lang;
+  const L = (b: { zh: string; es: string; en: string }) => b[lang] || b.zh || b.es || b.en;
   const ev = (e: string[]) => (e.length ? ` <sub>${e.join(', ')}</sub>` : '');
   const out: string[] = [];
-  out.push(`# ${L(sum.title) || meta?.title || (zh ? '会议纪要' : 'Acta de la reunión')}`);
+  out.push(`# ${L(sum.title) || meta?.title || T.minutes}`);
   if (meta) {
     out.push('');
-    out.push(`${zh ? '时间' : 'Fecha'}：${new Date(meta.startedAt).toLocaleString(zh ? 'zh-CN' : 'es-ES')}`);
+    out.push(`${T.date}：${new Date(meta.startedAt).toLocaleString(T.locale)}`);
   }
   out.push('');
-  out.push(`## ${zh ? '摘要' : 'Resumen'}`);
+  out.push(`## ${T.summary}`);
   out.push('');
   out.push(L(sum.summary));
   if (sum.topics.length) {
     out.push('');
-    out.push(`## ${zh ? '议题' : 'Temas'}`);
+    out.push(`## ${T.topics}`);
     for (const t of sum.topics) {
       out.push('');
       out.push(`### ${formatClock(t.start)} ${L(t.title)}`);
@@ -227,28 +239,26 @@ export function summaryToMarkdown(sum: MeetingSummary, lang: 'zh' | 'es', meta?:
     }
   }
   out.push('');
-  out.push(`## ${zh ? '结论' : 'Acuerdos'}`);
+  out.push(`## ${T.decisions}`);
   out.push('');
   if (sum.decisions.length) for (const d of sum.decisions) out.push(`- ${L(d.text)}${ev(d.evidence)}`);
-  else out.push(zh ? '（无）' : '(ninguno)');
+  else out.push(T.none);
   out.push('');
-  out.push(`## ${zh ? '待办' : 'Tareas'}`);
+  out.push(`## ${T.todos}`);
   out.push('');
   if (sum.todos.length) {
     for (const t of sum.todos) {
-      const who = t.owner ? (zh ? `负责人：${t.owner}` : `Responsable: ${t.owner}`) : '';
-      const due = t.due ? (zh ? `截止：${t.due}` : `Plazo: ${t.due}`) : '';
-      const extra = [who, due].filter(Boolean).join('；');
+      const extra = [t.owner ? `${T.owner}${t.owner}` : '', t.due ? `${T.due}${t.due}` : ''].filter(Boolean).join('；');
       out.push(`- [ ] ${L(t.text)}${extra ? `（${extra}）` : ''}${ev(t.evidence)}`);
     }
-  } else out.push(zh ? '（无）' : '(ninguna)');
+  } else out.push(T.none);
   if (sum.terms.length) {
     out.push('');
-    out.push(`## ${zh ? '术语' : 'Términos'}`);
+    out.push(`## ${T.terms}`);
     out.push('');
-    out.push(zh ? '| 中文 | Español | 说明 |' : '| Chino | Español | Nota |');
+    out.push(lang === 'zh' ? `| 中文 | ${foreign === 'en' ? 'English' : 'Español'} | 说明 |` : T.cols);
     out.push('|---|---|---|');
-    for (const t of sum.terms) out.push(`| ${t.zh} | ${t.es} | ${t.note} |`);
+    for (const t of sum.terms) out.push(`| ${t.zh} | ${t[foreign] || t.es || t.en} | ${t.note} |`);
   }
   out.push('');
   return out.join('\n');

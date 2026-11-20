@@ -296,7 +296,7 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
       text: job.seg.srcText,
       from: this.o.srcLang,
       to: this.o.dstLang,
-      hits: findHits(job.seg.srcText, baseOf(this.o.srcLang), this.o.glossary()),
+      hits: findHits(job.seg.srcText, baseOf(this.o.srcLang), this.o.glossary(), baseOf(this.o.dstLang)),
       context: this.context.slice(-3),
       signal: this.abort.signal,
     };

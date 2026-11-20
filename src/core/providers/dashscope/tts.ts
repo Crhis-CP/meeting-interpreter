@@ -25,11 +25,12 @@ export const DASHSCOPE_VOICES: readonly VoiceInfo[] = [
   { id: 'Bodega', name: 'Bodega 博德加（男声，西班牙西语口音）', lang: 'multi', gender: 'male' },
 ];
 
-export const DASHSCOPE_DEFAULT_VOICE: Record<LangBase, string> = { zh: 'Cherry', es: 'Sonrisa' };
+export const DASHSCOPE_DEFAULT_VOICE: Record<LangBase, string> = { zh: 'Cherry', es: 'Sonrisa', en: 'Ethan' };
 
 const VOICE_ORDER: Record<LangBase, string[]> = {
   zh: ['Cherry', 'Serena', 'Ethan', 'Neil', 'Sonrisa', 'Bodega'],
   es: ['Sonrisa', 'Bodega', 'Cherry', 'Serena', 'Ethan', 'Neil'],
+  en: ['Ethan', 'Cherry', 'Serena', 'Neil', 'Sonrisa', 'Bodega'],
 };
 
 function baseOrZh(code: LangCode): LangBase {
@@ -137,7 +138,7 @@ class TtsStream {
       session = {
         voice: req.voice?.trim() || DASHSCOPE_DEFAULT_VOICE[base],
         mode: 'server_commit',
-        language_type: base === 'zh' ? 'Chinese' : 'Spanish',
+        language_type: base === 'zh' ? 'Chinese' : base === 'en' ? 'English' : 'Spanish',
         response_format: 'pcm',
         sample_rate: DASHSCOPE_TTS_RATE,
         speech_rate: clampRate(req.rate),

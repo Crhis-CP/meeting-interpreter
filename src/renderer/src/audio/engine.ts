@@ -160,7 +160,7 @@ export class AudioEngine {
 
     // Outputs.
     if (cfg.virtualMic) this.outSink = await this.makeSink(cfg.virtualMic);
-    else if (cfg.mode === 'meeting') warnings.push('未选择“虚拟麦克风”输出设备：对方听不到西语译音（只记录文字）。');
+    else if (cfg.mode === 'meeting') warnings.push('未选择“虚拟麦克风”输出设备：对方听不到译音（只记录文字）。');
     this.inSink = await this.makeSink(cfg.headphones || '');
 
     if (this.outSink && this.micStream) {

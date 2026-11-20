@@ -34,8 +34,8 @@ export function isValidTranslation(text: string, target: LangCode, source: strin
   if (letters === 0 && !/\d/.test(t)) return false;
   const norm = (s: string) => s.replace(/[\s\p{P}]/gu, '').toLowerCase();
   if (norm(t) === norm(source) && (source.match(HAN)?.length ?? 0) > 0) return false;
-  if (baseOf(target) === 'es') {
-    // Spanish may keep a Chinese name here and there, but not be mostly Chinese.
+  if (baseOf(target) !== 'zh') {
+    // Spanish/English may keep a Chinese name here and there, but not be mostly Chinese.
     return letters === 0 || han / letters <= 0.3;
   }
   // Chinese must contain Chinese; Latin product names are fine alongside.

@@ -1,6 +1,6 @@
 import { abortError } from '../events';
-import type { GlossaryEntry } from '../glossary/types';
-import { lang } from '../lang/languages';
+import { termOf, type GlossaryEntry } from '../glossary/types';
+import { baseOf, lang } from '../lang/languages';
 import { httpJson, httpRequest } from './http';
 import { ProviderError, type ProviderContext, type TranslateRequest, type Translator } from './types';
 
@@ -53,23 +53,25 @@ export interface GlossaryDictionaries {
   /** Hash of both dictionaries; part of the glossary name. */
   hash: string;
   name: string;
-  /** TSV `zh\tes` lines. */
+  /** The other language (`es` or `en`). */
+  foreign: 'es' | 'en';
+  /** TSV `zh\t<foreign>` lines. */
   zhEs: string;
-  /** TSV `es\tzh` lines. */
+  /** TSV `<foreign>\tzh` lines. */
   esZh: string;
 }
 
 /**
- * The two TSV dictionaries (zh→es, es→zh) for the enabled entries, with terms cleaned and
+ * The two TSV dictionaries (zh→foreign, foreign→zh) for the enabled entries, with terms cleaned and
  * duplicate sources dropped (DeepL rejects them; the first entry wins). Null when nothing is usable.
  */
-export function buildGlossaryDictionaries(entries: readonly GlossaryEntry[]): GlossaryDictionaries | null {
+export function buildGlossaryDictionaries(entries: readonly GlossaryEntry[], foreign: 'es' | 'en' = 'es'): GlossaryDictionaries | null {
   const zhEs = new Map<string, string>();
   const esZh = new Map<string, string>();
   for (const e of entries) {
     if (!e || e.enabled === false) continue;
     const zh = cleanTerm(e.zh);
-    const es = cleanTerm(e.es);
+    const es = cleanTerm(termOf(e, foreign));
     if (!zh || !es || tooLong(zh) || tooLong(es)) continue;
     if (!zhEs.has(zh)) zhEs.set(zh, es);
     if (!esZh.has(es)) esZh.set(es, zh);
@@ -78,8 +80,9 @@ export function buildGlossaryDictionaries(entries: readonly GlossaryEntry[]): Gl
   const tsv = (m: Map<string, string>) => [...m].map(([s, t]) => `${s}\t${t}`).join('\n');
   const a = tsv(zhEs);
   const b = tsv(esZh);
-  const hash = hashText(`${a}\u0000${b}`);
-  return { hash, name: `${GLOSSARY_PREFIX}${hash}`, zhEs: a, esZh: b };
+  // Spanish keeps the original hash input so glossaries created by earlier versions are reused.
+  const hash = hashText(`${foreign === 'es' ? '' : `${foreign}\u0000`}${a}\u0000${b}`);
+  return { hash, name: `${GLOSSARY_PREFIX}${hash}`, foreign, zhEs: a, esZh: b };
 }
 
 interface DeeplTranslateResponse {
@@ -155,7 +158,7 @@ export class DeeplTranslator implements Translator {
       .join('\n');
     if (context) body.context = context;
 
-    const glossaryId = this.cfg.useGlossary !== false && req.hits.length > 0 ? await this.glossaryFor() : null;
+    const glossaryId = this.cfg.useGlossary !== false && req.hits.length > 0 ? await this.glossaryFor(baseOf(req.from) === 'en' || baseOf(req.to) === 'en' ? 'en' : 'es') : null;
     if (req.signal?.aborted) throw abortError();
     if (glossaryId) body.glossary_id = glossaryId;
 
@@ -193,8 +196,8 @@ export class DeeplTranslator implements Translator {
   }
 
   /** The glossary id for the current entries, or null (no usable entries, or creating it failed). */
-  private async glossaryFor(): Promise<string | null> {
-    const dicts = buildGlossaryDictionaries(this.entries());
+  private async glossaryFor(foreign: 'es' | 'en'): Promise<string | null> {
+    const dicts = buildGlossaryDictionaries(this.entries(), foreign);
     if (!dicts) return null;
     if (this.glossary?.hash === dicts.hash) return this.glossary.id;
     if (this.glossaryFailure?.hash === dicts.hash && this.ctx.now() < this.glossaryFailure.until) return null;
@@ -252,8 +255,8 @@ export class DeeplTranslator implements Translator {
         json: {
           name: dicts.name,
           dictionaries: [
-            { source_lang: 'zh', target_lang: 'es', entries: dicts.zhEs, entries_format: 'tsv' },
-            { source_lang: 'es', target_lang: 'zh', entries: dicts.esZh, entries_format: 'tsv' },
+            { source_lang: 'zh', target_lang: dicts.foreign, entries: dicts.zhEs, entries_format: 'tsv' },
+            { source_lang: dicts.foreign, target_lang: 'zh', entries: dicts.esZh, entries_format: 'tsv' },
           ],
         },
         timeoutMs: 15000,

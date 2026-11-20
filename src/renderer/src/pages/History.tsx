@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { baseOf } from '@core/lang/languages';
 import { summaryToMarkdown, TEMPLATE_NAMES, type SummaryTemplate } from '@core/session/summary';
 import type { MeetingDetail, MeetingListItem } from '@shared/ipc';
 import { api, errMsg, useEvent } from '../api';
@@ -63,7 +64,7 @@ export function HistoryPage({ openId, setOpenId }: { openId: string | null; setO
 
 function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
   const [d, setD] = useState<MeetingDetail | null>(null);
-  const [tab, setTab] = useState<'transcript' | 'summary-zh' | 'summary-es' | 'media' | 'files'>('transcript');
+  const [tab, setTab] = useState<'transcript' | 'summary-zh' | 'summary-foreign' | 'media' | 'files'>('transcript');
   const [template, setTemplate] = useState<SummaryTemplate>('general');
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
@@ -95,6 +96,7 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
   });
 
   if (!d) return <div className="empty">加载中…</div>;
+  const foreign: 'es' | 'en' = baseOf(d.meta.remoteLang) === 'en' ? 'en' : 'es';
 
   const summarize = async () => {
     setBusy(true);
@@ -145,7 +147,7 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
           [
             ['transcript', '双语记录'],
             ['summary-zh', '中文纪要'],
-            ['summary-es', 'Acta en español'],
+            ['summary-foreign', foreign === 'en' ? 'English minutes' : 'Acta en español'],
             ['media', '录音录屏'],
             ['files', '全部文件'],
           ] as const
@@ -167,7 +169,7 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
         </div>
       )}
 
-      {(tab === 'summary-zh' || tab === 'summary-es') && (
+      {(tab === 'summary-zh' || tab === 'summary-foreign') && (
         <div className="card">
           <div className="row between" style={{ marginBottom: 12 }}>
             <div className="row">
@@ -183,13 +185,13 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
               </button>
             </div>
             {d.summary && (
-              <button className="btn sm" onClick={() => void navigator.clipboard.writeText(summaryToMarkdown(d.summary!, tab === 'summary-zh' ? 'zh' : 'es', d.meta))}>
+              <button className="btn sm" onClick={() => void navigator.clipboard.writeText(summaryToMarkdown(d.summary!, tab === 'summary-zh' ? 'zh' : foreign, d.meta))}>
                 复制 Markdown
               </button>
             )}
           </div>
           {error && <div className="callout err">{error}</div>}
-          {d.summary ? <Markdown text={summaryToMarkdown(d.summary, tab === 'summary-zh' ? 'zh' : 'es', d.meta)} /> : <div className="empty">还没有纪要。选择模板后点“生成纪要”（需要配置大模型）。</div>}
+          {d.summary ? <Markdown text={summaryToMarkdown(d.summary, tab === 'summary-zh' ? 'zh' : foreign, d.meta)} /> : <div className="empty">还没有纪要。选择模板后点“生成纪要”（需要配置大模型）。</div>}
         </div>
       )}
 

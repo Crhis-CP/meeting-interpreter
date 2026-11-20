@@ -5,24 +5,24 @@ import type { LangCode, PcmChunk } from '../types';
 import type { AsrEvents, AsrSession, AsrStartOptions, Llm, LlmRequest, StreamingAsr, TranslateRequest, Translator, Tts, TtsRequest, VoiceInfo } from './types';
 
 /** Demo conversation: what each side "says" in demo mode, with real translations. */
-export const DEMO_LINES: { zh: string; es: string }[] = [
-  { zh: '大家好，欢迎参加今天的会议。', es: 'Hola a todos, bienvenidos a la reunión de hoy.' },
-  { zh: '我们今天主要讨论新产品的交货期和价格。', es: 'Hoy vamos a hablar principalmente del plazo de entrega y del precio del nuevo producto.' },
-  { zh: '第一批货可以在三周内发出。', es: 'El primer lote puede enviarse en tres semanas.' },
-  { zh: '如果订单超过一千台，我们可以给百分之五的折扣。', es: 'Si el pedido supera las mil unidades, podemos ofrecer un descuento del cinco por ciento.' },
-  { zh: '付款方式我们建议百分之三十预付，剩下的发货前付清。', es: 'Como forma de pago proponemos un treinta por ciento por adelantado y el resto antes del envío.' },
-  { zh: '这个方案你们觉得怎么样？', es: '¿Qué les parece esta propuesta?' },
-  { zh: '好的，我会在周五之前把合同草稿发给你们。', es: 'De acuerdo, les enviaré el borrador del contrato antes del viernes.' },
-  { zh: '谢谢大家，我们下周同一时间再见。', es: 'Gracias a todos, nos vemos la próxima semana a la misma hora.' },
+export const DEMO_LINES: { zh: string; es: string; en: string }[] = [
+  { zh: '大家好，欢迎参加今天的会议。', es: 'Hola a todos, bienvenidos a la reunión de hoy.', en: 'Hello everyone, welcome to today’s meeting.' },
+  { zh: '我们今天主要讨论新产品的交货期和价格。', es: 'Hoy vamos a hablar principalmente del plazo de entrega y del precio del nuevo producto.', en: 'Today we will mainly discuss the delivery time and price of the new product.' },
+  { zh: '第一批货可以在三周内发出。', es: 'El primer lote puede enviarse en tres semanas.', en: 'The first batch can be shipped within three weeks.' },
+  { zh: '如果订单超过一千台，我们可以给百分之五的折扣。', es: 'Si el pedido supera las mil unidades, podemos ofrecer un descuento del cinco por ciento.', en: 'If the order exceeds one thousand units, we can offer a five percent discount.' },
+  { zh: '付款方式我们建议百分之三十预付，剩下的发货前付清。', es: 'Como forma de pago proponemos un treinta por ciento por adelantado y el resto antes del envío.', en: 'For payment, we suggest thirty percent in advance and the rest before shipment.' },
+  { zh: '这个方案你们觉得怎么样？', es: '¿Qué les parece esta propuesta?', en: 'What do you think of this proposal?' },
+  { zh: '好的，我会在周五之前把合同草稿发给你们。', es: 'De acuerdo, les enviaré el borrador del contrato antes del viernes.', en: 'Okay, I will send you the draft contract before Friday.' },
+  { zh: '谢谢大家，我们下周同一时间再见。', es: 'Gracias a todos, nos vemos la próxima semana a la misma hora.', en: 'Thank you all, see you next week at the same time.' },
 ];
 
-export const DEMO_REMOTE_LINES: { zh: string; es: string }[] = [
-  { zh: '你好，很高兴见到你们。', es: 'Hola, encantado de conocerlos.' },
-  { zh: '三周的交货期对我们来说没问题。', es: 'El plazo de entrega de tres semanas nos parece bien.' },
-  { zh: '我们能不能把折扣提高到百分之八？', es: '¿Podríamos aumentar el descuento al ocho por ciento?' },
-  { zh: '我们需要先和财务部门确认付款条件。', es: 'Necesitamos confirmar primero las condiciones de pago con el departamento de finanzas.' },
-  { zh: '请把产品的技术参数也一起发给我们。', es: 'Por favor, envíennos también las especificaciones técnicas del producto.' },
-  { zh: '非常感谢，我们周五等你们的合同。', es: 'Muchas gracias, esperamos su contrato el viernes.' },
+export const DEMO_REMOTE_LINES: { zh: string; es: string; en: string }[] = [
+  { zh: '你好，很高兴见到你们。', es: 'Hola, encantado de conocerlos.', en: 'Hello, nice to meet you.' },
+  { zh: '三周的交货期对我们来说没问题。', es: 'El plazo de entrega de tres semanas nos parece bien.', en: 'A three-week delivery time works for us.' },
+  { zh: '我们能不能把折扣提高到百分之八？', es: '¿Podríamos aumentar el descuento al ocho por ciento?', en: 'Could we raise the discount to eight percent?' },
+  { zh: '我们需要先和财务部门确认付款条件。', es: 'Necesitamos confirmar primero las condiciones de pago con el departamento de finanzas.', en: 'We need to confirm the payment terms with our finance department first.' },
+  { zh: '请把产品的技术参数也一起发给我们。', es: 'Por favor, envíennos también las especificaciones técnicas del producto.', en: 'Please also send us the technical specifications of the product.' },
+  { zh: '非常感谢，我们周五等你们的合同。', es: 'Muchas gracias, esperamos su contrato el viernes.', en: 'Thank you very much, we look forward to your contract on Friday.' },
 ];
 
 /**
@@ -84,7 +84,7 @@ export class MockTranslator implements Translator {
     }
     let text = req.text;
     for (const h of req.hits) text = text.split(h.source).join(h.target);
-    return to === 'es' ? `[ES] ${text}` : `[中] ${text}`;
+    return to === 'zh' ? `[中] ${text}` : `[${to.toUpperCase()}] ${text}`;
   }
 }
 

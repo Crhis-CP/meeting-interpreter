@@ -1,5 +1,5 @@
-import type { LangBase } from '../lang/languages';
-import type { GlossaryEntry, GlossaryHit } from './types';
+import { isLatin, type LangBase } from '../lang/languages';
+import { aliasesOf, termOf, type GlossaryEntry, type GlossaryHit } from './types';
 
 /** Lower-cases and strips accents so "Nébula" matches "nebula". */
 export function foldLatin(s: string): string {
@@ -20,7 +20,7 @@ export function containsLatinTerm(text: string, term: string): boolean {
 
 function containsTerm(text: string, term: string, base: LangBase): boolean {
   if (!term) return false;
-  if (base === 'zh') {
+  if (!isLatin(base)) {
     // Chinese has no word boundaries; Latin parts inside Chinese terms (e.g. "AI平台") match case-insensitively.
     return /[A-Za-z]/.test(term) ? text.toLowerCase().includes(term.toLowerCase()) : text.includes(term);
   }
@@ -32,16 +32,16 @@ function containsTerm(text: string, term: string, base: LangBase): boolean {
  * other language. Aliases (known mis-recognitions) count as occurrences of the term.
  * Longer terms win when one contains another ("星云平台" over "星云").
  */
-export function findHits(text: string, from: LangBase, entries: GlossaryEntry[]): GlossaryHit[] {
+export function findHits(text: string, from: LangBase, entries: GlossaryEntry[], to: LangBase = from === 'zh' ? 'es' : 'zh'): GlossaryHit[] {
   const hits: GlossaryHit[] = [];
-  const sorted = [...entries].sort((a, b) => (b[from]?.length ?? 0) - (a[from]?.length ?? 0));
+  const sorted = [...entries].sort((a, b) => termOf(b, from).length - termOf(a, from).length);
   const covered: string[] = [];
   for (const e of sorted) {
     if (!e.enabled) continue;
-    const source = from === 'zh' ? e.zh : e.es;
-    const target = from === 'zh' ? e.es : e.zh;
+    const source = termOf(e, from);
+    const target = termOf(e, to);
     if (!source || !target) continue;
-    const aliases = from === 'zh' ? e.aliasesZh : e.aliasesEs;
+    const aliases = aliasesOf(e, from);
     const found = containsTerm(text, source, from) || aliases.some((a) => containsTerm(text, a, from));
     if (!found) continue;
     if (covered.some((c) => c.includes(source) && c !== source)) continue;
@@ -57,7 +57,7 @@ export function hotwordsFor(base: LangBase, entries: GlossaryEntry[], limit = 50
   const out: string[] = [];
   for (const e of entries) {
     if (!e.enabled) continue;
-    const term = (base === 'zh' ? e.zh : e.es).trim();
+    const term = termOf(e, base).trim();
     if (term && !seen.has(term)) {
       seen.add(term);
       out.push(term);

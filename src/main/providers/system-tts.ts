@@ -51,18 +51,22 @@ const MAC_VOICES: VoiceInfo[] = [
   { id: 'Diego', name: 'Diego', lang: 'es-AR', gender: 'male' },
   { id: 'Francisca', name: 'Francisca', lang: 'es-CL', gender: 'female' },
   { id: 'Soledad', name: 'Soledad', lang: 'es-CO', gender: 'female' },
+  { id: 'Samantha', name: 'Samantha', lang: 'en-US', gender: 'female' },
+  { id: 'Daniel', name: 'Daniel', lang: 'en-GB', gender: 'male' },
 ];
 
 const WINDOWS_VOICES: VoiceInfo[] = [
   { id: 'Microsoft Huihui Desktop', name: 'Huihui（慧慧）', lang: 'zh-CN', gender: 'female' },
   { id: 'Microsoft Helena Desktop', name: 'Helena', lang: 'es-ES', gender: 'female' },
   { id: 'Microsoft Sabina Desktop', name: 'Sabina', lang: 'es-MX', gender: 'female' },
+  { id: 'Microsoft Zira Desktop', name: 'Zira', lang: 'en-US', gender: 'female' },
 ];
 
 const LINUX_VOICES: VoiceInfo[] = [
   { id: 'cmn', name: '普通话（espeak-ng）', lang: 'zh-CN' },
   { id: 'es', name: 'Español de España（espeak-ng）', lang: 'es-ES' },
   { id: 'es-419', name: 'Español latinoamericano（espeak-ng）', lang: 'es-419' },
+  { id: 'en-us', name: 'English (espeak-ng)', lang: 'en-US' },
 ];
 
 function staticVoices(platform: NodeJS.Platform): VoiceInfo[] {
@@ -80,6 +84,7 @@ function baseOfTag(tag: string): string {
 export function defaultVoice(platform: NodeJS.Platform, code: LangCode): string {
   const info = langInfo(code);
   const es = info.code === 'es-ES';
+  if (info.base === 'en') return platform === 'darwin' ? (info.code === 'en-GB' ? 'Daniel' : 'Samantha') : platform === 'win32' ? 'Microsoft Zira Desktop' : 'en-us';
   if (platform === 'darwin') return info.base === 'zh' ? 'Tingting' : es ? 'Mónica' : 'Paulina';
   if (platform === 'win32') return info.base === 'zh' ? 'Microsoft Huihui Desktop' : es ? 'Microsoft Helena Desktop' : 'Microsoft Sabina Desktop';
   return info.base === 'zh' ? 'cmn' : es ? 'es' : 'es-419';
@@ -100,7 +105,7 @@ export function sapiRateFor(rate: number): number {
 }
 
 function languageZh(code: LangCode): string {
-  return baseOf(code) === 'zh' ? '中文' : '西班牙语';
+  return { zh: '中文', es: '西班牙语', en: '英语' }[baseOf(code)];
 }
 
 /** Parses `say -v ?` lines: `Mónica              es_ES    # Hola, me llamo Mónica…`. */

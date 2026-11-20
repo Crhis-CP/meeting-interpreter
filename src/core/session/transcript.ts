@@ -65,7 +65,8 @@ function srtTime(sec: number, sep: ',' | '.'): string {
   return `${p(h)}:${p(m)}:${p(s)}${sep}${p(r, 3)}`;
 }
 
-export type SubtitleMode = 'src' | 'dst' | 'bilingual' | 'zh' | 'es';
+/** `es`/`en`/`foreign`: the non-Chinese side's language. */
+export type SubtitleMode = 'src' | 'dst' | 'bilingual' | 'zh' | 'es' | 'en' | 'foreign';
 
 function subtitleText(seg: TranscriptSegment, mode: SubtitleMode): string | null {
   const isZh = (l: string) => l.toLowerCase().startsWith('zh');
@@ -78,7 +79,7 @@ function subtitleText(seg: TranscriptSegment, mode: SubtitleMode): string | null
       return seg.dstText ? `${seg.srcText}\n${seg.dstText}` : seg.srcText;
     case 'zh':
       return isZh(seg.srcLang) ? seg.srcText : seg.dstText;
-    case 'es':
+    default:
       return isZh(seg.srcLang) ? seg.dstText : seg.srcText;
   }
 }
@@ -116,38 +117,46 @@ export function toVtt(segs: TranscriptSegment[], mode: SubtitleMode, offsetSec =
   );
 }
 
-export function speakerLabel(seg: TranscriptSegment, lang: 'zh' | 'es' = 'zh'): string {
-  if (seg.speaker === 'me') return lang === 'zh' ? '我方' : 'Nosotros';
-  if (seg.speaker === 'them') return lang === 'zh' ? '对方' : 'Ellos';
+export type UiLang = 'zh' | 'es' | 'en';
+
+export function speakerLabel(seg: TranscriptSegment, lang: UiLang = 'zh'): string {
+  if (seg.speaker === 'me') return lang === 'zh' ? '我方' : lang === 'en' ? 'Us' : 'Nosotros';
+  if (seg.speaker === 'them') return lang === 'zh' ? '对方' : lang === 'en' ? 'Them' : 'Ellos';
   return seg.speaker;
 }
 
+const MD_LABELS = {
+  zh: { title: '会议记录', date: '时间', langs: '语言', platform: '会议软件', body: '双语逐句记录', failed: '（翻译失败）', locale: 'zh-CN' },
+  es: { title: 'Acta de la reunión', date: 'Fecha', langs: 'Idiomas', platform: 'Plataforma', body: 'Transcripción bilingüe', failed: '(traducción fallida)', locale: 'es-ES' },
+  en: { title: 'Meeting transcript', date: 'Date', langs: 'Languages', platform: 'Platform', body: 'Bilingual transcript', failed: '(translation failed)', locale: 'en-US' },
+} as const;
+
 /** Bilingual transcript as Markdown. */
-export function toMarkdown(segs: TranscriptSegment[], meta: MeetingMeta, uiLang: 'zh' | 'es' = 'zh'): string {
-  const zh = uiLang === 'zh';
+export function toMarkdown(segs: TranscriptSegment[], meta: MeetingMeta, uiLang: UiLang = 'zh'): string {
+  const T = MD_LABELS[uiLang];
   const started = new Date(meta.startedAt);
   const lines: string[] = [];
-  lines.push(`# ${meta.title || (zh ? '会议记录' : 'Acta de la reunión')}`);
+  lines.push(`# ${meta.title || T.title}`);
   lines.push('');
-  lines.push(`- ${zh ? '时间' : 'Fecha'}：${started.toLocaleString(zh ? 'zh-CN' : 'es-ES')}${meta.endedAt ? ` – ${new Date(meta.endedAt).toLocaleTimeString(zh ? 'zh-CN' : 'es-ES')}` : ''}`);
-  lines.push(`- ${zh ? '语言' : 'Idiomas'}：${meta.selfLang} ⇄ ${meta.remoteLang}`);
-  if (meta.platform) lines.push(`- ${zh ? '会议软件' : 'Plataforma'}：${meta.platform}`);
+  lines.push(`- ${T.date}：${started.toLocaleString(T.locale)}${meta.endedAt ? ` – ${new Date(meta.endedAt).toLocaleTimeString(T.locale)}` : ''}`);
+  lines.push(`- ${T.langs}：${meta.selfLang} ⇄ ${meta.remoteLang}`);
+  if (meta.platform) lines.push(`- ${T.platform}：${meta.platform}`);
   lines.push('');
-  lines.push(`## ${zh ? '双语逐句记录' : 'Transcripción bilingüe'}`);
+  lines.push(`## ${T.body}`);
   lines.push('');
   for (const s of segs) {
     const who = speakerLabel(s, uiLang);
     lines.push(`**[${formatClock(s.start)}] ${who}**  `);
     lines.push(`${s.srcText}  `);
     if (s.dstText) lines.push(`> ${s.dstText}`);
-    else if (s.status === 'failed') lines.push(`> ${zh ? '（翻译失败）' : '(traducción fallida)'}`);
+    else if (s.status === 'failed') lines.push(`> ${T.failed}`);
     lines.push('');
   }
   return lines.join('\n');
 }
 
 /** Plain text, one line per segment, for pasting into chats or emails. */
-export function toPlainText(segs: TranscriptSegment[], uiLang: 'zh' | 'es' = 'zh'): string {
+export function toPlainText(segs: TranscriptSegment[], uiLang: UiLang = 'zh'): string {
   return segs
     .map((s) => `[${formatClock(s.start)}] ${speakerLabel(s, uiLang)}：${s.srcText}${s.dstText ? `\n    ${s.dstText}` : ''}`)
     .join('\n');

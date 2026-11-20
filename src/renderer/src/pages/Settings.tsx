@@ -21,6 +21,11 @@ const TABS: [Tab, string][] = [
   ['about', '关于'],
 ];
 
+/** The other side's language base. */
+function foreignOf(s: AppSettings): 'es' | 'en' {
+  return lang(s.languages.remote).base === 'en' ? 'en' : 'es';
+}
+
 export function SettingsPage() {
   const [s, update] = useSettings();
   const [tab, setTab] = useState<Tab>('providers');
@@ -128,14 +133,14 @@ function VoiceSelect({ provider, langCode, value, onChange }: { provider: string
   );
 }
 
-function LocalModels() {
+function LocalModels({ foreign }: { foreign: 'es' | 'en' }) {
   const [models, setModels] = useState<LocalModelStatus[]>([]);
   const [progress, setProgress] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const load = () => void api.local.status().then(setModels).catch(() => setModels([]));
   useEffect(load, []);
   useEvent('model-progress', (p) => setProgress(`${p.file} ${p.total ? Math.round((p.received / p.total) * 100) : 0}%`));
-  const download = async (base: 'zh' | 'es') => {
+  const download = async (base: 'zh' | 'es' | 'en') => {
     setBusy(base);
     try {
       await api.local.download(base);
@@ -159,8 +164,8 @@ function LocalModels() {
         <button className="btn" disabled={!!busy} onClick={() => void download('zh')}>
           {busy === 'zh' ? '下载中…' : '下载中文识别模型'}
         </button>
-        <button className="btn" disabled={!!busy} onClick={() => void download('es')}>
-          {busy === 'es' ? '下载中…' : '下载西语识别模型'}
+        <button className="btn" disabled={!!busy} onClick={() => void download(foreign)}>
+          {busy === foreign ? '下载中…' : `下载${foreign === 'en' ? '英语' : '西语'}识别模型`}
         </button>
       </div>
       {progress && <span className="muted small">{progress}</span>}
@@ -170,6 +175,8 @@ function LocalModels() {
 }
 
 function ProvidersTab({ s, update }: TabProps) {
+  const foreign = foreignOf(s);
+  const fz = foreign === 'en' ? '英语' : '西语';
   const [status, setStatus] = useState<Record<string, boolean>>({});
   const refresh = () => void api.secrets.status().then(setStatus);
   useEffect(refresh, []);
@@ -319,14 +326,14 @@ function ProvidersTab({ s, update }: TabProps) {
         <div className="card">
           <h3>本机离线识别（免费）</h3>
           <div className="grid2" style={{ marginBottom: 10 }}>
-            <Field label="西语识别模型">
+            <Field label={`${fz}识别模型（Whisper）`}>
               <select value={s.local.esModel} onChange={(e) => void update({ local: { esModel: e.target.value } })}>
                 <option value="whisper-small">Whisper small（更准，约 360MB）</option>
                 <option value="whisper-base">Whisper base（更快更小，约 150MB）</option>
               </select>
             </Field>
           </div>
-          <LocalModels />
+          <LocalModels foreign={foreign} />
         </div>
       )}
 
@@ -337,7 +344,7 @@ function ProvidersTab({ s, update }: TabProps) {
           const dst = d === 'out' ? s.languages.remote : s.languages.self;
           return (
             <div key={d} className="stack" style={{ marginBottom: 14 }}>
-              <b>{d === 'out' ? '我说中文 → 对方听西语' : '对方说西语 → 我听中文'}</b>
+              <b>{d === 'out' ? `我说中文 → 对方听${fz}` : `对方说${fz} → 我听中文`}</b>
               <div className="grid3">
                 <Field label="语音识别">
                   <select value={c.asr} onChange={(e) => void update({ [d]: { asr: e.target.value }, preset: 'custom' })}>
@@ -381,6 +388,8 @@ function ProvidersTab({ s, update }: TabProps) {
 // ------------------------------------------------------------------ devices
 
 function DevicesTab({ s, update }: TabProps) {
+  const foreign = foreignOf(s);
+  const fz = foreign === 'en' ? '英语' : '西语';
   const { inputs, outputs, refresh } = useDevices();
   const [platform, setPlatform] = useState('');
   useEffect(() => void api.app.info().then((i) => setPlatform(i.platform)), []);
@@ -443,7 +452,7 @@ function DevicesTab({ s, update }: TabProps) {
             </select>
           </Field>
           <Field
-            label="② 虚拟麦克风（西语译音送进会议）"
+            label={`② 虚拟麦克风（${fz}译音送进会议）`}
             hint={s.devices.virtualMic ? `会议软件的麦克风请选它的另一端（${/BlackHole/i.test(label(outputs, s.devices.virtualMic) ?? '') ? 'BlackHole 2ch' : 'CABLE Output'}）` : 'Mac 选 BlackHole 2ch；Windows 选 CABLE Input'}
           >
             <div className="row">
@@ -461,7 +470,7 @@ function DevicesTab({ s, update }: TabProps) {
             </div>
             {missing(s.devices.virtualMic, outputs) && <span className="badge err">设备已不存在，请重新选择</span>}
           </Field>
-          <Field label="③ 会议声音来自（对方说西语）">
+          <Field label={`③ 会议声音来自（对方说${fz}）`}>
             <select value={s.devices.meetingSource} onChange={(e) => void update({ devices: { meetingSource: e.target.value } })}>
               <option value="loopback">系统声音（推荐：macOS 14.2+ / Windows 11，无需额外驱动）</option>
               <option value="device">虚拟扬声器设备（可压低原声；Win10/Linux 用）</option>
@@ -512,6 +521,7 @@ function DevicesTab({ s, update }: TabProps) {
 
 function InterpTab({ s, update }: TabProps) {
   const i = s.interpretation;
+  const fz = foreignOf(s) === 'en' ? '英语' : '西语';
   return (
     <div>
       <div className="card">
@@ -532,7 +542,7 @@ function InterpTab({ s, update }: TabProps) {
             </select>
           </Field>
         </div>
-        <p className="hint">第一版支持中文 ⇄ 西班牙语。英语等更多语言会在后续版本加入。</p>
+        <p className="hint">支持中文 ⇄ 西班牙语、中文 ⇄ 英语。换语言后，术语表里要填对应语言那一列。</p>
       </div>
       <div className="card">
         <h3>我的发言</h3>
@@ -545,7 +555,7 @@ function InterpTab({ s, update }: TabProps) {
           </Field>
           <Toggle checked={i.lowLatency} onChange={(v) => void update({ interpretation: { lowLatency: v } })} label="低延迟：长句子按分句提前翻译" />
           <Toggle checked={i.pinyinFuzzy} onChange={(v) => void update({ interpretation: { pinyinFuzzy: v } })} label="按拼音纠正识别错的术语（例如“新云平台”→“星云平台”）" />
-          <Field label={`把我的原声混进西语译音：${Math.round(i.originalMixOut * 100)}%`} hint="0% = 对方只听到译音">
+          <Field label={`把我的原声混进${fz}译音：${Math.round(i.originalMixOut * 100)}%`} hint="0% = 对方只听到译音">
             <input type="range" min={0} max={0.5} step={0.05} value={i.originalMixOut} onChange={(e) => void update({ interpretation: { originalMixOut: Number(e.target.value) } })} />
           </Field>
         </div>
@@ -569,6 +579,8 @@ function InterpTab({ s, update }: TabProps) {
 // ------------------------------------------------------------------ recording
 
 function RecordTab({ s, update }: TabProps) {
+  const foreign = foreignOf(s);
+  const fz = foreign === 'en' ? '英语' : '西语';
   const [info, setInfo] = useState<AppInfo | null>(null);
   useEffect(() => void api.app.info().then(setInfo), [s.recording.dir]);
   return (
@@ -585,7 +597,7 @@ function RecordTab({ s, update }: TabProps) {
       <div className="card">
         <h3>默认录制</h3>
         <div className="stack">
-          <Toggle checked={s.recording.audio} onChange={(v) => void update({ recording: { audio: v } })} label="录音（全程混音：我方原声 + 西语译音 + 对方原声 + 中文译音）" />
+          <Toggle checked={s.recording.audio} onChange={(v) => void update({ recording: { audio: v } })} label={`录音（全程混音：我方原声 + ${fz}译音 + 对方原声 + 中文译音）`} />
           <Toggle checked={s.recording.screen} onChange={(v) => void update({ recording: { screen: v } })} label="录屏（在会议页选择屏幕或窗口）" />
           <p className="hint">另外始终保存两路原声（16kHz WAV），可用于会后核对。录音录屏前请征得参会者同意。字幕窗默认不会出现在录屏和屏幕共享里。</p>
         </div>

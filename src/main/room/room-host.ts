@@ -61,7 +61,7 @@ const MIME: Record<string, string> = {
 /**
  * On-site interpretation room: the desktop app serves a web page that phones on the same Wi-Fi
  * (or anywhere, through a free Cloudflare quick tunnel) open by scanning a QR code. Each phone
- * picks 中文 or Español; what one person says is recognised, translated and spoken to everyone
+ * picks 中文 or the other language (Español / English); what one person says is recognised, translated and spoken to everyone
  * listening in the other language. The host's own microphone takes part through the meeting
  * session (`out` pipeline).
  */
@@ -94,7 +94,7 @@ export class RoomHost {
     if (!this.server) return [];
     const scheme = this.d.insecure ? 'http' : 'https';
     const hosts = lanAddresses();
-    return (hosts.length ? hosts : ['localhost']).map((h) => `${scheme}://${h}:${this.port}/?t=${this.token}`);
+    return (hosts.length ? hosts : ['localhost']).map((h) => `${scheme}://${h}:${this.port}/?t=${this.token}&l=${this.d.settings().languages.remote}`);
   }
 
   async state(): Promise<RoomState> {
@@ -204,7 +204,7 @@ export class RoomHost {
     await this.publishState();
     try {
       const base = await this.tunnel.start(`${this.d.insecure ? 'http' : 'https'}://localhost:${this.port}`);
-      this.publicUrl = `${base}/?t=${this.token}`;
+      this.publicUrl = `${base}/?t=${this.token}&l=${this.d.settings().languages.remote}`;
       this.publicStatus = 'on';
     } catch (err) {
       this.publicStatus = 'error';
@@ -333,14 +333,14 @@ export class RoomHost {
           return;
         }
         if (msg.v !== ROOM_PROTOCOL_VERSION) {
-          ws.send(JSON.stringify({ t: 'error', message: '请刷新页面 / Recarga la página', fatal: true } satisfies ServerMessage));
+          ws.send(JSON.stringify({ t: 'error', message: '请刷新页面 / Recarga la página / Please reload', fatal: true } satisfies ServerMessage));
           ws.close(4004, 'version');
           return;
         }
         clearTimeout(timer);
         const reqLang = typeof msg.lang === 'string' ? msg.lang : '';
         const code = LANGUAGES[reqLang] ? reqLang : reqLang.toLowerCase().startsWith('zh') ? 'zh-CN' : this.d.settings().languages.remote;
-        me = { id: randomBytes(3).toString('hex'), ws, name: String(msg.name ?? '').trim().slice(0, 24) || (baseOf(code) === 'zh' ? '参会者' : 'Invitado'), lang: code, talking: false, pipeline: null, alive: true };
+        me = { id: randomBytes(3).toString('hex'), ws, name: String(msg.name ?? '').trim().slice(0, 24) || (baseOf(code) === 'zh' ? '参会者' : baseOf(code) === 'en' ? 'Guest' : 'Invitado'), lang: code, talking: false, pipeline: null, alive: true };
         this.participants.set(me.id, me);
         const remote = this.d.settings().languages.remote;
         const history = this.d.session.segments().slice(-50);

@@ -27,7 +27,7 @@ export class AzureTranslator implements Translator {
 
   async translate(req: TranslateRequest): Promise<string> {
     if (!this.cfg.key) throw new ProviderError('Azure 翻译：未填写 key', 'azure-translator');
-    const code = (l: string) => (baseOf(l) === 'zh' ? 'zh-Hans' : 'es');
+    const code = (l: string) => (baseOf(l) === 'zh' ? 'zh-Hans' : baseOf(l));
     let text = escapeXml(req.text);
     for (const h of req.hits) {
       if (!req.text.includes(h.source)) continue;

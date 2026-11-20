@@ -4,7 +4,7 @@ import { appendFileSync } from 'node:fs';
 import type { AppSettings } from '../../core/config/schema';
 import { Emitter } from '../../core/events';
 import type { GlossaryEntry } from '../../core/glossary/types';
-import { otherLanguage } from '../../core/lang/languages';
+import { baseOf, otherLanguage } from '../../core/lang/languages';
 import type { Logger } from '../../core/log';
 import { DirectionPipeline } from '../../core/pipeline/pipeline';
 import type { Llm, StreamingAsr, Translator, Tts } from '../../core/providers/types';
@@ -14,6 +14,11 @@ import type { Direction, MeetingMeta, TranscriptSegment } from '../../core/types
 import type { AudioConfig, DirectionState, FromAudio, MeetingState, RendererEvents, ToAudio } from '../../shared/ipc';
 import { writeJson } from '../stores/json-file';
 import { ChunkFileWriter, WavFileWriter } from './wav-writer';
+
+/** The other side's language (`es` or `en`) of a meeting. */
+function foreignOf(meta: MeetingMeta): 'es' | 'en' {
+  return baseOf(meta.remoteLang) === 'en' ? 'en' : 'es';
+}
 
 export interface ProviderSet {
   asr(dir: Direction): StreamingAsr;
@@ -468,14 +473,15 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     meta.endedAt = new Date(this.now()).toISOString();
     const segs = this.transcript?.list() ?? [];
     try {
+      const f = foreignOf(meta);
       writeFileSync(join(folder, 'transcript.md'), toMarkdown(segs, meta, 'zh'));
       writeFileSync(join(folder, 'transcript.zh.srt'), toSrt(segs, 'zh'));
-      writeFileSync(join(folder, 'transcript.es.srt'), toSrt(segs, 'es'));
+      writeFileSync(join(folder, `transcript.${f}.srt`), toSrt(segs, 'foreign'));
       writeFileSync(join(folder, 'transcript.bilingual.srt'), toSrt(segs, 'bilingual'));
       Object.assign(meta.files, {
         markdown: 'transcript.md',
         srtZh: 'transcript.zh.srt',
-        srtEs: 'transcript.es.srt',
+        srtForeign: `transcript.${f}.srt`,
         srtBilingual: 'transcript.bilingual.srt',
       });
       // Subtitles aligned to the screen recording, which starts a little after the meeting.
@@ -512,17 +518,18 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     return meta;
   }
 
-  /** Generates and saves summary.json and the zh/es Markdown minutes for a meeting folder. */
+  /** Generates and saves summary.json and the zh and es/en Markdown minutes for a meeting folder. */
   async writeSummary(folder: string, meta: MeetingMeta, segs: TranscriptSegment[], llm: Llm, template: SummaryTemplate): Promise<MeetingSummary> {
     const summary = await summarize(llm, segs, meta, this.d.glossary(), template, {
       onProgress: (done, total) => this.d.broadcast('summary-progress', { id: meta.id, done, total }),
     });
     writeJson(join(folder, 'summary.json'), summary);
     writeFileSync(join(folder, 'summary.zh.md'), summaryToMarkdown(summary, 'zh', meta));
-    writeFileSync(join(folder, 'summary.es.md'), summaryToMarkdown(summary, 'es', meta));
+    const f = foreignOf(meta);
+    writeFileSync(join(folder, `summary.${f}.md`), summaryToMarkdown(summary, f, meta));
     meta.files.summary = 'summary.json';
     meta.files.summaryZh = 'summary.zh.md';
-    meta.files.summaryEs = 'summary.es.md';
+    meta.files.summaryForeign = `summary.${f}.md`;
     if (summary.title.zh && /^(会议|现场会议) \d/.test(meta.title)) meta.title = summary.title.zh;
     writeJson(join(folder, 'meeting.json'), meta);
     this.d.broadcast('summary-progress', { id: meta.id, done: 1, total: 1 });

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PRESETS, type PresetId } from '@core/config/presets';
+import { lang, REMOTE_LANGUAGES } from '@core/lang/languages';
 import type { SecretName } from '@core/config/schema';
 import { api, useDevices, useSettings } from '../api';
 import { ExternalLink } from '../components/ui';
@@ -56,13 +57,25 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         <div className="logo">译</div>
         <div>
           欢迎使用会议同传助手
-          <small>中文 ⇄ Español · 免费开源</small>
+          <small>中文 ⇄ Español / English · 免费开源</small>
         </div>
       </div>
       <p className="muted">三步完成设置：选方案 → 填 Key → 装虚拟声卡。之后在任何会议软件里都能双向同传，也能开“现场房间”让大家用手机加入。</p>
 
       {step === 0 && (
         <div className="card">
+          <h3>对方说什么语言？</h3>
+          <div className="row" style={{ marginBottom: 18, flexWrap: 'wrap' }}>
+            {REMOTE_LANGUAGES.map((c) => (
+              <button
+                key={c}
+                className={`btn ${s.languages.remote === c ? 'primary' : ''}`}
+                onClick={() => void update({ languages: { remote: c }, out: { voice: '' }, in: { voice: '' } })}
+              >
+                {lang(c).nameZh}
+              </button>
+            ))}
+          </div>
           <h3>① 选择翻译方案（之后可在设置里随时更换）</h3>
           <div className="grid2">
             {PRESETS.map((x) => (
@@ -101,7 +114,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             ))}
             {choice === 'free' && (
               <div className="callout info">
-                免费方案的语音识别在本机离线完成（首次开会自动下载约 500MB 模型），语音合成使用系统自带声音。Windows 若没有西班牙语语音，请在“设置 › 时间和语言 › 语音”里添加西班牙语。
+                免费方案的语音识别在本机离线完成（首次开会自动下载约 500MB 模型），语音合成使用系统自带声音。Windows 若没有西班牙语或英语语音，请在“设置 › 时间和语言 › 语音”里添加。
               </div>
             )}
           </div>

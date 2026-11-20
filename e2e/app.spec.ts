@@ -46,3 +46,27 @@ test('demo meeting: microphone audio becomes bilingual segments and a saved reco
   await win.screenshot({ path: 'test-results/summary.png' });
   await app.close();
 });
+
+test('English meeting: Chinese becomes English, files are named for English', async () => {
+  const { app, recordsDir } = await launchApp({ languages: { remote: 'en-US' } });
+  const win = await mainWindow(app);
+  await win.waitForLoadState('domcontentloaded');
+  await expect(win.getByText('中文 ⇄ English')).toBeVisible();
+
+  await win.getByRole('button', { name: '开始同传' }).click();
+  await expect(win.getByText('大家好，欢迎参加今天的会议。')).toBeVisible({ timeout: 30_000 });
+  await expect(win.getByText('Hello everyone, welcome to today’s meeting.')).toBeVisible();
+  await win.screenshot({ path: 'test-results/main-meeting-en.png' });
+
+  await win.getByRole('button', { name: '结束会议' }).click();
+  await expect(win.getByText('会议已结束')).toBeVisible({ timeout: 20_000 });
+  const folder = join(recordsDir, readdirSync(recordsDir)[0]!);
+  expect(existsSync(join(folder, 'transcript.en.srt'))).toBe(true);
+  expect(existsSync(join(folder, 'transcript.es.srt'))).toBe(false);
+  expect(readFileSync(join(folder, 'transcript.en.srt'), 'utf8')).toContain('Hello everyone');
+
+  await win.getByRole('button', { name: '查看会议记录' }).click();
+  await win.locator('.list-item').first().click();
+  await expect(win.getByRole('button', { name: 'English minutes' })).toBeVisible();
+  await app.close();
+});

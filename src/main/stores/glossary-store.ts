@@ -66,8 +66,8 @@ export class GlossaryStore {
       ...g,
       name: g.name.trim() || '未命名术语表',
       entries: g.entries
-        .map((e) => ({ ...e, id: e.id || newEntryId(), zh: e.zh.trim(), es: e.es.trim(), note: (e.note ?? '').trim() }))
-        .filter((e) => e.zh || e.es),
+        .map((e) => ({ ...e, id: e.id || newEntryId(), zh: e.zh.trim(), es: e.es.trim(), en: (e.en ?? '').trim(), note: (e.note ?? '').trim() }))
+        .filter((e) => e.zh || e.es || e.en),
     };
     const i = this.items.findIndex((x) => x.id === g.id);
     if (i >= 0) this.items[i] = clean;
@@ -90,9 +90,9 @@ export class GlossaryStore {
       g = { id: `g${Date.now().toString(36)}`, name, enabled: true, entries: [] };
       this.items.push(g);
     }
-    const seen = new Set(g.entries.map((e) => `${e.zh}|${e.es}`));
+    const seen = new Set(g.entries.map((e) => `${e.zh}|${e.es}|${e.en ?? ''}`));
     for (const e of entries) {
-      const key = `${e.zh}|${e.es}`;
+      const key = `${e.zh}|${e.es}|${e.en ?? ''}`;
       if (seen.has(key)) continue;
       seen.add(key);
       g.entries.push(e);

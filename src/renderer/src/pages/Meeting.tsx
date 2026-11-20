@@ -69,12 +69,12 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
   const roomActive = !!state?.active && state.mode === 'room';
   const p = preset(settings.preset);
   const ptt = settings.interpretation.outMode === 'push-to-talk';
-  const short = (code: string) => (lang(code).base === 'zh' ? '中文' : '西语');
+  const short = (code: string) => ({ zh: '中文', es: '西语', en: '英语' })[lang(code).base];
   const selfName = short(settings.languages.self);
   const remoteName = short(settings.languages.remote);
 
   const checks: { ok: boolean; text: string; fix?: () => void }[] = [
-    { ok: !!settings.devices.virtualMic, text: settings.devices.virtualMic ? '已选择虚拟麦克风（对方能听到西语译音）' : '未选择虚拟麦克风：对方将听不到译音', fix: () => go('settings') },
+    { ok: !!settings.devices.virtualMic, text: settings.devices.virtualMic ? `已选择虚拟麦克风（对方能听到${remoteName}译音）` : '未选择虚拟麦克风：对方将听不到译音', fix: () => go('settings') },
     {
       ok: settings.devices.meetingSource !== 'none' && (settings.devices.meetingSource === 'loopback' || !!settings.devices.meetingDevice),
       text:
@@ -270,7 +270,7 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
                   {state.out.gate ? '正在说…松开结束' : '按住说话'}
                 </button>
               )}
-              <Toggle checked={state.out.passthrough} onChange={(v) => void api.meeting.setPassthrough(v)} label="原声直通（我直接说西语时打开）" />
+              <Toggle checked={state.out.passthrough} onChange={(v) => void api.meeting.setPassthrough(v)} label={`原声直通（我直接说${remoteName}时打开）`} />
             </div>
             {state.out.message && state.out.state === 'error' && <div className="callout err" style={{ marginTop: 8 }}>{state.out.message}</div>}
           </div>

@@ -146,7 +146,7 @@ export interface RendererApi {
   };
   local: {
     status(): Promise<LocalModelStatus[]>;
-    download(lang: 'zh' | 'es'): Promise<void>;
+    download(lang: 'zh' | 'es' | 'en'): Promise<void>;
   };
   audio: {
     testTone(target: 'virtualMic' | 'headphones'): Promise<void>;

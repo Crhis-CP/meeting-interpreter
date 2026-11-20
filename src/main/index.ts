@@ -280,7 +280,7 @@ const handlers: Record<string, Handler> = {
   },
 
   'local.status': () => models.statusList(settings.get().local.esModel),
-  'local.download': async (base: 'zh' | 'es') => {
+  'local.download': async (base: 'zh' | 'es' | 'en') => {
     await models.ensureFor(base, settings.get().local.esModel, (p) => broadcast('model-progress', p));
   },
 
@@ -337,7 +337,7 @@ let prefetching: Promise<void> | null = null;
 function prefetchModels(): Promise<void> {
   if (prefetching) return prefetching;
   const s = settings.get();
-  const bases = new Set<'zh' | 'es'>();
+  const bases = new Set<'zh' | 'es' | 'en'>();
   if (s.out.asr === 'local') bases.add(baseOf(s.languages.self));
   if (s.in.asr === 'local') bases.add(baseOf(s.languages.remote));
   prefetching = (async () => {

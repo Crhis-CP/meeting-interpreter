@@ -50,7 +50,7 @@ export function parseCsvRows(text: string): { row: string[]; line: number }[] {
   return rows;
 }
 
-const HEADER_ALIASES: Record<string, keyof Pick<GlossaryEntry, 'zh' | 'es' | 'note'> | 'aliasesZh' | 'aliasesEs'> = {
+const HEADER_ALIASES: Record<string, 'zh' | 'es' | 'en' | 'note' | 'aliasesZh' | 'aliasesEs' | 'aliasesEn'> = {
   中文: 'zh',
   zh: 'zh',
   chinese: 'zh',
@@ -61,6 +61,13 @@ const HEADER_ALIASES: Record<string, keyof Pick<GlossaryEntry, 'zh' | 'es' | 'no
   西班牙语: 'es',
   es: 'es',
   spanish: 'es',
+  english: 'en',
+  en: 'en',
+  英语: 'en',
+  英文: 'en',
+  英语别名: 'aliasesEn',
+  英文别名: 'aliasesEn',
+  aliases_en: 'aliasesEn',
   中文别名: 'aliasesZh',
   aliases_zh: 'aliasesZh',
   aliaseszh: 'aliasesZh',
@@ -97,7 +104,7 @@ export function parseGlossaryCsv(text: string): CsvParseResult {
   let cols: (string | undefined)[] = ['zh', 'es', 'aliasesZh', 'aliasesEs', 'note'];
   const first = rows[0]!.row.map((h) => h.trim().toLowerCase().replace(/\s+/g, ''));
   const mapped = first.map((h) => HEADER_ALIASES[h] ?? HEADER_ALIASES[h.replace(/[()（）]/g, '')]);
-  if (mapped.some((m) => m === 'zh') && mapped.some((m) => m === 'es')) {
+  if (mapped.some((m) => m === 'zh') && mapped.some((m) => m === 'es' || m === 'en')) {
     cols = mapped;
     rows.shift();
   }
@@ -110,11 +117,12 @@ export function parseGlossaryCsv(text: string): CsvParseResult {
     });
     const zh = rec.zh ?? '';
     const es = rec.es ?? '';
-    if (!zh && !es) {
+    const en = rec.en ?? '';
+    if (!zh && !es && !en) {
       errors.push({ line, message: '缺少中文和西语术语' });
       continue;
     }
-    if (row.length > Math.max(cols.length, 5) + 2) {
+    if (row.length > Math.max(cols.length, 7) + 2) {
       errors.push({ line, message: `列数太多（${row.length} 列），可能有未加引号的逗号` });
       continue;
     }
@@ -124,6 +132,8 @@ export function parseGlossaryCsv(text: string): CsvParseResult {
       es,
       aliasesZh: splitAliases(rec.aliasesZh ?? ''),
       aliasesEs: splitAliases(rec.aliasesEs ?? ''),
+      en,
+      aliasesEn: splitAliases(rec.aliasesEn ?? ''),
       note: rec.note ?? '',
       enabled: true,
     });
@@ -137,9 +147,9 @@ function csvField(s: string): string {
 
 /** Serialises with a UTF-8 BOM and CRLF so Excel opens Chinese text correctly. */
 export function glossaryToCsv(entries: GlossaryEntry[]): string {
-  const lines = [['中文', 'Español', '中文别名', '西语别名', '备注'].join(',')];
+  const lines = [['中文', 'Español', 'English', '中文别名', '西语别名', '英语别名', '备注'].join(',')];
   for (const e of entries) {
-    lines.push([e.zh, e.es, e.aliasesZh.join(';'), e.aliasesEs.join(';'), e.note].map(csvField).join(','));
+    lines.push([e.zh, e.es, e.en ?? '', e.aliasesZh.join(';'), e.aliasesEs.join(';'), (e.aliasesEn ?? []).join(';'), e.note].map(csvField).join(','));
   }
   return '﻿' + lines.join('\r\n') + '\r\n';
 }
