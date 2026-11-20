@@ -193,6 +193,13 @@ const handlers: Record<string, Handler> = {
     return state;
   },
   'meeting.stop': async () => {
+    // A room owns its session: closing it also tells the phones and stops their pipelines.
+    if (room.active) {
+      const meta = sessionManager.currentMeta;
+      await room.stop();
+      updateTray();
+      return meta;
+    }
     const meta = await sessionManager.stop();
     updateTray();
     return meta;
