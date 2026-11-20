@@ -84,6 +84,9 @@ export function RoomPage({ settings, state }: { settings: AppSettings; state: Me
             <li>电脑这边也可以直接说话（用电脑麦克风，算“主持人”），说中文时西语手机会听到译音，西语的发言也会在电脑上播放中文译音。</li>
             <li>关闭房间后，双语记录、纪要和录音和普通会议一样保存在“会议记录”里。</li>
           </ol>
+          <div className="callout info" style={{ marginBottom: 10 }}>
+            第一次开启房间时，系统可能询问是否允许本应用“接受传入的网络连接”，请选择允许（Windows 勾选“专用网络”）。酒店、公司访客 Wi-Fi 常常禁止设备互连，手机扫码打不开时，改用手机热点或“公网链接”。
+          </div>
           <div className="callout">
             手机第一次打开局域网链接时会提示“连接不安全/证书无效”：这是因为房间运行在你自己的电脑上。iPhone 点“显示详细信息 → 访问此网站”；安卓 Chrome 点“高级 → 继续前往”。使用“公网链接”不会有这个提示。
           </div>
