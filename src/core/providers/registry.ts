@@ -143,7 +143,7 @@ export function createProviders(
         const remote = extras.localAiTranslator?.();
         if (remote) return remote;
         const engine = extras.localAi?.();
-        if (engine) return new LocalAiTranslator(engine);
+        if (engine) return new LocalAiTranslator(engine, extras.offlineMt ? new OfflineTranslator(extras.offlineMt) : undefined);
         if (extras.offlineMt) return new OfflineTranslator(extras.offlineMt);
         throw new ProviderError('本机 AI 翻译需要先在电脑版下载模型', 'local-ai');
       }

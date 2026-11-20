@@ -63,8 +63,10 @@ export const SettingsSchema = z.object({
   local: z
     .object({
       esModel: z.enum(['whisper-small', 'whisper-base']).default('whisper-small'),
+      /** Local AI translation model: 1.8B (default) or 7B (more accurate; for Apple-silicon Macs). */
+      aiModel: z.enum(['hy-mt2-1.8b', 'hy-mt2-7b']).default('hy-mt2-1.8b'),
     })
-    .default({ esModel: 'whisper-small' }),
+    .default({ esModel: 'whisper-small', aiModel: 'hy-mt2-1.8b' }),
   interpretation: z
     .object({
       outMode: z.enum(['continuous', 'push-to-talk']).default('continuous'),

@@ -91,6 +91,12 @@ export interface ProfileView {
   calibrations: CalibrationResult[];
 }
 
+/** Local AI translation models: which one is chosen, and each one's download state. */
+export interface AiStatus {
+  chosen: 'hy-mt2-1.8b' | 'hy-mt2-7b';
+  models: { id: 'hy-mt2-1.8b' | 'hy-mt2-7b'; ready: boolean; sizeMb: number; downloading: boolean }[];
+}
+
 export interface CalibrationOutcome {
   results: { asr: string; name: string; accuracy: number; ms: number; error?: string }[];
   best: string | null;
@@ -207,8 +213,8 @@ export interface RendererApi {
   };
   /** Local AI translation (Hy-MT2): whether its model is downloaded, and downloading it. */
   ai: {
-    status(): Promise<{ ready: boolean; sizeMb: number; downloading: boolean }>;
-    download(): Promise<void>;
+    status(): Promise<AiStatus>;
+    download(id?: 'hy-mt2-1.8b' | 'hy-mt2-7b'): Promise<void>;
   };
   local: {
     status(): Promise<LocalModelStatus[]>;

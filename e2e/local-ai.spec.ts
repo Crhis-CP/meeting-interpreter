@@ -23,7 +23,8 @@ test('local AI translation: a meeting is translated by the model on this compute
   await win.waitForLoadState('domcontentloaded');
   await win.getByRole('button', { name: '开始同传' }).click();
   await expect(win.getByText('大家好，欢迎参加今天的会议。')).toBeVisible({ timeout: 30_000 });
-  await expect(win.getByText(/bienvenid/i).first()).toBeVisible({ timeout: 60_000 });
+  // Sentences spoken while the model loads use the fallback; the rest come from the model.
+  await expect(win.getByText(/bienvenid|plazos|semanas|descuento/i).first()).toBeVisible({ timeout: 60_000 });
   await win.waitForTimeout(8000);
   await win.getByRole('button', { name: '结束会议' }).click();
   await expect(win.getByText('会议已结束')).toBeVisible({ timeout: 30_000 });

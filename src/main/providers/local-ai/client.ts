@@ -21,6 +21,7 @@ export interface LocalAiClientOptions {
 export class LocalAiClient implements LocalAiEngine {
   private worker: WorkerHandle | null = null;
   private loaded: Promise<void> | null = null;
+  private isLoaded = false;
   private seq = 0;
   private idle: ReturnType<typeof setTimeout> | null = null;
   /** After the model failed to load, sentences go to the fallback for a while instead of retrying each time. */
@@ -38,6 +39,7 @@ export class LocalAiClient implements LocalAiEngine {
       w.on('message', (m: AiReply) => {
         if (m.t === 'loaded') {
           clearTimeout(timer);
+          this.isLoaded = true;
           this.o.onLoaded?.(m.gpu);
           resolve();
         } else if (m.t === 'error' && m.id === undefined) {
@@ -62,6 +64,7 @@ export class LocalAiClient implements LocalAiEngine {
         this.pending.clear();
         this.worker = null;
         this.loaded = null; // started again on the next sentence
+        this.isLoaded = false;
       });
     });
     this.loaded.catch((err: unknown) => {
@@ -73,22 +76,40 @@ export class LocalAiClient implements LocalAiEngine {
     return this.loaded;
   }
 
+  /** Loads the model now (as a meeting starts), without translating anything. */
+  warmUp(): void {
+    void this.start().catch(() => undefined);
+  }
+
+  /** Resolves once the model is loaded (rejects if it cannot load). */
+  ready(): Promise<void> {
+    return this.start();
+  }
+
   async complete(prompt: string, signal?: AbortSignal): Promise<string> {
     if (this.failed && Date.now() < this.failed.until) throw new Error(this.failed.message);
     if (this.idle) clearTimeout(this.idle);
     this.idle = setTimeout(() => this.dispose(), this.o.idleMs ?? 600_000);
     this.idle.unref?.();
-    await this.start();
+    // While the model loads (seconds; longer from a slow disk), sentences go to the fallback
+    // instead of queueing up behind the load.
+    if (!this.isLoaded) {
+      this.warmUp();
+      throw new LocalAiLoadingError();
+    }
     const id = ++this.seq;
+    const cancel = () => this.worker?.postMessage({ t: 'cancel', id } satisfies AiRequest);
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        cancel();
         reject(new Error('本机 AI 翻译超时'));
       }, this.o.requestTimeoutMs ?? 30_000);
       this.pending.set(id, { resolve, reject, timer });
       signal?.addEventListener('abort', () => {
         if (!this.pending.delete(id)) return;
         clearTimeout(timer);
+        cancel();
         reject(new DOMException('Aborted', 'AbortError'));
       });
       const req: AiRequest = { t: 'complete', id, prompt, maxTokens: Math.min(512, 64 + prompt.length * 3) };
@@ -104,5 +125,13 @@ export class LocalAiClient implements LocalAiEngine {
     }
     this.worker = null;
     this.loaded = null;
+    this.isLoaded = false;
+  }
+}
+
+/** The model is still loading: use the fallback translation for this sentence. */
+export class LocalAiLoadingError extends Error {
+  constructor() {
+    super('本机 AI 翻译模型正在加载');
   }
 }

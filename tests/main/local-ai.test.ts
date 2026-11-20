@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import type { WorkerHandle } from '../../src/main/providers/local-asr/client';
-import { LocalAiClient } from '../../src/main/providers/local-ai/client';
+import { LocalAiClient, LocalAiLoadingError } from '../../src/main/providers/local-ai/client';
 import { attachAiWorker, type AiReply, type AiRequest } from '../../src/main/providers/local-ai/worker';
 import { LocalAiTranslator } from '@core/providers/local-ai-translator';
 
@@ -28,8 +28,10 @@ describe('local AI translation client', () => {
     const c = new LocalAiClient({
       modelPath: '/m.gguf',
       threads: 2,
-      spawn: fakeWorker((m) => (m.t === 'load' ? { t: 'loaded', gpu: 'false' } : { t: 'result', id: m.id, text: `译:${m.prompt.slice(-2)}` }), () => spawns++),
+      spawn: fakeWorker((m) => (m.t === 'load' ? { t: 'loaded', gpu: 'false' } : m.t === 'complete' ? { t: 'result', id: m.id, text: `译:${m.prompt.slice(-2)}` } : null), () => spawns++),
     });
+    await expect(c.complete('...你好')).rejects.toBeInstanceOf(LocalAiLoadingError); // the fallback translates meanwhile
+    await c.ready();
     expect(await c.complete('...你好')).toBe('译:你好');
     expect(await c.complete('...再见')).toBe('译:再见');
     expect(spawns).toBe(1);
@@ -38,17 +40,26 @@ describe('local AI translation client', () => {
   it('reports a model that cannot load, and tries again only after a while', async () => {
     let spawns = 0;
     const c = new LocalAiClient({ modelPath: '/m.gguf', threads: 2, retryAfterMs: 30, spawn: fakeWorker(() => ({ t: 'error', message: '加载失败' }), () => spawns++) });
-    await expect(c.complete('x')).rejects.toThrow('加载失败');
+    await expect(c.ready()).rejects.toThrow('加载失败');
     await expect(c.complete('x')).rejects.toThrow('加载失败'); // not retried every sentence
     expect(spawns).toBe(1);
     await new Promise((r) => setTimeout(r, 40));
-    await expect(c.complete('x')).rejects.toThrow('加载失败');
+    await expect(c.complete('x')).rejects.toThrow();
     expect(spawns).toBe(2);
   });
 
-  it('times out a stuck sentence', async () => {
-    const c = new LocalAiClient({ modelPath: '/m.gguf', threads: 2, requestTimeoutMs: 50, spawn: fakeWorker((m) => (m.t === 'load' ? { t: 'loaded', gpu: 'false' } : null)) });
+  it('times out a stuck sentence and tells the worker to skip it', async () => {
+    const seen: string[] = [];
+    const c = new LocalAiClient({ modelPath: '/m.gguf', threads: 2, requestTimeoutMs: 50, spawn: fakeWorker((m) => (seen.push(m.t), m.t === 'load' ? { t: 'loaded', gpu: 'false' } : null)) });
+    await c.ready();
     await expect(c.complete('x')).rejects.toThrow('超时');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(seen).toEqual(['load', 'complete', 'cancel']);
+  });
+
+  it('the Mozilla translation stands in while the model loads', async () => {
+    const t = new LocalAiTranslator({ complete: async () => { throw new LocalAiLoadingError(); } }, { id: 'offline', translate: async () => 'borrador' });
+    expect(await t.translate({ text: '你好', from: 'zh-CN', to: 'es-AR', hits: [], context: [] })).toBe('borrador');
   });
 });
 
@@ -60,7 +71,9 @@ describe.skipIf(!MODEL || !existsSync(MODEL))('local AI translation with the rea
     const toMain = new EventEmitter();
     attachAiWorker({ on: (_e, fn) => void toWorker.on('m', (d) => fn({ data: d })), postMessage: (m) => void setImmediate(() => toMain.emit('message', m)) });
     const handle = { postMessage: (m: unknown) => void setImmediate(() => toWorker.emit('m', m)), on: (e: string, fn: (...a: any[]) => void) => void toMain.on(e, fn), kill: () => {} } as WorkerHandle;
-    const t = new LocalAiTranslator(new LocalAiClient({ modelPath: MODEL!, threads: 4, spawn: () => handle }));
+    const client = new LocalAiClient({ modelPath: MODEL!, threads: 4, spawn: () => handle });
+    await client.ready();
+    const t = new LocalAiTranslator(client);
     const entry = { id: '1', zh: '星云平台', es: 'Plataforma Nébula', aliasesZh: [], aliasesEs: [], note: '', enabled: true };
     const es = await t.translate({ text: '我们下周介绍星云平台的价格。', from: 'zh-CN', to: 'es-AR', hits: [{ source: '星云平台', target: 'Plataforma Nébula', entry }], context: [] });
     expect(es).toContain('Plataforma Nébula');

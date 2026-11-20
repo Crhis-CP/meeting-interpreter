@@ -4,7 +4,7 @@
  */
 import type { ParentPortLike } from '../local-asr/worker';
 
-export type AiRequest = { t: 'load'; modelPath: string; threads: number } | { t: 'complete'; id: number; prompt: string; maxTokens: number };
+export type AiRequest = { t: 'load'; modelPath: string; threads: number } | { t: 'complete'; id: number; prompt: string; maxTokens: number } | { t: 'cancel'; id: number };
 export type AiReply = { t: 'loaded'; gpu: string } | { t: 'result'; id: number; text: string } | { t: 'error'; id?: number; message: string };
 
 type Lib = typeof import('node-llama-cpp');
@@ -13,6 +13,8 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib> = () => import('node-llama-cpp')): void {
   let ready: Promise<{ lib: Lib; seq: import('node-llama-cpp').LlamaContextSequence }> | null = null;
   let chain: Promise<void> = Promise.resolve();
+  /** Sentences the app gave up on (timed out) before their turn: skipped, never translated late. */
+  const cancelled = new Set<number>();
   const reply = (m: AiReply) => port.postMessage(m);
 
   port.on('message', (e) => {
@@ -32,9 +34,14 @@ export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib>
       );
       return;
     }
+    if (m?.t === 'cancel') {
+      cancelled.add(m.id);
+      return;
+    }
     if (m?.t === 'complete') {
       // One sentence at a time on one context sequence; each starts from a clean history.
       chain = chain.then(async () => {
+        if (cancelled.delete(m.id)) return;
         if (!ready) return reply({ t: 'error', id: m.id, message: '模型还没有加载' });
         let session: import('node-llama-cpp').LlamaChatSession | null = null;
         try {

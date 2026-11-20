@@ -4,7 +4,7 @@ import { PRESETS } from '@core/config/presets';
 import { accentsOf, lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import { LLM_PRESETS, llmPreset } from '@core/providers/openai-compatible';
 import type { VoiceInfo } from '@core/providers/types';
-import type { AppInfo, LocalModelStatus, ProviderTestStep } from '@shared/ipc';
+import type { AiStatus, AppInfo, LocalModelStatus, ProviderTestStep } from '@shared/ipc';
 import { api, errMsg, useDevices, useEvent, useSettings } from '../api';
 import { ExternalLink, Field, Toggle } from '../components/ui';
 import { DRIVER_GUIDES, guessMeetingDevice, guessVirtualMic } from '../content/guides';
@@ -222,58 +222,61 @@ function OfflineMtCard() {
   );
 }
 
-/** Local AI translation (Hy-MT2): status, one-click download, and using it. */
+/**
+ * Local AI translation (Hy-MT2): download, choose, use. The larger, more accurate model is offered
+ * only where it runs fast (Apple-silicon Macs, on the GPU), so no explanation is needed.
+ */
 function AiMtCard({ s, update }: TabProps) {
-  const [st, setSt] = useState<{ ready: boolean; sizeMb: number; downloading: boolean } | null>(null);
-  const [busy, setBusy] = useState('');
+  const [st, setSt] = useState<AiStatus | null>(null);
+  const [info, setInfo] = useState<AppInfo | null>(null);
+  const [pct, setPct] = useState<Record<string, number>>({});
   const [error, setError] = useState('');
-  const load = () => void api.ai.status().then((x) => { setSt(x); if (x.downloading) setBusy('下载中…'); }).catch((e) => setError(errMsg(e)));
-  useEffect(load, []);
+  const load = () => void api.ai.status().then(setSt).catch((e) => setError(errMsg(e)));
+  useEffect(() => {
+    load();
+    void api.app.info().then(setInfo);
+  }, []);
   useEvent('model-progress', (p) => {
-    if (p.id !== 'hy-mt2-1.8b') return;
-    const pct = p.total ? Math.round((p.received / p.total) * 100) : 0;
-    setBusy(pct >= 100 ? '' : `下载中 ${pct}%`);
-    if (pct >= 100) load();
+    if (!p.id.startsWith('hy-mt2')) return;
+    setPct((x) => ({ ...x, [p.id]: p.total ? Math.round((p.received / p.total) * 100) : 0 }));
+    if (p.total && p.received >= p.total) load();
   });
-  const download = async () => {
+  const download = (id: AiStatus['chosen']) => {
     setError('');
-    setBusy('下载中…');
-    try {
-      await api.ai.download();
-    } catch (e) {
-      setError(errMsg(e));
-    } finally {
-      setBusy('');
-      load();
-    }
+    setPct((x) => ({ ...x, [id]: 0 }));
+    api.ai.download(id).catch((e) => setError(errMsg(e))).finally(load);
   };
+  const appleSilicon = info?.platform === 'darwin' && info.arch === 'arm64';
+  const rows = st?.models.filter((m) => m.id === 'hy-mt2-1.8b' || appleSilicon) ?? [];
   const using = s.out.mt === 'local-ai' && s.in.mt === 'local-ai';
+  const anyReady = rows.some((m) => m.ready);
   return (
-    <div className="card">
-      <h3>本机 AI 翻译（免费，推荐）</h3>
-      <p className="hint" style={{ marginTop: 0 }}>
-        腾讯开源的翻译模型 Hy-MT2，在你自己电脑上运行：不联网、不用 Key、会议内容不出电脑。实测会议用语完全正确率 92%，和云端大模型一样（离线翻译是 67%），每句约 1 秒。
-        每句话先显示离线翻译（灰色），AI 译文随后替换。术语表照样生效。
-      </p>
-      {st?.ready ? (
-        <div className="callout info row between">
-          <span>✅ 已下载（{st.sizeMb} MB）{using ? '，正在使用' : ''}</span>
-          {!using && (
-            <button className="btn primary sm" onClick={() => void update({ out: { mt: 'local-ai' }, in: { mt: 'local-ai' }, ...(s.preset === 'free' ? {} : { preset: 'custom' }) })}>
-              我的发言和对方的发言都用它翻译
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="row">
-          <button className="btn primary" disabled={!!busy} onClick={() => void download()}>
-            {busy || `下载本机 AI 翻译（约 ${st?.sizeMb ?? 1133} MB）`}
-          </button>
-          <span className="muted small">只需下载一次；没下载好之前先用离线翻译</span>
-        </div>
+    <section className="card" aria-labelledby="ai-mt-title">
+      <h3 id="ai-mt-title">本机 AI 翻译</h3>
+      <div className="stack" role={rows.length > 1 ? 'radiogroup' : undefined} aria-labelledby="ai-mt-title">
+        {rows.map((m) => (
+          <div key={m.id} className="row between">
+            <label className="row">
+              {rows.length > 1 && <input type="radio" name="ai-model" checked={s.local.aiModel === m.id} disabled={!m.ready} onChange={() => void update({ local: { aiModel: m.id } })} />}
+              <span>{m.id === 'hy-mt2-7b' ? '更准' : '标准'} · {m.sizeMb >= 1000 ? `${(m.sizeMb / 1000).toFixed(1)} GB` : `${m.sizeMb} MB`}</span>
+            </label>
+            {m.ready ? (
+              <span className="badge ok">已下载</span>
+            ) : m.id in pct || m.downloading ? (
+              <span className="muted small" role="status">下载中 {pct[m.id] ?? 0}%</span>
+            ) : (
+              <button className="btn sm" onClick={() => download(m.id)}>下载</button>
+            )}
+          </div>
+        ))}
+      </div>
+      {anyReady && !using && (
+        <button className="btn primary" style={{ marginTop: 10 }} onClick={() => void update({ out: { mt: 'local-ai' }, in: { mt: 'local-ai' }, ...(s.preset === 'free' ? {} : { preset: 'custom' }) })}>
+          用本机 AI 翻译
+        </button>
       )}
-      {error && <div className="callout err" style={{ marginTop: 8 }}>{error}</div>}
-    </div>
+      {error && <div className="callout err" style={{ marginTop: 8 }} role="alert">{error}</div>}
+    </section>
   );
 }
 
