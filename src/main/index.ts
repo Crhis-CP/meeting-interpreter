@@ -38,6 +38,8 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
 
+// Tests (and portable setups) can point the app at another data directory.
+if (process.env['MI_USER_DATA']) app.setPath('userData', process.env['MI_USER_DATA']);
 const dataDir = app.getPath('userData');
 mkdirSync(dataDir, { recursive: true });
 const logPath = join(dataDir, 'app.log');

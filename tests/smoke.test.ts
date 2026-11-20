@@ -20,3 +20,16 @@ describe('core stays isomorphic', () => {
     expect(bad).toEqual([]);
   });
 });
+
+describe('preload channel names', () => {
+  it('match the shared IPC constants', async () => {
+    const { IPC } = await import('../src/shared/ipc');
+    for (const f of ['index.ts', 'audio.ts']) {
+      const text = readFileSync(join(__dirname, '..', 'src', 'preload', f), 'utf8');
+      for (const m of text.matchAll(/(invoke|event|toAudio|fromAudio): '([^']+)'/g)) {
+        expect(IPC[m[1] as keyof typeof IPC]).toBe(m[2]);
+      }
+      expect(text).not.toMatch(/import \{ IPC/);
+    }
+  });
+});

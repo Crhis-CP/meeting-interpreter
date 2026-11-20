@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, type FromAudio, type ToAudio } from '../shared/ipc';
+import type { FromAudio, ToAudio } from '../shared/ipc';
+
+// Sandboxed preloads cannot require other bundle chunks; must match IPC in src/shared/ipc.ts.
+const IPC = { toAudio: 'mi:to-audio', fromAudio: 'mi:from-audio' } as const;
 
 contextBridge.exposeInMainWorld('audioBridge', {
   send(msg: FromAudio) {

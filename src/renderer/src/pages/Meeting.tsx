@@ -69,8 +69,9 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
   const roomActive = !!state?.active && state.mode === 'room';
   const p = preset(settings.preset);
   const ptt = settings.interpretation.outMode === 'push-to-talk';
-  const selfName = lang(settings.languages.self).nameZh;
-  const remoteName = lang(settings.languages.remote).nameZh;
+  const short = (code: string) => (lang(code).base === 'zh' ? '中文' : '西语');
+  const selfName = short(settings.languages.self);
+  const remoteName = short(settings.languages.remote);
 
   const checks: { ok: boolean; text: string; fix?: () => void }[] = [
     { ok: !!settings.devices.virtualMic, text: settings.devices.virtualMic ? '已选择虚拟麦克风（对方能听到西语译音）' : '未选择虚拟麦克风：对方将听不到译音', fix: () => go('settings') },
@@ -223,7 +224,7 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
       {active && state && (
         <div className="grid2">
           <div className={`dir-card ${state.out.enabled ? '' : 'off'}`}>
-            <div className="row between">
+            <div className="row between" style={{ flexWrap: 'nowrap' }}>
               <div className="title">
                 我说{selfName} → 对方听{remoteName} <StateBadge state={state.out.state} message={state.out.message} />
               </div>
@@ -256,7 +257,7 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
             {state.out.message && state.out.state === 'error' && <div className="callout err" style={{ marginTop: 8 }}>{state.out.message}</div>}
           </div>
           <div className={`dir-card ${state.in.enabled ? '' : 'off'}`}>
-            <div className="row between">
+            <div className="row between" style={{ flexWrap: 'nowrap' }}>
               <div className="title">
                 对方说{remoteName} → 我听{selfName} <StateBadge state={state.in.state} message={state.in.message} />
               </div>

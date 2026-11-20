@@ -1,5 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, type RendererApi, type RendererEvents } from '../shared/ipc';
+import type { RendererApi, RendererEvents } from '../shared/ipc';
+
+// Sandboxed preloads cannot require other bundle chunks, so channel names are inlined here
+// (they must match IPC in src/shared/ipc.ts).
+const IPC = { invoke: 'mi:invoke', event: 'mi:event', toAudio: 'mi:to-audio', fromAudio: 'mi:from-audio' } as const;
 
 /** Builds a namespaced proxy: api.settings.get(...) → invoke('settings.get', ...). */
 function ns<T extends object>(name: string, methods: string[]): T {
