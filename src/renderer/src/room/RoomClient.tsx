@@ -76,6 +76,7 @@ export function RoomClient() {
   const ctx = useRef<AudioContext | null>(null);
   const micNode = useRef<AudioWorkletNode | null>(null);
   const micStream = useRef<MediaStream | null>(null);
+  const workletLoaded = useRef(false);
   const talkingRef = useRef(false);
   const voiceRef = useRef(true);
   const nextTime = useRef(0);
@@ -188,7 +189,10 @@ export function RoomClient() {
     const c = ctx.current!;
     try {
       micStream.current = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-      await c.audioWorklet.addModule(new URL('./pcm-worklet.js', document.baseURI).toString());
+      if (!workletLoaded.current) {
+        await c.audioWorklet.addModule(new URL('./pcm-worklet.js', document.baseURI).toString());
+        workletLoaded.current = true;
+      }
       const node = new AudioWorkletNode(c, 'pcm-capture', { numberOfInputs: 1, numberOfOutputs: 0 });
       node.port.onmessage = (e: MessageEvent<{ pcm: ArrayBuffer }>) => {
         if (!talkingRef.current || ws.current?.readyState !== 1) return;
@@ -203,11 +207,28 @@ export function RoomClient() {
     }
   };
 
+  const releaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Closes the microphone a moment after talking stops: on iPhones an open mic sends all audio to
+   * the quiet earpiece, so listeners without headphones hear translations better with it closed. */
+  const releaseMicSoon = () => {
+    if (releaseTimer.current) clearTimeout(releaseTimer.current);
+    releaseTimer.current = setTimeout(() => {
+      if (talkingRef.current) return;
+      micStream.current?.getTracks().forEach((tr) => tr.stop());
+      micNode.current?.disconnect();
+      micNode.current = null;
+      micStream.current = null;
+    }, 2000);
+  };
+
   const setTalk = async (on: boolean) => {
+    if (releaseTimer.current) clearTimeout(releaseTimer.current);
     if (on && !(await ensureMic())) return;
     talkingRef.current = on;
     setTalking(on);
     if (ws.current?.readyState === 1) ws.current.send(JSON.stringify({ t: 'talk', on }));
+    if (!on) releaseMicSoon();
   };
 
   const leave = () => {
