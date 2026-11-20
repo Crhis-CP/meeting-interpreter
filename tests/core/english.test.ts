@@ -32,53 +32,53 @@ describe('English languages', () => {
 });
 
 describe('English glossary', () => {
-  const xg = entry('西瓜尔纳一号', 'Xiguaerna One', { aliasesZh: ['西瓜那一号'], aliasesEn: ['shiguaerna one'] });
+  const nebula = entry('星云平台', 'Nebula Platform', { aliasesZh: ['心云平台'], aliasesEn: ['nebola platform'] });
 
   it('counts entries that only have an English term', () => {
-    expect(activeEntries([{ id: 'g', name: 'g', enabled: true, entries: [xg] }])).toHaveLength(1);
-    expect(termOf(xg, 'en')).toBe('Xiguaerna One');
-    expect(termOf(xg, 'es')).toBe('');
+    expect(activeEntries([{ id: 'g', name: 'g', enabled: true, entries: [nebula] }])).toHaveLength(1);
+    expect(termOf(nebula, 'en')).toBe('Nebula Platform');
+    expect(termOf(nebula, 'es')).toBe('');
   });
 
   it('finds Chinese terms with their English translation', () => {
-    const hits = findHits('我们讨论一下这个西瓜尔纳一号', 'zh', [xg], 'en');
-    expect(hits[0]).toMatchObject({ source: '西瓜尔纳一号', target: 'Xiguaerna One' });
+    const hits = findHits('我们讨论一下这个星云平台', 'zh', [nebula], 'en');
+    expect(hits[0]).toMatchObject({ source: '星云平台', target: 'Nebula Platform' });
   });
 
   it('finds English terms case-insensitively with their Chinese translation', () => {
-    const hits = findHits('What about the xiguaerna one schedule?', 'en', [xg], 'zh');
-    expect(hits[0]).toMatchObject({ target: '西瓜尔纳一号' });
+    const hits = findHits('What about the nebula platform schedule?', 'en', [nebula], 'zh');
+    expect(hits[0]).toMatchObject({ target: '星云平台' });
   });
 
   it('corrects mis-recognitions in both languages', () => {
-    expect(correctText('讨论一下这个西瓜那一号', 'zh', [xg], { pinyinFuzzy: false }).text).toBe('讨论一下这个西瓜尔纳一号');
-    expect(correctText('the shiguaerna one launch', 'en', [xg], { pinyinFuzzy: false }).text).toContain('Xiguaerna One');
+    expect(correctText('讨论一下这个心云平台', 'zh', [nebula], { pinyinFuzzy: false }).text).toBe('讨论一下这个星云平台');
+    expect(correctText('the nebola platform launch', 'en', [nebula], { pinyinFuzzy: false }).text).toContain('Nebula Platform');
   });
 
   it('uses English terms as hot words', () => {
-    expect(hotwordsFor('en', [xg, entry('交货期', 'lead time')])).toEqual(['Xiguaerna One', 'lead time']);
+    expect(hotwordsFor('en', [nebula, entry('交货期', 'lead time')])).toEqual(['Nebula Platform', 'lead time']);
   });
 
   it('reads and writes the English columns in CSV', () => {
     const { entries } = parseGlossaryCsv('中文,English,英语别名\n交货期,lead time,delivery time\n');
     expect(entries[0]).toMatchObject({ zh: '交货期', en: 'lead time', aliasesEn: ['delivery time'] });
-    const back = parseGlossaryCsv(glossaryToCsv([xg])).entries[0]!;
-    expect(back).toMatchObject({ zh: '西瓜尔纳一号', en: 'Xiguaerna One', aliasesZh: ['西瓜那一号'], aliasesEn: ['shiguaerna one'] });
+    const back = parseGlossaryCsv(glossaryToCsv([nebula])).entries[0]!;
+    expect(back).toMatchObject({ zh: '星云平台', en: 'Nebula Platform', aliasesZh: ['心云平台'], aliasesEn: ['nebola platform'] });
   });
 
   it('builds a zh⇄en DeepL glossary from the English column', () => {
-    const d = buildGlossaryDictionaries([xg, entry('交货期', 'lead time', { es: 'plazo de entrega' })], 'en')!;
+    const d = buildGlossaryDictionaries([nebula, entry('交货期', 'lead time', { es: 'plazo de entrega' })], 'en')!;
     expect(d.foreign).toBe('en');
-    expect(d.zhEs).toBe('西瓜尔纳一号\tXiguaerna One\n交货期\tlead time');
-    expect(buildGlossaryDictionaries([xg], 'es')).toBeNull(); // no Spanish terms
+    expect(d.zhEs).toBe('星云平台\tNebula Platform\n交货期\tlead time');
+    expect(buildGlossaryDictionaries([nebula], 'es')).toBeNull(); // no Spanish terms
     expect(buildGlossaryDictionaries([entry('交货期', 'lead time', { es: 'plazo' })], 'es')!.hash).not.toBe(d.hash);
   });
 });
 
 describe('English translation checks', () => {
   it('accepts English and rejects untranslated Chinese', () => {
-    expect(isValidTranslation('Let us discuss the Xiguaerna One.', 'en-US', '我们讨论一下西瓜尔纳一号。')).toBe(true);
-    expect(isValidTranslation('我们讨论一下西瓜尔纳一号。', 'en-US', '我们讨论一下西瓜尔纳一号。')).toBe(false);
+    expect(isValidTranslation('Let us discuss the Nebula Platform.', 'en-US', '我们讨论一下星云平台。')).toBe(true);
+    expect(isValidTranslation('我们讨论一下星云平台。', 'en-US', '我们讨论一下星云平台。')).toBe(false);
   });
 
   it('the demo translator produces English', async () => {
@@ -102,21 +102,21 @@ describe('zh → en pipeline', () => {
     const session = new Session();
     const asr: StreamingAsr = { id: 'a', start: async () => session };
     const requests: TranslateRequest[] = [];
-    const translator: Translator = { id: 't', translate: async (r) => (requests.push(r), "Let's discuss the Xiguaerna One.") };
+    const translator: Translator = { id: 't', translate: async (r) => (requests.push(r), "Let's discuss the Nebula Platform.") };
     const calls: TtsRequest[] = [];
     const tts: Tts = { id: 's', voices: () => [], async *synthesize(r) { calls.push(r); yield { samples: new Int16Array(10), sampleRate: 24000 }; } };
     const p = new DirectionPipeline({
       dir: 'out', speaker: 'me', idPrefix: 'out', srcLang: 'zh-CN', dstLang: 'en-US',
-      asr, translator, tts, glossary: () => [entry('西瓜尔纳一号', 'Xiguaerna One', { aliasesZh: ['西瓜那一号'] })],
+      asr, translator, tts, glossary: () => [entry('星云平台', 'Nebula Platform', { aliasesZh: ['心云平台'] })],
       pinyinFuzzy: false, lowLatency: false, clock: () => 1, reconnectDelays: [10],
     });
     const segs: TranscriptSegment[] = [];
     p.on('segment', (s) => segs.push(s));
     await p.start();
-    session.events.emit('final', { text: '讨论一下这个西瓜那一号。' });
+    session.events.emit('final', { text: '讨论一下这个心云平台。' });
     await waitFor(() => calls.length === 1);
-    expect(segs.at(-1)!.srcText).toBe('讨论一下这个西瓜尔纳一号。');
-    expect(requests[0]!.hits[0]!.target).toBe('Xiguaerna One');
+    expect(segs.at(-1)!.srcText).toBe('讨论一下这个星云平台。');
+    expect(requests[0]!.hits[0]!.target).toBe('Nebula Platform');
     expect(calls[0]!.lang).toBe('en-US');
     await p.stop();
   });
@@ -138,11 +138,11 @@ describe('English meeting records', () => {
   });
 
   it('asks for Chinese and English minutes', () => {
-    const p = buildSummaryPrompt(segs, meta, [entry('西瓜尔纳一号', 'Xiguaerna One')], 'general');
+    const p = buildSummaryPrompt(segs, meta, [entry('星云平台', 'Nebula Platform')], 'general');
     expect(p.system).toContain('Chinese and English speakers');
     expect(p.system).toContain('"en"');
     expect(p.system).not.toContain('Spanish');
-    expect(p.user).toContain('西瓜尔纳一号 = Xiguaerna One');
+    expect(p.user).toContain('星云平台 = Nebula Platform');
   });
 
   it('renders English minutes', () => {

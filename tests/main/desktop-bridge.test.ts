@@ -61,7 +61,7 @@ describe('desktop bridge', () => {
 
   it('streams recognition over a WebSocket', async () => {
     await startBridge();
-    const session = await new DesktopBridgeAsr(createNodeContext(log), base).start({ lang: 'zh-CN', hotwords: ['西瓜尔纳一号'], sampleRate: 16000 });
+    const session = await new DesktopBridgeAsr(createNodeContext(log), base).start({ lang: 'zh-CN', hotwords: ['星云平台'], sampleRate: 16000 });
     const finals: string[] = [];
     session.events.on('final', ({ text }) => finals.push(text));
     session.push(new Int16Array(1600));

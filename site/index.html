@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>会议同传助手 · 免费下载</title>
+<meta name="description" content="中文 ⇄ 西班牙语 / 英语 实时同声传译。免费开源，支持 Teams、飞书、腾讯会议、Zoom 等。">
+<link rel="icon" href="favicon.png">
+<style>
+  :root { --blue:#2563eb; --text:#0f172a; --muted:#64748b; --line:#e2e8f0; font-family: system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; color: var(--text); }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: linear-gradient(180deg,#eef2ff 0,#fff 320px); }
+  main { max-width: 760px; margin: 0 auto; padding: 48px 20px 64px; }
+  header { text-align: center; }
+  header img { width: 96px; height: 96px; }
+  h1 { font-size: 30px; margin: 12px 0 6px; }
+  .sub { color: var(--muted); font-size: 16px; margin: 0; }
+  .primary { display: block; margin: 28px auto 6px; max-width: 420px; text-align: center; background: var(--blue); color: #fff; text-decoration: none; font-size: 19px; font-weight: 700; padding: 16px; border-radius: 14px; box-shadow: 0 8px 24px rgba(37,99,235,.25); }
+  .primary small { display: block; font-weight: 400; font-size: 13px; opacity: .85; margin-top: 2px; }
+  .ver { text-align: center; color: var(--muted); font-size: 13px; }
+  h2 { font-size: 17px; margin: 40px 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(220px,1fr)); gap: 12px; }
+  .item { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; text-decoration: none; color: inherit; background: #fff; display: block; }
+  .item:hover { border-color: var(--blue); }
+  .item b { display: block; font-size: 15px; }
+  .item span { color: var(--muted); font-size: 13px; }
+  .phone { border: 1px solid #c7d2fe; background: #eef2ff; border-radius: 14px; padding: 16px; line-height: 1.7; font-size: 15px; }
+  .tip { color: var(--muted); font-size: 13px; line-height: 1.7; }
+  footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 48px; }
+  a { color: var(--blue); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="icon.png" alt="">
+    <h1>会议同传助手</h1>
+    <p class="sub">你说中文，对方听到西班牙语或英语；对方说话，你看到中文。免费开源。</p>
+  </header>
+
+  <a id="primary" class="primary" href="https://github.com/Crhis-CP/meeting-interpreter/releases/latest">下载<small>正在识别你的设备…</small></a>
+  <p class="ver" id="ver"></p>
+
+  <div id="phone" class="phone" hidden>
+    <b>手机（安卓 / 苹果）不用下载：</b><br>
+    在电脑上的会议同传助手里打开 <b>“现场房间”</b>，手机扫二维码，就能在浏览器里用（选中文或外语，戴耳机听同传）。
+  </div>
+
+  <h2>全部下载</h2>
+  <div class="grid">
+    <a class="item" data-asset="mac-arm64.dmg"><b>Mac（Apple 芯片）</b><span>M1 / M2 / M3 / M4</span></a>
+    <a class="item" data-asset="mac-x64.dmg"><b>Mac（Intel 芯片）</b><span>2020 年及更早的 Mac</span></a>
+    <a class="item" data-asset="windows-x64-setup.exe"><b>Windows</b><span>Windows 10 / 11</span></a>
+    <a class="item" data-asset="chrome-"><b>Chrome / Edge 插件</b><span>网页版会议用，装上就能用</span></a>
+    <a class="item" data-asset="linux-x86_64.AppImage"><b>Linux</b><span>AppImage</span></a>
+  </div>
+
+  <h2>第一次打开</h2>
+  <p class="tip">
+    <b>Mac：</b>出现“无法验证开发者”时，打开 系统设置 › 隐私与安全性，点“仍要打开”。<br>
+    <b>Windows：</b>出现蓝色提示时，点“更多信息” › “仍要运行”。<br>
+    <b>插件：</b>解压 zip → Chrome 打开 <code>chrome://extensions</code> → 打开“开发者模式” → “加载已解压的扩展程序”，选解压出来的文件夹。
+  </p>
+
+  <footer>
+    <a href="https://github.com/Crhis-CP/meeting-interpreter#readme">使用说明</a> ·
+    <a href="https://github.com/Crhis-CP/meeting-interpreter/releases">历史版本</a> ·
+    <a href="https://github.com/Crhis-CP/meeting-interpreter/blob/main/docs/privacy.md">隐私</a>
+  </footer>
+</main>
+<script>
+(async () => {
+  const RELEASES = 'https://github.com/Crhis-CP/meeting-interpreter/releases/latest';
+  const ua = navigator.userAgent;
+  const isPhone = /iPhone|iPad|iPod|Android/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isWin = /Windows/i.test(ua);
+  const isMac = /Macintosh|Mac OS X/i.test(ua) && !isPhone;
+  // Apple silicon cannot be told apart from Intel by the user agent; WebGL's renderer usually can.
+  let appleSilicon = true;
+  try {
+    const gl = document.createElement('canvas').getContext('webgl');
+    const info = gl && gl.getExtension('WEBGL_debug_renderer_info');
+    const r = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : '';
+    if (/Intel|AMD|Radeon|NVIDIA/i.test(r)) appleSilicon = false;
+  } catch (e) {}
+
+  let assets = [];
+  try {
+    const res = await fetch('https://api.github.com/repos/Crhis-CP/meeting-interpreter/releases/latest');
+    const rel = await res.json();
+    assets = rel.assets || [];
+    if (rel.tag_name) document.getElementById('ver').textContent = `最新版本 ${rel.tag_name} · ${new Date(rel.published_at).toLocaleDateString('zh-CN')}`;
+  } catch (e) {}
+  const url = (key) => (assets.find((a) => a.name.includes(key)) || {}).browser_download_url || RELEASES;
+  for (const el of document.querySelectorAll('[data-asset]')) el.href = url(el.dataset.asset);
+
+  const primary = document.getElementById('primary');
+  const set = (text, small, href) => {
+    primary.firstChild.textContent = text;
+    primary.querySelector('small').textContent = small;
+    primary.href = href;
+  };
+  if (isPhone) {
+    document.getElementById('phone').hidden = false;
+    set('在电脑上下载', '手机直接扫码使用，见下方说明', '#phone');
+  } else if (isWin) set('下载 Windows 版', '适用于 Windows 10 / 11', url('windows-x64-setup.exe'));
+  else if (isMac) set('下载 Mac 版', appleSilicon ? 'Apple 芯片（M1–M4）· Intel 芯片请看下方' : 'Intel 芯片 · Apple 芯片请看下方', url(appleSilicon ? 'mac-arm64.dmg' : 'mac-x64.dmg'));
+  else set('下载 Linux 版', 'AppImage', url('linux-x86_64.AppImage'));
+})();
+</script>
+</body>
+</html>

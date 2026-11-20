@@ -186,7 +186,7 @@ export function GlossaryPage() {
           >
             + 添加术语
           </button>
-          <p className="hint">导入格式：CSV（Excel 另存为“CSV UTF-8”），列为 中文, Español, English, 中文别名, 西语别名, 英语别名, 备注（只填需要的列即可，例如只和英语客户开会就只填中文和 English）。例：中文填“西瓜尔纳一号”，中文别名填“西瓜那一号；西瓜尔那一号”，English 或 Español 填双方约定的叫法。</p>
+          <p className="hint">导入格式：CSV（Excel 另存为“CSV UTF-8”），列为 中文, Español, English, 中文别名, 西语别名, 英语别名, 备注（只填需要的列即可）。</p>
         </div>
       )}
     </div>
