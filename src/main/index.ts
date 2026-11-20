@@ -643,12 +643,13 @@ async function editSegment(id: string, segId: string, srcText: string, opts: { l
   return { segment, learned };
 }
 
-/** Loads the translation models in the background as a meeting starts, so the first sentence is not slow. */
+/** Loads the translation models (and, on Windows, the speech process) as a meeting starts, so the first sentence is not slow. */
 function warmUpTranslation(): void {
   const s = settings.get();
   const mts = [s.out.mt, s.in.mt];
   if (mts.includes('offline') || mts.includes('local-ai')) void offlineMt.translate('你好', 'zh', 'es').catch(() => undefined);
   if (mts.includes('local-ai')) localAi()?.warmUp();
+  if (s.out.tts === 'system' || s.in.tts === 'system') systemTts().warmUp();
 }
 
 function profileView(): ProfileView {

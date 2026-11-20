@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decodeWav, toMono } from '@core/audio/wav';
+import { POWERSHELL_ARGS } from './system-tts-args';
+import { NoVoiceError, WindowsSpeechHost } from './windows-speech-host';
 import { abortError, isAbortError } from '@core/events';
 import { baseOf, lang as langInfo } from '@core/lang/languages';
 import { ProviderError, type Tts, type TtsRequest, type VoiceInfo } from '@core/providers/types';
@@ -21,7 +23,15 @@ export interface SystemTtsOptions {
   platform?: NodeJS.Platform;
   exec?: ExecFn;
   tmpDir?: string;
+  /**
+   * Windows: the long-running speech process (shared by default). null: one PowerShell per
+   * sentence (the default when `exec` is given, i.e. in tests).
+   */
+  speechHost?: WindowsSpeechHost | null;
 }
+
+/** Shared by every SystemTts on Windows, so System.Speech is loaded once per app run. */
+let sharedHost: WindowsSpeechHost | null = null;
 
 /** A voice installed on this computer. `id` is what `TtsRequest.voice` takes. */
 export interface SystemVoice {
@@ -38,7 +48,7 @@ const CHUNK_SECONDS = 0.5;
 const BASE_WPM = 175;
 const TIMEOUT_MS = 60_000;
 
-export const POWERSHELL_ARGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', '-'];
+export { POWERSHELL_ARGS };
 
 /** Well-known voices per platform (what ships with or is one click away in the OS). The first one per language is the default. */
 const MAC_VOICES: VoiceInfo[] = [
@@ -233,11 +243,19 @@ export class SystemTts implements Tts {
   private readonly tmpDir: string;
   /** macOS: replacement for a voice that is not installed, per requested voice. */
   private readonly macFallback = new Map<string, string>();
+  private readonly host: WindowsSpeechHost | null;
 
   constructor(opts: SystemTtsOptions = {}) {
     this.platform = opts.platform ?? process.platform;
     this.exec = opts.exec ?? defaultExec;
     this.tmpDir = opts.tmpDir ?? tmpdir();
+    this.host =
+      opts.speechHost !== undefined ? opts.speechHost : this.platform === 'win32' && !opts.exec ? (sharedHost ??= new WindowsSpeechHost()) : null;
+  }
+
+  /** Windows: starts the long-running speech process now (as a meeting starts). */
+  warmUp(): void {
+    this.host?.warmUp();
   }
 
   /** Well-known voices for the language's base (zh / es), exact region first, the default first of all. */
@@ -351,13 +369,18 @@ export class SystemTts implements Tts {
   }
 
   private async renderWindows(req: TtsRequest, code: LangCode, textFile: string, out: string): Promise<void> {
-    const script = windowsSpeakScript({
-      voice: req.voice || defaultVoice('win32', code),
-      culture: code,
-      rate: sapiRateFor(req.rate),
-      out,
-      textFile,
-    });
+    const job = { voice: req.voice || defaultVoice('win32', code), culture: code, rate: sapiRateFor(req.rate), out, textFile };
+    if (this.host && !this.host.broken) {
+      try {
+        return await this.host.speak(job);
+      } catch (err) {
+        if (err instanceof NoVoiceError) {
+          throw new ProviderError(`Windows 没有安装${languageZh(code)}语音。请在 Windows 设置 › 时间和语言 › 语音 中添加${languageZh(code)}语音。`, PROVIDER);
+        }
+        // Anything else: this sentence goes the per-sentence way below.
+      }
+    }
+    const script = windowsSpeakScript(job);
     const r = await this.run('powershell.exe', POWERSHELL_ARGS, script, req.signal);
     if (r.stderr.includes('MI_NO_VOICE')) {
       throw new ProviderError(`Windows 没有安装${languageZh(code)}语音。请在 Windows 设置 › 时间和语言 › 语音 中添加${languageZh(code)}语音。`, PROVIDER);

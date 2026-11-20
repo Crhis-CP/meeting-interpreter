@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { spawn } from 'node:child_process';
+import { WindowsSpeechHost } from '../../src/main/providers/windows-speech-host';
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -292,5 +294,49 @@ describe('SystemTts voices and process runner', () => {
     const it = tts.synthesize({ text: 'Hola', lang: 'es-ES', rate: 1, signal: ac.signal })[Symbol.asyncIterator]();
     await expect(it.next()).rejects.toMatchObject({ name: 'AbortError' });
     expect(calls).toEqual([]);
+  });
+});
+
+describe('Windows voices through one long-running PowerShell', () => {
+  const fake = (mode = '') => () => spawn(process.execPath, [join(__dirname, '../fixtures/fake-speech-host.cjs'), mode], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+  it('renders sentence after sentence in the same process', async () => {
+    let spawns = 0;
+    const host = new WindowsSpeechHost(() => (spawns++, fake()()));
+    const tts = new SystemTts({ platform: 'win32', speechHost: host, exec: async () => ({ code: 1, stdout: '', stderr: 'per-sentence path must not run' }) });
+    for (const text of ['第一句。', '第二句。']) {
+      const chunks: Int16Array[] = [];
+      for await (const c of tts.synthesize({ text, lang: 'zh-CN', rate: 1 })) chunks.push(c.samples);
+      expect(chunks.reduce((n, c) => n + c.length, 0)).toBe(11025);
+    }
+    expect(spawns).toBe(1);
+    host.dispose();
+  });
+
+  it('reports a missing language voice in Chinese', async () => {
+    const host = new WindowsSpeechHost(fake());
+    const tts = new SystemTts({ platform: 'win32', speechHost: host, exec: async () => ({ code: 1, stdout: '', stderr: '' }) });
+    const run = async () => {
+      for await (const _ of tts.synthesize({ text: 'hola', lang: 'es-MX', rate: 1, voice: 'none' })) void _;
+    };
+    await expect(run()).rejects.toThrow(/没有安装西/);
+    host.dispose();
+  });
+
+  it('falls back to one PowerShell per sentence when the host does not answer', async () => {
+    const host = new WindowsSpeechHost(fake('silent'), { startMs: 100, jobMs: 1000 });
+    let perSentence = 0;
+    const exec: ExecFn = async (_cmd, _args, input) => {
+      perSentence++;
+      const p = JSON.parse(Buffer.from(input!.match(/FromBase64String\('([^']+)'\)/)![1]!, 'base64').toString('utf8')) as { out: string };
+      writeFileSync(p.out, encodeWav(new Int16Array(22050).fill(500), 22050));
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    const tts = new SystemTts({ platform: 'win32', speechHost: host, exec });
+    for await (const _ of tts.synthesize({ text: '你好', lang: 'zh-CN', rate: 1 })) void _;
+    expect(perSentence).toBe(1);
+    expect(host.broken).toBe(true);
+    for await (const _ of tts.synthesize({ text: '再见', lang: 'zh-CN', rate: 1 })) void _;
+    expect(perSentence).toBe(2);
   });
 });
