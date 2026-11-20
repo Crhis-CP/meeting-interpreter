@@ -11,6 +11,8 @@ export interface LocalAiClientOptions {
   /** One sentence; a slow computer may need several seconds. */
   requestTimeoutMs?: number;
   onLoaded?: (gpu: string) => void;
+  /** The model could not be loaded (sentences go to the fallback translator meanwhile). */
+  onLoadFailed?: (message: string) => void;
   /** Stop the worker (and free its memory) after this long without a sentence. Default 10 min. */
   idleMs?: number;
   /** After a failed load, wait this long before trying again. Default 5 min. */
@@ -69,6 +71,7 @@ export class LocalAiClient implements LocalAiEngine {
     });
     this.loaded.catch((err: unknown) => {
       this.failed = { until: Date.now() + (this.o.retryAfterMs ?? 300_000), message: err instanceof Error ? err.message : String(err) };
+      this.o.onLoadFailed?.(this.failed.message);
       this.dispose();
     });
     const req: AiRequest = { t: 'load', modelPath: this.o.modelPath, threads: this.o.threads };

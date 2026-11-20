@@ -122,6 +122,27 @@ function aiModelInUse(): AiModelId | null {
   return aiModels.status(other) === 'ready' ? other : null;
 }
 /** The model's worker, started on first use; null while no model is downloaded. */
+/**
+ * A worker in its own process (recognition, AI translation). Its console output and how it ended
+ * go to app.log, so a worker that cannot load its native libraries says why.
+ */
+function forkWorker(file: string, name: string): Electron.UtilityProcess {
+  const child = utilityProcess.fork(join(__dirname, file), [], {
+    serviceName: name,
+    stdio: 'pipe',
+    // Native libraries (sherpa-onnx, llama.cpp) are not signed with our (ad-hoc) identity on macOS.
+    ...(process.platform === 'darwin' ? { allowLoadingUnsignedLibraries: true } : {}),
+  });
+  const wlog = log.child(name);
+  const lines = (level: 'info' | 'warn') => (d: Buffer) => {
+    for (const line of d.toString('utf8').split('\n')) if (line.trim()) wlog[level](line.trimEnd());
+  };
+  child.stdout?.on('data', lines('info'));
+  child.stderr?.on('data', lines('warn'));
+  child.on('exit', (code) => (code ? wlog.warn(`process exited with code ${code}`) : wlog.info('process exited')));
+  return child;
+}
+
 const localAi = (): LocalAiClient | null => {
   const id = aiModelInUse();
   if (!id) return null;
@@ -137,11 +158,9 @@ const localAi = (): LocalAiClient | null => {
         spawn: () =>
           process.platform === 'linux'
             ? createInProcessAiWorker()
-            : utilityProcess.fork(join(__dirname, 'local-ai-worker.js'), [], {
-                serviceName: 'local-ai',
-                ...(process.platform === 'darwin' ? { allowLoadingUnsignedLibraries: true } : {}),
-              }),
+            : forkWorker('local-ai-worker.js', 'local-ai'),
         onLoaded: (gpu) => log.info(`local AI translation loaded: ${id} (gpu: ${gpu})`),
+        onLoadFailed: (message) => log.warn(`local AI translation failed to load: ${message}`),
       }),
     };
   }
@@ -180,12 +199,7 @@ const localAsr = (dir: Direction) => {
   return new LocalAsr({
     modelsDir,
     esModel: s.local.esModel,
-    spawn: () =>
-      utilityProcess.fork(join(__dirname, 'local-asr-worker.js'), [], {
-        serviceName: 'local-asr',
-        // The sherpa-onnx dylibs are not signed with our (ad-hoc) identity on macOS.
-        ...(process.platform === 'darwin' ? { allowLoadingUnsignedLibraries: true } : {}),
-      }),
+    spawn: () => forkWorker('local-asr-worker.js', 'local-asr'),
   });
 };
 

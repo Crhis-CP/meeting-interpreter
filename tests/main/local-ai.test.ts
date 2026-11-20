@@ -39,8 +39,16 @@ describe('local AI translation client', () => {
 
   it('reports a model that cannot load, and tries again only after a while', async () => {
     let spawns = 0;
-    const c = new LocalAiClient({ modelPath: '/m.gguf', threads: 2, retryAfterMs: 30, spawn: fakeWorker(() => ({ t: 'error', message: '加载失败' }), () => spawns++) });
+    const reported: string[] = [];
+    const c = new LocalAiClient({
+      modelPath: '/m.gguf',
+      threads: 2,
+      retryAfterMs: 30,
+      spawn: fakeWorker(() => ({ t: 'error', message: '加载失败' }), () => spawns++),
+      onLoadFailed: (m) => reported.push(m),
+    });
     await expect(c.ready()).rejects.toThrow('加载失败');
+    expect(reported).toEqual(['加载失败']); // the app logs it
     await expect(c.complete('x')).rejects.toThrow('加载失败'); // not retried every sentence
     expect(spawns).toBe(1);
     await new Promise((r) => setTimeout(r, 40));

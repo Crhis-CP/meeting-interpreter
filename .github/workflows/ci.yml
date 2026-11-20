@@ -88,6 +88,14 @@ jobs:
         run: echo "MI_AI_MODEL=$(npx tsx --tsconfig tsconfig.node.json scripts/dev/fetch-ai-model.mts ai-model)" >> "$GITHUB_ENV"
       - name: Desktop app end to end, including the real AI model
         run: npx playwright test e2e/app.spec.ts e2e/profile.spec.ts e2e/restart.spec.ts e2e/local-ai.spec.ts --trace off
+      - name: The packaged app (security fuses on, as installed) holds a meeting and translates
+        if: always()
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then npx electron-builder --mac --arm64 --dir --publish never; else npx electron-builder --win --x64 --dir --publish never; fi
+          bash scripts/test-packaged.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:

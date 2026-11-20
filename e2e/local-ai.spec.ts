@@ -13,7 +13,7 @@ const SHA = 'dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699';
 test.skip(!MODEL || !existsSync(MODEL), 'MI_AI_MODEL not set');
 
 test('local AI translation: a meeting is translated by the model on this computer', async () => {
-  test.setTimeout(180_000);
+  test.setTimeout(330_000);
   const ai = { asr: 'demo', mt: 'local-ai', tts: 'demo', voice: '' };
   const { app, dataDir, recordsDir } = await launchApp({ out: { enabled: true, ...ai }, in: { enabled: true, ...ai } });
   // As if downloaded and checked: the model file and its checked-hash marker.
@@ -30,13 +30,16 @@ test('local AI translation: a meeting is translated by the model on this compute
   await win.waitForLoadState('domcontentloaded');
   await win.getByRole('button', { name: '开始同传' }).click();
   await expect(win.getByText('大家好，欢迎参加今天的会议。')).toBeVisible({ timeout: 30_000 });
-  // Sentences spoken while the model loads use the fallback; the rest come from the model.
+  // Sentences spoken while the model loads use the fallback. Loading can take a while the first
+  // time (e.g. the GPU code is prepared on a Mac), so wait for it like a first meeting would.
+  const log = () => readFileSync(join(dataDir, 'app.log'), 'utf8');
+  await expect.poll(() => /local AI translation (loaded|failed to load)/.exec(log())?.[0] ?? '', { timeout: 150_000, intervals: [1000] }).toBe('local AI translation loaded');
+  // The fake microphone loops, so sentences keep coming: some are translated by the model now.
   await expect(win.getByText(/bienvenid|plazos|semanas|descuento/i).first()).toBeVisible({ timeout: 60_000 });
   await win.waitForTimeout(8000);
   await win.getByRole('button', { name: '结束会议' }).click();
   await expect(win.getByText('会议已结束')).toBeVisible({ timeout: 30_000 });
-  const log = readFileSync(join(dataDir, 'app.log'), 'utf8');
-  expect(log).toContain('local AI translation loaded');
+  console.log(log().split('\n').filter((l) => /local AI|local-ai/.test(l)).join('\n'));
   const folder = join(recordsDir, readdirSync(recordsDir).find((f) => f !== 'voice-profile.json')!);
   const md = readFileSync(join(folder, 'transcript.md'), 'utf8');
   console.log(md.split('\n').filter((l) => l.trim()).slice(0, 14).join('\n'));
