@@ -129,13 +129,23 @@ export class OpenAiCompatibleLlm implements Llm {
     };
     const headers: Record<string, string> = {};
     if (this.cfg.apiKey) headers.Authorization = `Bearer ${this.cfg.apiKey}`;
-    const res = await httpJson<ChatResponse>(this.ctx, this.label, url, {
-      method: 'POST',
-      json: body,
-      headers,
-      timeoutMs: this.cfg.timeoutMs ?? (req.json ? 120000 : 20000),
-      signal: req.signal,
-    });
+    const send = (b: Record<string, unknown>) =>
+      httpJson<ChatResponse>(this.ctx, this.label, url, {
+        method: 'POST',
+        json: b,
+        headers,
+        timeoutMs: this.cfg.timeoutMs ?? (req.json ? 120000 : 20000),
+        signal: req.signal,
+      });
+    let res: ChatResponse;
+    try {
+      res = await send(body);
+    } catch (err) {
+      // Some OpenAI-compatible hosts reject response_format; the prompt asks for JSON anyway.
+      if (!(err instanceof ProviderError) || err.status !== 400 || !req.json) throw err;
+      const { response_format: _drop, ...rest } = body;
+      res = await send(rest);
+    }
     const content = res.choices?.[0]?.message?.content;
     if (typeof content !== 'string' || !content.trim()) {
       throw new ProviderError(`${this.label}：返回内容为空${res.error?.message ? `（${res.error.message}）` : ''}`, 'llm', { retryable: true });
