@@ -39,7 +39,7 @@ test('demo meeting: microphone audio becomes bilingual segments and a saved reco
   await win.getByRole('button', { name: '录音录屏' }).click();
   const audio = win.locator('audio').first();
   await expect(audio).toBeVisible();
-  await expect.poll(async () => audio.evaluate((el: HTMLAudioElement) => (el.error ? -1 : el.readyState)), { timeout: 15_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => audio.evaluate((el) => { const a = el as unknown as { error: unknown; readyState: number }; return a.error ? -1 : a.readyState; }), { timeout: 15_000 }).toBeGreaterThan(0);
   await win.getByRole('button', { name: '中文纪要' }).click();
   await win.getByRole('button', { name: '生成纪要' }).click();
   await expect(win.getByText('新产品交货与价格洽谈').first()).toBeVisible({ timeout: 20_000 });

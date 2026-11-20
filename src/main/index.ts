@@ -27,6 +27,7 @@ import { MeetingsStore } from './stores/meetings-store';
 import { SecretStore } from './stores/secret-store';
 import { SettingsStore } from './stores/settings-store';
 import { createAudioWindow, createMainWindow, createOverlayWindow } from './windows';
+import { checkForUpdate } from './update-check';
 import { TRAY_IDLE, TRAY_LIVE, TRAY_TEMPLATE } from './assets/tray-icons';
 
 // Chromium mixes audio of *other* windows back into "exclude own audio" loopback captures unless
@@ -481,6 +482,12 @@ app.whenReady().then(() => {
   settings.on('changed', () => updateTray());
   sessionManager.on('ended', () => updateTray());
   log.info(`started ${app.getVersion()} on ${process.platform} ${process.arch}`);
+  // A quiet check for a newer release on GitHub (no auto-install: unsigned builds).
+  setTimeout(() => {
+    void checkForUpdate(app.getVersion(), log).then((u) => {
+      if (u) broadcast('toast', { level: 'info', message: `有新版本 ${u.version} 可以下载：设置 › 关于 › GitHub Releases` });
+    });
+  }, 8000);
 });
 
 app.on('activate', () => showMain());
