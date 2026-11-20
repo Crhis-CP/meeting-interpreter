@@ -1,7 +1,7 @@
 {
   "name": "meeting-interpreter",
   "productName": "MeetingInterpreter",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "会议同传助手：Teams / 飞书 / 腾讯会议等任意会议软件里的中文⇄西班牙语实时语音同传，支持手机扫码加入现场会议房间",
   "license": "MIT",
   "author": {
