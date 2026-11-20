@@ -19,6 +19,8 @@ import type { TranscriptSegment } from '@core/types';
 import { createMobileContext, keepAwake, native, nativeFetchLarge, openExternal } from './native';
 import { OFFLINE_MT_BYTES, OfflineMt } from '../../src/browser/offline-mt/engine';
 import { OfflineTranslator } from '@core/providers/offline-translator';
+import { emptyProfile, personalFor, ProfileSchema, type VoiceProfile } from '@core/profile/profile';
+import { profileJson, profileSummary, readProfileFile } from '../../src/browser/profile-io';
 import { checkForUpdate } from '../../src/main/update-check';
 
 declare const __APP_VERSION__: string;
@@ -155,6 +157,7 @@ async function start() {
         tts: providers.tts(side === 'zh' ? 'out' : 'in'),
         voice: (side === 'zh' ? settings.voiceForeign : settings.voiceChinese) || undefined,
         glossary: () => [],
+        personal: () => personalFor(profile, side === 'zh' ? 'zh' : lang(settings.remote).base),
         pinyinFuzzy: true,
         lowLatency: true,
         clock: () => (Date.now() - t0) / 1000,
@@ -420,6 +423,42 @@ function offlineRow(): HTMLElement {
 }
 
 /** Record 16 s of my voice and clone it with 百炼, so the other side hears my own voice. */
+/** The voice profile imported from the desktop app (kept on this phone). */
+let profile: VoiceProfile = (() => {
+  try {
+    const r = ProfileSchema.safeParse(JSON.parse(localStorage.getItem('mi-profile') ?? 'null'));
+    return r.success ? r.data : emptyProfile();
+  } catch {
+    return emptyProfile();
+  }
+})();
+
+function profileGroup(close: () => void): HTMLElement {
+  const status = h('small', {}, `当前：${profileSummary(profile)}`);
+  const input = h('input', { type: 'file', accept: '.json,application/json', style: 'display:none' }) as HTMLInputElement;
+  input.onchange = async () => {
+    const f = input.files?.[0];
+    if (!f) return;
+    try {
+      profile = await readProfileFile(f, profile);
+      localStorage.setItem('mi-profile', profileJson(profile));
+      status.textContent = `已导入：${profileSummary(profile)}`;
+    } catch (err) {
+      status.textContent = err instanceof Error ? err.message : String(err);
+    }
+  };
+  return h(
+    'div',
+    { class: 'group' },
+    h('label', { class: 'row' }, h('span', {}, '口音档案'), status, h('small', {}, '在电脑版做口音校准后点“导出”，把 voice-profile.json 传到手机上再导入，识别会按你的口音自动改对。')),
+    input,
+    h('button', { class: 'link', onclick: () => input.click() }, '导入 voice-profile.json'),
+    profile.corrections.length
+      ? h('button', { class: 'link', onclick: () => { profile = emptyProfile(); localStorage.removeItem('mi-profile'); close(); } }, '清除口音档案')
+      : null,
+  );
+}
+
 function myVoiceGroup(close: () => void): HTMLElement {
   const status = h('small', {});
   const consent = h('input', { type: 'checkbox', class: 'switch' });
@@ -501,6 +540,7 @@ function openSettings(hint?: string) {
       row(`字号 ${settings.fontSize}`, h('input', { type: 'range', min: 16, max: 34, value: settings.fontSize, oninput: (e: Event) => (settings.fontSize = Number((e.target as HTMLInputElement).value)) })),
     ),
     myVoiceGroup(close),
+    profileGroup(close),
     h('div', { class: 'group' },
       row('演示模式', h('input', { type: 'checkbox', class: 'switch', checked: settings.provider === 'demo', disabled: webOnly, onchange: (e: Event) => (settings.provider = (e.target as HTMLInputElement).checked ? 'demo' : 'dashscope') }), '不用 Key，只看效果'),
     ),

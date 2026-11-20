@@ -13,6 +13,8 @@ import type { Direction, MeetingMeta, TranscriptSegment } from '@core/types';
 import { consoleLogger, createBrowserContext } from './browser-context';
 import { buildProviders, offlineMt } from './engine-providers';
 import { OfflineTranslator } from '@core/providers/offline-translator';
+import { personalFor } from '@core/profile/profile';
+import { baseOf } from '@core/lang/languages';
 import { PORT_NAME, toAppSettings, type EngineToPage, type FromOffscreen, type PageToEngine, type SavedMeeting, type SessionState, type StoredData, type ToOffscreen, type DOmit } from './shared';
 
 const log = consoleLogger('engine');
@@ -170,6 +172,7 @@ async function start(msg: Extract<ToOffscreen, { type: 'start' }>) {
         asr: providers.asr(dir),
         translator: providers.mt(dir),
         draft: cfg.mt === 'offline' || cfg.mt === 'demo' ? undefined : draft,
+        personal: () => personalFor(data.profile, baseOf(src)),
         tts: providers.tts(dir),
         voice: cfg.voice || undefined,
         glossary: () => data.glossary,

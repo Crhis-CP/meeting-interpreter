@@ -403,7 +403,7 @@ const handlers: Record<string, Handler> = {
   'profile.importFile': async () => {
     const res = await dialog.showOpenDialog(mainWindow!, { title: '导入口音档案', filters: [{ name: '口音档案', extensions: ['json'] }], properties: ['openFile'] });
     if (res.canceled || !res.filePaths[0]) return null;
-    const raw = readFileSync(res.filePaths[0], 'utf8');
+    const raw = readFileSync(res.filePaths[0], 'utf8').replace(/^\uFEFF/, '');
     if (raw.length > 5_000_000) throw new Error('文件太大，不是口音档案');
     const other = ProfileSchema.safeParse((() => { try { return JSON.parse(raw); } catch { return null; } })());
     if (!other.success) throw new Error('这个文件不是会议同传的口音档案');

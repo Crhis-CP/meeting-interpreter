@@ -15,6 +15,8 @@ import { consoleLogger, createBrowserContext } from './browser-context';
 import { buildProviders, offlineMt, usesDesktop } from './engine-providers';
 import { DESKTOP_BRIDGE_PORT, pingDesktop } from '@core/bridge/desktop';
 import { h, settingsProblem } from './dom';
+import { profileJson, profileSummary, readProfileFile } from '../../src/browser/profile-io';
+import { emptyProfile } from '@core/profile/profile';
 import { DESKTOP_DOWNLOAD, KEY_LINKS, loadAll, missingKey, toAppSettings, withDefaults, type ExtSettings, type ProviderSet, type SavedMeeting } from './shared';
 
 const app = document.getElementById('app')!;
@@ -263,7 +265,42 @@ async function renderSettings(body: HTMLElement) {
     field(`字幕字号 ${s.subtitleSize}`, h('input', { type: 'range', min: 14, max: 40, value: s.subtitleSize, onchange: (e: Event) => void set({ subtitleSize: Number((e.target as HTMLInputElement).value) }) })),
   );
   body.append(more);
+  body.append(await profileCard());
   if (location.hash === '#test') document.getElementById('test')?.scrollIntoView();
+}
+
+/** The voice profile from the desktop app: import, export, clear. */
+async function profileCard(): Promise<HTMLElement> {
+  const { profile } = await loadAll();
+  const msg = h('span', { class: 'muted small' }, '');
+  const input = h('input', { type: 'file', accept: '.json,application/json', style: 'display:none' }) as HTMLInputElement;
+  input.onchange = async () => {
+    const f = input.files?.[0];
+    if (!f) return;
+    try {
+      const next = await readProfileFile(f, (await loadAll()).profile);
+      await chrome.storage.local.set({ voiceProfile: next });
+      void render();
+    } catch (err) {
+      msg.textContent = err instanceof Error ? err.message : String(err);
+    }
+  };
+  return h(
+    'div',
+    { class: 'card', id: 'profile' },
+    h('h3', {}, '口音档案（越用越准）'),
+    h('p', { class: 'hint' }, '口音校准和纠错词表在电脑版里做（设置 › 同传与语言）。在电脑版点“导出”，再在这里导入，插件也会按你的口音自动改对识别错的词。只保存在这个浏览器里。'),
+    h('div', {}, `当前：${profileSummary(profile)}`),
+    h(
+      'div',
+      { class: 'row' },
+      input,
+      h('button', { class: 'btn', onclick: () => input.click() }, '导入 voice-profile.json'),
+      profile.corrections.length ? h('button', { class: 'btn', onclick: () => download('voice-profile.json', profileJson(profile), 'application/json') }, '导出') : '',
+      profile.corrections.length ? h('button', { class: 'btn', onclick: async () => { if (confirm('清除口音档案？')) { await chrome.storage.local.set({ voiceProfile: emptyProfile() }); void render(); } } }, '清除') : '',
+      msg,
+    ),
+  );
 }
 
 /** “用我的声音”: record 16 s, clone it with 百炼, and let the other side hear my own voice. */

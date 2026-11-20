@@ -1,6 +1,7 @@
 import { parseSettings, type AppSettings, type Secrets } from '@core/config/schema';
 import type { GlossaryEntry } from '@core/glossary/types';
 import type { MeetingMeta, TranscriptSegment } from '@core/types';
+import { emptyProfile, ProfileSchema, type VoiceProfile } from '@core/profile/profile';
 
 /** Web meeting sites where the extension takes over the microphone and shows subtitles. */
 export const MEETING_SITES = [
@@ -121,14 +122,18 @@ export interface StoredData {
   settings: ExtSettings;
   secrets: Secrets;
   glossary: GlossaryEntry[];
+  /** The voice profile imported from the desktop app (learned corrections, accent patterns). */
+  profile: VoiceProfile;
 }
 
 export async function loadAll(): Promise<StoredData> {
-  const r = await chrome.storage.local.get(['settings', 'secrets', 'glossary']);
+  const r = await chrome.storage.local.get(['settings', 'secrets', 'glossary', 'voiceProfile']);
+  const profile = ProfileSchema.safeParse(r.voiceProfile);
   return {
     settings: withDefaults(r.settings as Partial<ExtSettings> | undefined),
     secrets: (r.secrets as Secrets | undefined) ?? {},
     glossary: (r.glossary as GlossaryEntry[] | undefined) ?? [],
+    profile: profile.success ? profile.data : emptyProfile(),
   };
 }
 

@@ -230,3 +230,25 @@ test('extension: free offline translation (models downloaded into the browser)',
   await ext.evaluate(() => chrome.runtime.sendMessage({ type: 'stop' }));
   await context.close();
 });
+
+test('extension: the voice profile exported from the desktop app can be imported', async () => {
+  const { context, ext } = await launch();
+  const file = join(mkdtempSync(join(tmpdir(), 'mi-prof-')), 'voice-profile.json');
+  writeFileSync(
+    file,
+    '﻿' +
+      JSON.stringify({ version: 1, corrections: [{ heard: '河同', meant: '合同', lang: 'zh', count: 1, source: 'edit', updatedAt: 1 }], confusions: { 'l-n': 3 }, calibrations: [], updatedAt: 1 }),
+  );
+  const card = ext.locator('#profile');
+  await expect(card).toContainText('还没有导入');
+  await card.locator('input[type=file]').setInputFiles(file);
+  await expect(ext.locator('#profile')).toContainText('1 条纠错，口音特点：l/n', { timeout: 10_000 });
+  const stored = await ext.evaluate(async () => (await chrome.storage.local.get('voiceProfile')).voiceProfile as { corrections: unknown[] });
+  expect(stored.corrections).toHaveLength(1);
+  // Not a profile: refused with a message.
+  const bad = join(mkdtempSync(join(tmpdir(), 'mi-prof-')), 'x.json');
+  writeFileSync(bad, '{"hello":1}');
+  await ext.locator('#profile input[type=file]').setInputFiles(bad);
+  await expect(ext.locator('#profile')).toContainText('不是会议同传的口音档案');
+  await context.close();
+});
