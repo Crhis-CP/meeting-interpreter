@@ -5,6 +5,7 @@ import { AzureAsr, AzureTts } from './azure';
 import { AzureTranslator } from './azure-translator';
 import { DashscopeAsr, DashscopeTts, QwenMtTranslator, type DashscopeConfig } from './dashscope';
 import { DeeplTranslator } from './deepl';
+import { FallbackAsr } from './fallback-asr';
 import { LlmTranslator } from './llm-translator';
 import { MockAsr, MockLlm, MockTranslator, MockTts } from './mock';
 import { llmPreset, OpenAiCompatibleLlm } from './openai-compatible';
@@ -32,6 +33,9 @@ const NAMES: Record<string, string> = {
   llm: '大模型',
   deepl: 'DeepL',
 };
+
+/** DashScope recognisers that handle both Chinese and Spanish, newest first. */
+export const DASHSCOPE_ASR_FALLBACKS = ['qwen-audio-3.1-asr-flash-streaming', 'qwen-audio-3.0-asr-flash-streaming', 'fun-asr-realtime'];
 
 function need(secrets: Secrets, name: keyof Secrets): string {
   const v = secrets[name];
@@ -97,8 +101,16 @@ export function createProviders(
     switch (cfg(dir).asr) {
       case 'demo':
         return new MockAsr(remoteScript(dir));
-      case 'dashscope':
-        return new DashscopeAsr(dashscopeConfig(settings, secrets), ctx);
+      case 'dashscope': {
+        const base = dashscopeConfig(settings, secrets);
+        const primary = base.asrModel ?? 'qwen-audio-3.1-asr-flash-streaming';
+        // If the chosen model isn't available to this account/host, fall back to older ones.
+        const models = [primary, ...DASHSCOPE_ASR_FALLBACKS.filter((m) => m !== primary)];
+        return new FallbackAsr(
+          models.map((m) => new DashscopeAsr({ ...base, asrModel: m }, ctx)),
+          (_from, to, err) => ctx.log.warn(`DashScope ASR falls back to ${models[to]}: ${err.message}`),
+        );
+      }
       case 'azure':
         return new AzureAsr(azureConfig(settings, secrets), ctx);
       case 'local':
