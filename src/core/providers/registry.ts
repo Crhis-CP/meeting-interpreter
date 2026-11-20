@@ -64,6 +64,9 @@ export function makeLlm(settings: AppSettings, secrets: Secrets, ctx: ProviderCo
       model: (forSummary && settings.llm.summaryModel) || settings.llm.model || p?.model || '',
       extraBody: p?.extraBody,
       label: p?.name ?? '大模型',
+      maxConcurrent: p?.maxConcurrent,
+      // Fall back only from the preset's own model (a custom model name means the user chose it).
+      fallbackModels: !settings.llm.model || settings.llm.model === p?.model ? p?.fallbackModels : undefined,
     },
     ctx,
   );
