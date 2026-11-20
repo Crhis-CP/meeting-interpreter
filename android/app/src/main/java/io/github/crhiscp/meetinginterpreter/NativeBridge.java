@@ -57,9 +57,24 @@ final class NativeBridge {
         return m;
     }
 
+    /** The bridge only talks to the internet over TLS (https / wss). */
+    private static boolean secureUrl(String url, String scheme) {
+        try {
+            URI u = URI.create(url);
+            return scheme.equalsIgnoreCase(u.getScheme()) && u.getHost() != null && !u.getHost().isEmpty();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     @JavascriptInterface
     public void wsOpen(String id, String url, String headersJson) {
         final String q = JSONObject.quote(id);
+        if (!secureUrl(url, "wss")) {
+            js("MiNativeEvents.ws(" + q + ",'error','只允许 wss:// 连接')");
+            js("MiNativeEvents.ws(" + q + ",'close','',1006)");
+            return;
+        }
         MiniWebSocket ws = new MiniWebSocket(URI.create(url), parseHeaders(headersJson), new MiniWebSocket.Listener() {
             @Override public void onOpen() { js("MiNativeEvents.ws(" + q + ",'open','')"); }
             @Override public void onText(String text) { js("MiNativeEvents.ws(" + q + ",'text'," + JSONObject.quote(text) + ")"); }
@@ -99,6 +114,10 @@ final class NativeBridge {
     public void http(String id, String method, String url, String headersJson, String bodyBase64) {
         pool.execute(() -> {
             String q = JSONObject.quote(id);
+            if (!secureUrl(url, "https")) {
+                js("MiNativeEvents.http(" + q + ",0,'{}','','只允许 https:// 请求')");
+                return;
+            }
             HttpURLConnection c = null;
             try {
                 c = (HttpURLConnection) new URL(url).openConnection();
@@ -138,6 +157,10 @@ final class NativeBridge {
     public void downloadToCache(String id, String url, String name) {
         pool.execute(() -> {
             String q = JSONObject.quote(id);
+            if (!secureUrl(url, "https")) {
+                js("MiNativeEvents.dl(" + q + ",-2,0,'只允许 https:// 下载')");
+                return;
+            }
             try {
                 java.io.File dir = new java.io.File(activity.getCacheDir(), "mt");
                 dir.mkdirs();
@@ -186,7 +209,15 @@ final class NativeBridge {
 
     @JavascriptInterface
     public void openUrl(String url) {
-        activity.runOnUiThread(() -> activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))));
+        // Only web pages open outside the app (never intent:, file:, javascript: …).
+        if (!secureUrl(url, "https")) return;
+        activity.runOnUiThread(() -> {
+            try {
+                activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+            } catch (android.content.ActivityNotFoundException ignored) {
+                // no browser installed
+            }
+        });
     }
 
     void shutdown() {

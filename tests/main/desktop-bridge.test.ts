@@ -94,3 +94,21 @@ describe('desktop bridge', () => {
     expect(await pingDesktop(createNodeContext(log), base)).toBeNull();
   });
 });
+
+describe('desktop bridge: only this computer, by its own address', () => {
+  it('refuses a DNS-rebinding host name', async () => {
+    const { DesktopBridge } = await import('../../src/main/bridge/desktop-bridge');
+    const { createLogger } = await import('@core/log');
+    const bridge = new DesktopBridge({ version: '1', log: createLogger('t'), enabled: () => true, asr: () => { throw new Error('x'); }, tts: () => ({ id: 't', voices: () => [], async *synthesize() {} }), modelsReady: () => true, ensureModels: async () => {} }, 0);
+    await bridge.start();
+    const port = ((bridge as unknown as { server: import('node:http').Server }).server.address() as import('node:net').AddressInfo).port;
+    const http = await import('node:http');
+    const get = (host: string) =>
+      new Promise<number>((resolve) => http.get({ host: '127.0.0.1', port, path: '/ping', headers: { Host: host } }, (r) => resolve(r.statusCode ?? 0)).on('error', () => resolve(-1)));
+    expect(await get(`127.0.0.1:${port}`)).toBe(200);
+    expect(await get(`localhost:${port}`)).toBe(200);
+    expect(await get(`evil.example.com:${port}`)).toBe(403);
+    expect(await get('127.0.0.1')).toBe(403);
+    await bridge.stop();
+  });
+});

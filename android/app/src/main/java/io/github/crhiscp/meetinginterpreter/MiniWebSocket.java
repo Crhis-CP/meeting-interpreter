@@ -22,6 +22,7 @@ import javax.net.ssl.SSLSocketFactory;
  * request headers in the handshake, which cloud speech services use for their API keys.
  */
 final class MiniWebSocket {
+    private static final long MAX_FRAME = 16L * 1024 * 1024;
     interface Listener {
         void onOpen();
         void onText(String text);
@@ -143,6 +144,8 @@ final class MiniWebSocket {
                 len = 0;
                 for (int i = 0; i < 8; i++) len = (len << 8) | readByte(in);
             }
+            // A server can claim any length: refuse frames no speech service ever sends.
+            if (len < 0 || len > MAX_FRAME) throw new IOException("frame too large");
             byte[] mask = null;
             if ((b1 & 0x80) != 0) {
                 mask = new byte[4];
@@ -168,6 +171,7 @@ final class MiniWebSocket {
                     messageOpcode = opcode;
                     message.reset();
                 }
+                if (message.size() + payload.length > 2 * MAX_FRAME) throw new IOException("message too large");
                 message.write(payload);
                 if (fin) {
                     byte[] data = message.toByteArray();

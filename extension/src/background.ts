@@ -122,7 +122,13 @@ function ruleId(url: string): number {
   return h + 1;
 }
 
+/** Messages from the extension's own pages (popup, options, offscreen) — never from a web page's content script. */
+const fromExtensionPage = (sender: chrome.runtime.MessageSender) => sender.id === chrome.runtime.id && (sender.url ?? '').startsWith(`chrome-extension://${chrome.runtime.id}/`);
+
 chrome.runtime.onMessage.addListener((msg: ToBackground | FromOffscreen | { type: 'bridgeReady' }, sender, reply) => {
+  if (!msg || typeof msg !== 'object') return;
+  // Content scripts (inside meeting pages) may only ask whether interpretation is running there.
+  if (!fromExtensionPage(sender) && (msg as { type?: string }).type !== 'bridgeReady') return;
   (async () => {
     if ('target' in msg && msg.target === 'background') {
       switch (msg.type) {

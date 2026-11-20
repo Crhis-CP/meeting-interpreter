@@ -158,6 +158,7 @@ export class OpenAiCompatibleLlm implements Llm {
   async complete(req: LlmRequest): Promise<string> {
     if (!this.cfg.baseUrl) throw new ProviderError(`${this.label}：未填写接口地址`, 'llm');
     if (!this.cfg.model) throw new ProviderError(`${this.label}：未填写模型名`, 'llm');
+    if (!isSafeEndpoint(this.cfg.baseUrl)) throw new ProviderError(`${this.label}：接口地址必须是 https://（本机 http://localhost 除外），否则 Key 会明文发出去`, 'llm');
     const url = `${this.cfg.baseUrl.replace(/\/+$/, '')}/chat/completions`;
     const body: Record<string, unknown> = {
       model: this.cfg.model,
@@ -227,5 +228,16 @@ export class OpenAiCompatibleLlm implements Llm {
     }
     // Some reasoning models put their thinking in <think> tags inside the content.
     return content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  }
+}
+
+/** Keys only travel over HTTPS (plain http only to this computer, e.g. a local model server). */
+export function isSafeEndpoint(baseUrl: string): boolean {
+  try {
+    const u = new URL(baseUrl);
+    if (u.protocol === 'https:') return true;
+    return u.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
+  } catch {
+    return false;
   }
 }

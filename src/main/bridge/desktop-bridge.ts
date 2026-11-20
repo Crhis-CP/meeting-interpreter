@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { bytesToInt16, int16ToBytes, concatInt16 } from '../../core/audio/pcm';
 import { bridgeOriginAllowed, DESKTOP_BRIDGE_APP, DESKTOP_BRIDGE_PORT, type BridgeAsrServerMessage, type BridgePing } from '../../core/bridge/desktop';
@@ -23,12 +24,23 @@ export interface DesktopBridgeDeps {
 
 /**
  * Serves the free offline recognition and the computer's voices to the Chrome extension on
- * 127.0.0.1 only. Web pages cannot use it: requests carrying a web Origin are refused.
+ * 127.0.0.1 only. Web pages cannot use it: requests carrying a web Origin are refused, and so
+ * are requests for any other host name (a web page re-pointing its own domain at 127.0.0.1).
  */
+const MAX_ASR_CLIENTS = 4;
+const MAX_TTS_AT_ONCE = 2;
+
 export class DesktopBridge {
   private server: Server | null = null;
   private wss: WebSocketServer | null = null;
   private clients = new Set<WebSocket>();
+  private ttsBusy = 0;
+
+  /** Only our own address is accepted as the Host (blocks DNS rebinding). */
+  private hostAllowed(host: string | undefined): boolean {
+    const port = (this.server?.address() as AddressInfo | null)?.port ?? this.port;
+    return !!host && [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`].includes(host.toLowerCase());
+  }
 
   constructor(
     private readonly d: DesktopBridgeDeps,
@@ -45,7 +57,7 @@ export class DesktopBridge {
     const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
     server.on('upgrade', (req, socket, head) => {
       const url = new URL(req.url ?? '/', 'http://localhost');
-      if (!this.d.enabled() || url.pathname !== '/asr' || !bridgeOriginAllowed(req.headers.origin)) {
+      if (!this.d.enabled() || url.pathname !== '/asr' || !bridgeOriginAllowed(req.headers.origin) || !this.hostAllowed(req.headers.host) || this.clients.size >= MAX_ASR_CLIENTS) {
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
         socket.destroy();
         return;
@@ -94,6 +106,7 @@ export class DesktopBridge {
   }
 
   private async http(req: IncomingMessage, res: ServerResponse) {
+    if (!this.hostAllowed(req.headers.host)) return void res.writeHead(403).end();
     if (!this.cors(req, res)) return;
     if (!this.d.enabled()) return void res.writeHead(503).end('disabled');
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -114,11 +127,17 @@ export class DesktopBridge {
     if (req.method === 'POST' && url.pathname === '/tts') {
       const body = JSON.parse(await readBody(req, 64 * 1024)) as { text?: string; lang?: string; voice?: string; rate?: number };
       if (!body.text || !body.lang || !LANGUAGES[body.lang]) return void res.writeHead(400).end('bad request');
+      if (this.ttsBusy >= MAX_TTS_AT_ONCE) return void res.writeHead(429).end('busy');
       const chunks: Int16Array[] = [];
       let rate = 22050;
-      for await (const c of this.d.tts().synthesize({ text: body.text.slice(0, 2000), lang: body.lang, voice: body.voice || undefined, rate: Number(body.rate) || 1 })) {
-        chunks.push(c.samples);
-        rate = c.sampleRate;
+      this.ttsBusy++;
+      try {
+        for await (const c of this.d.tts().synthesize({ text: String(body.text).slice(0, 2000), lang: body.lang, voice: typeof body.voice === 'string' ? body.voice : undefined, rate: Math.min(2, Math.max(0.5, Number(body.rate) || 1)) })) {
+          chunks.push(c.samples);
+          rate = c.sampleRate;
+        }
+      } finally {
+        this.ttsBusy--;
       }
       const pcm = int16ToBytes(concatInt16(chunks));
       return void res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'X-Sample-Rate': String(rate) }).end(Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength));

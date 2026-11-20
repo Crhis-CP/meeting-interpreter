@@ -37,6 +37,7 @@ public class MainActivity extends Activity {
         s.setDomStorageEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setAllowFileAccess(false);
+        s.setAllowContentAccess(false);
 
         bridge = new NativeBridge(this, web);
         web.addJavascriptInterface(bridge, "MiNative");
@@ -66,7 +67,14 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri u = request.getUrl();
                 if (ORIGIN.equals(u.getScheme() + "://" + u.getHost())) return false;
-                startActivity(new Intent(Intent.ACTION_VIEW, u));
+                // Links leave the app only as web pages, in the browser.
+                if ("https".equalsIgnoreCase(u.getScheme())) {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, u));
+                    } catch (android.content.ActivityNotFoundException ignored) {
+                        // no browser installed
+                    }
+                }
                 return true;
             }
         });
@@ -74,6 +82,15 @@ public class MainActivity extends Activity {
             @Override
             public void onPermissionRequest(PermissionRequest request) {
                 runOnUiThread(() -> {
+                    // Only our own page, and only the microphone.
+                    Uri o = request.getOrigin();
+                    boolean ours = o != null && ORIGIN.equals(o.getScheme() + "://" + o.getHost());
+                    boolean micOnly = true;
+                    for (String r : request.getResources()) if (!PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) micOnly = false;
+                    if (!ours || !micOnly) {
+                        request.deny();
+                        return;
+                    }
                     if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                         request.grant(request.getResources());
                     } else {

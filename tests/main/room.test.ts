@@ -147,3 +147,68 @@ describe('RoomHost', () => {
   });
 });
 
+
+describe('room limits', () => {
+  const setup = async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mi-room-lim-'));
+    const staticDir = mkdtempSync(join(tmpdir(), 'mi-static-'));
+    writeFileSync(join(staticDir, 'room.html'), '<!doctype html><title>room</title>');
+    const settings = applyPreset(defaultSettings(), 'demo');
+    settings.room.port = 0;
+    const providers: ProviderSet = { asr: () => new MockAsr('self'), mt: () => new MockTranslator(), tts: () => new MockTts(), llm: () => null, describe: () => ({}) } as ProviderSet;
+    const log = createLogger('test');
+    const session = new SessionManager({ settings: () => settings, glossary: () => [], providers: () => providers, recordsDir: () => dir, toAudio: () => {}, broadcast: () => {}, log });
+    const room = new RoomHost({ settings: () => settings, session, providers: () => providers as never, glossary: () => [], toAudio: () => {}, broadcast: () => {}, log, dataDir: dir, staticDir: () => staticDir, devUrl: () => undefined, insecure: true, limits: { participants: 3, talkers: 1, badJoins: 3 } });
+    const st = await room.start();
+    const url = new URL(st.urls[0]!);
+    return { room, session, port: url.port, token: url.searchParams.get('t')! };
+  };
+  const joinRoom = async (port: string, token: string, name: string) => {
+    const c = new Client(`ws://127.0.0.1:${port}/ws`);
+    await c.opened();
+    c.send({ t: 'join', name, lang: 'zh-CN', token, v: ROOM_PROTOCOL_VERSION });
+    await waitFor(() => c.msgs.some((m) => m.t === 'welcome' || m.t === 'error'));
+    return c;
+  };
+
+  it('uses a long random link token', async () => {
+    const { room, token } = await setup();
+    expect(token.length).toBeGreaterThanOrEqual(22);
+    await room.stop();
+  });
+
+  it('caps participants and people talking at once', async () => {
+    const { room, port, token } = await setup();
+    const a = await joinRoom(port, token, 'a');
+    const b = await joinRoom(port, token, 'b');
+    await joinRoom(port, token, 'c');
+    const d = await joinRoom(port, token, 'd');
+    expect(d.msgs.some((m) => m.t === 'error' && /人数已满/.test(m.message))).toBe(true);
+    a.send({ t: 'talk', on: true });
+    await waitFor(() => a.msgs.some((m) => m.t === 'peers' && m.peers.some((p) => p.name === 'a' && p.talking)));
+    b.send({ t: 'talk', on: true });
+    await waitFor(() => b.msgs.some((m) => m.t === 'error' && /同时说话/.test(m.message)));
+    await room.stop();
+  });
+
+  it('locks out a client that keeps guessing the link', async () => {
+    const { room, port, token } = await setup();
+    for (let i = 0; i < 3; i++) await joinRoom(port, 'wrong', 'x');
+    const c = await joinRoom(port, token, 'late');
+    expect(c.msgs.some((m) => m.t === 'error' && /尝试次数过多/.test(m.message))).toBe(true);
+    await room.stop();
+  });
+
+  it('will not open a room while an online meeting is being interpreted', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mi-room-busy-'));
+    const settings = applyPreset(defaultSettings(), 'demo');
+    settings.room.port = 0;
+    const providers = { asr: () => new MockAsr('self'), mt: () => new MockTranslator(), tts: () => new MockTts(), llm: () => null, describe: () => ({}) } as ProviderSet;
+    const log = createLogger('test');
+    const session = new SessionManager({ settings: () => settings, glossary: () => [], providers: () => providers, recordsDir: () => dir, toAudio: () => {}, broadcast: () => {}, log });
+    await session.start({ mode: 'meeting' });
+    const room = new RoomHost({ settings: () => settings, session, providers: () => providers as never, glossary: () => [], toAudio: () => {}, broadcast: () => {}, log, dataDir: dir, staticDir: () => dir, devUrl: () => undefined, insecure: true });
+    await expect(room.start()).rejects.toThrow(/线上会议/);
+    await session.stop();
+  });
+});

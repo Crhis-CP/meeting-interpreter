@@ -47,3 +47,16 @@ describe('free-tier rate limits', () => {
     expect(peak).toBe(1);
   });
 });
+
+describe('LLM endpoints', () => {
+  it('only sends keys over HTTPS (plain http only to this computer)', async () => {
+    const { isSafeEndpoint } = await import('@core/providers/openai-compatible');
+    expect(isSafeEndpoint('https://open.bigmodel.cn/api/paas/v4')).toBe(true);
+    expect(isSafeEndpoint('http://localhost:11434/v1')).toBe(true);
+    expect(isSafeEndpoint('http://127.0.0.1:8080/v1')).toBe(true);
+    expect(isSafeEndpoint('http://api.example.com/v1')).toBe(false);
+    expect(isSafeEndpoint('http://localhost.evil.com/v1')).toBe(false);
+    expect(isSafeEndpoint('ftp://x')).toBe(false);
+    expect(isSafeEndpoint('not a url')).toBe(false);
+  });
+});

@@ -35,7 +35,24 @@ export interface RoomDeps {
   insecure?: boolean;
   /** Used to download cloudflared (the app passes Electron's proxy-aware net.fetch). */
   fetch?: typeof fetch;
+  /** Overrides of the room's limits (tests). */
+  limits?: Partial<RoomLimits>;
 }
+
+/** Limits that keep a leaked room link from running up the host's bills or exhausting the computer. */
+export interface RoomLimits {
+  participants: number;
+  /** People talking (each one runs recognition and translation) at the same time. */
+  talkers: number;
+  /** Sockets that have not joined yet. */
+  pending: number;
+  /** Wrong-link attempts from one address before it is locked out for the rest of the room. */
+  badJoins: number;
+  /** Audio a phone may send, bytes per second (16 kHz 16-bit speech is 32 000). */
+  audioBytesPerSecond: number;
+}
+
+const DEFAULT_LIMITS: RoomLimits = { participants: 30, talkers: 3, pending: 20, badJoins: 10, audioBytesPerSecond: 48_000 };
 
 interface Participant {
   id: string;
@@ -71,6 +88,9 @@ export class RoomHost {
   private server: Server | import('node:http').Server | null = null;
   private wss: WebSocketServer | null = null;
   private token = '';
+  private readonly limits: RoomLimits;
+  private badJoins = new Map<string, number>();
+  private pendingSockets = 0;
   private port = 0;
   private participants = new Map<string, Participant>();
   private startedSession = false;
@@ -85,6 +105,7 @@ export class RoomHost {
   hostListen = true;
 
   constructor(private readonly d: RoomDeps) {
+    this.limits = { ...DEFAULT_LIMITS, ...(d.limits ?? {}) };
     this.tunnel = new TunnelManager(join(d.dataDir, 'bin'), d.log.child('tunnel'), d.fetch);
   }
 
@@ -123,11 +144,14 @@ export class RoomHost {
   async start(): Promise<RoomState> {
     if (this.server) return this.state();
     const s = this.d.settings();
+    // A room never shares an online meeting's transcript with the phones.
+    if (this.d.session.active && this.d.session.currentMeta?.mode !== 'room') throw new Error('正在进行线上会议同传，请先结束会议，再开现场房间');
     if (!this.d.session.active) {
       await this.d.session.start({ mode: 'room' });
       this.startedSession = true;
     }
-    this.token = randomBytes(4).toString('hex');
+    this.token = randomBytes(16).toString('base64url');
+    this.badJoins.clear();
     const handler = (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => this.serveStatic(req, res);
     if (this.d.insecure) {
       const { createServer: createHttp } = await import('node:http');
@@ -137,7 +161,7 @@ export class RoomHost {
       this.server = createServer({ key, cert }, handler);
     }
     this.wss = new WebSocketServer({ server: this.server as Server, path: '/ws', maxPayload: 1 << 20 });
-    this.wss.on('connection', (ws) => this.onConnection(ws));
+    this.wss.on('connection', (ws, req) => this.onConnection(ws, req.socket.remoteAddress ?? ''));
     // Phones that went to sleep or lost Wi-Fi never close their socket: ping and drop them.
     this.heartbeat = setInterval(() => {
       for (const p of this.participants.values()) {
@@ -303,11 +327,27 @@ export class RoomHost {
     return [{ id: 'host', name: '主持人', lang: this.d.settings().languages.self, talking: false, host: true }, ...[...this.participants.values()].map((p) => ({ id: p.id, name: p.name, lang: p.lang, talking: p.talking }))];
   }
 
-  private onConnection(ws: WebSocket): void {
+  private onConnection(ws: WebSocket, address: string): void {
     let me: Participant | null = null;
+    const refuse = (message: string, code: number) => {
+      ws.send(JSON.stringify({ t: 'error', message, fatal: true } satisfies ServerMessage));
+      ws.close(code, 'refused');
+    };
+    if (this.pendingSockets >= this.limits.pending) return void ws.terminate();
+    this.pendingSockets++;
+    let pending = true;
+    const settle = () => {
+      if (pending) this.pendingSockets--;
+      pending = false;
+    };
     const timer = setTimeout(() => {
       if (!me) ws.close(4001, 'join timeout');
     }, 15000);
+    // Audio budget per phone (token bucket): a steady rate, with a few seconds of burst for a
+    // phone catching up after a network stall.
+    const burst = this.limits.audioBytesPerSecond * 5;
+    let budget = burst;
+    let budgetAt = Date.now();
     ws.on('pong', () => {
       if (me) me.alive = true;
     });
@@ -316,6 +356,11 @@ export class RoomHost {
       if (isBinary) {
         if (!me || !me.talking) return;
         const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+        const now = Date.now();
+        budget = Math.min(burst, budget + ((now - budgetAt) / 1000) * this.limits.audioBytesPerSecond);
+        budgetAt = now;
+        if (buf.byteLength > budget) return; // faster than anyone can speak: dropped
+        budget -= buf.byteLength;
         const frame = decodeFrame(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
         if (frame?.kind === 'audio') me.pipeline?.push(frame.pcm);
         return;
@@ -329,17 +374,20 @@ export class RoomHost {
       // Anything from the network may be malformed: never let it throw in the main process.
       if (!msg || typeof msg !== 'object' || typeof (msg as { t?: unknown }).t !== 'string') return;
       if (msg.t === 'join') {
+        if (me) return;
+        if ((this.badJoins.get(address) ?? 0) >= this.limits.badJoins) return refuse('尝试次数过多，请让主持人重新开房间 / Demasiados intentos', 4029);
         if (typeof msg.token !== 'string' || msg.token !== this.token) {
-          ws.send(JSON.stringify({ t: 'error', message: '房间链接已失效，请重新扫码 / El enlace de la sala ha caducado', fatal: true } satisfies ServerMessage));
-          ws.close(4003, 'bad token');
-          return;
+          this.badJoins.set(address, (this.badJoins.get(address) ?? 0) + 1);
+          return refuse('房间链接已失效，请重新扫码 / El enlace de la sala ha caducado', 4003);
         }
+        if (this.participants.size >= this.limits.participants) return refuse(`房间人数已满（最多 ${this.limits.participants} 人）/ La sala está llena`, 4008);
         if (msg.v !== ROOM_PROTOCOL_VERSION) {
           ws.send(JSON.stringify({ t: 'error', message: '请刷新页面 / Recarga la página / Please reload', fatal: true } satisfies ServerMessage));
           ws.close(4004, 'version');
           return;
         }
         clearTimeout(timer);
+        settle();
         const reqLang = typeof msg.lang === 'string' ? msg.lang : '';
         const code = LANGUAGES[reqLang] ? reqLang : reqLang.toLowerCase().startsWith('zh') ? 'zh-CN' : this.d.settings().languages.remote;
         me = { id: randomBytes(3).toString('hex'), ws, name: String(msg.name ?? '').trim().slice(0, 24) || (baseOf(code) === 'zh' ? '参会者' : baseOf(code) === 'en' ? 'Guest' : 'Invitado'), lang: code, talking: false, pipeline: null, alive: true };
@@ -366,6 +414,11 @@ export class RoomHost {
       }
       if (!me) return;
       if (msg.t === 'talk') {
+        const talkers = [...this.participants.values()].filter((p) => p.talking && p !== me).length;
+        if (msg.on === true && !me.talking && talkers >= this.limits.talkers) {
+          ws.send(JSON.stringify({ t: 'error', message: `同时说话的人太多了（最多 ${this.limits.talkers} 人），请等别人说完 / Espere su turno` } satisfies ServerMessage));
+          return;
+        }
         me.talking = msg.on === true;
         if (me.talking && !me.pipeline) {
           try {
@@ -383,6 +436,7 @@ export class RoomHost {
     });
     ws.on('close', () => {
       clearTimeout(timer);
+      settle();
       if (!me) return;
       const p = me;
       this.participants.delete(p.id);

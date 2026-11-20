@@ -1,0 +1,13 @@
+# Keeps the pinned GitHub Actions (by commit) and the npm dependencies up to date with
+# security fixes. Each update is a pull request that CI tests before anyone merges it.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

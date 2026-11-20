@@ -47,6 +47,7 @@ import { createAudioWindow, createMainWindow, createOverlayWindow } from './wind
 import { checkForUpdate } from './update-check';
 import { TRAY_IDLE, TRAY_LIVE, TRAY_TEMPLATE } from './assets/tray-icons';
 import { APP_SCHEME, appFilePath, contentTypeOf, isAppUrl } from './app-protocol';
+import { devRendererUrl } from './dev-url';
 
 // Chromium mixes audio of *other* windows back into "exclude own audio" loopback captures unless
 // this is disabled; we never want our own speech in the meeting capture.
@@ -56,7 +57,7 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 protocol.registerSchemesAsPrivileged([
   // The app's own pages (instead of file://, whose extra privileges are switched off in packaged builds).
   { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, codeCache: true } },
-  { scheme: 'mi-media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } },
+  { scheme: 'mi-media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
 const rendererDir = join(__dirname, '../renderer');
 
@@ -202,7 +203,7 @@ const room = new RoomHost({
   log: createLogger('room'),
   dataDir,
   staticDir: () => join(__dirname, '../renderer'),
-  devUrl: () => process.env['ELECTRON_RENDERER_URL'],
+  devUrl: () => devRendererUrl(),
   fetch: proxiedFetch,
 });
 
@@ -213,7 +214,13 @@ type Handler = (...args: never[]) => unknown;
 const handlers: Record<string, Handler> = {
   'settings.get': () => settings.get(),
   'settings.set': (patch: unknown) => {
-    const s = settings.set(patch);
+    // The records folder is only changed through the folder dialog (app.chooseRecordsDir).
+    const p = patch && typeof patch === 'object' ? { ...(patch as Record<string, unknown>) } : {};
+    if (p.recording && typeof p.recording === 'object') {
+      const { dir: _ignored, ...rest } = p.recording as Record<string, unknown>;
+      p.recording = rest;
+    }
+    const s = settings.set(p);
     sessionManager.refreshAudio();
     registerShortcuts();
     updateTray();
@@ -306,7 +313,12 @@ const handlers: Record<string, Handler> = {
     await shell.trashItem(meetings.folder(id));
   },
   'meetings.openFolder': (id: string) => shell.openPath(meetings.folder(id)),
-  'meetings.openFile': (id: string, rel: string) => shell.openPath(meetings.filePath(id, rel)),
+  'meetings.openFile': (id: string, rel: string) => {
+    const path = meetings.filePath(id, rel);
+    // Only open record files with their app; anything else is just shown in its folder.
+    if (/\.(md|srt|txt|json|wav|webm|m4a|mp4|mp3|ogg)$/i.test(path)) return shell.openPath(path);
+    shell.showItemInFolder(path);
+  },
   'meetings.fileUrl': (id: string, rel: string) => `mi-media://file/${encodeURIComponent(id)}/${rel.split('/').map(encodeURIComponent).join('/')}`,
 
   'meetings.editSegment': (id: string, segId: string, srcText: string) => editSegment(id, segId, srcText),
@@ -634,10 +646,13 @@ async function requireLocalModels(mode: 'meeting' | 'room'): Promise<void> {
 }
 
 /** IPC is answered only for our own pages (mi-app://, or the dev server while developing). */
+function isOurUrl(url: string): boolean {
+  const dev = devRendererUrl();
+  return isAppUrl(url) || (!!dev && (url === dev || url.startsWith(`${dev}/`)));
+}
+
 function fromOurPage(e: { senderFrame?: { url: string } | null }): boolean {
-  const url = e.senderFrame?.url ?? '';
-  const dev = process.env['ELECTRON_RENDERER_URL'];
-  return isAppUrl(url) || (!!dev && url.startsWith(`${dev}/`));
+  return isOurUrl(e.senderFrame?.url ?? '');
 }
 
 ipcMain.handle(IPC.invoke, async (e, method: string, ...args: unknown[]) => {
@@ -663,7 +678,7 @@ ipcMain.handle('mi:fetch-bytes', async (e, url: string) => {
     const b = readFileSync(path);
     return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
   }
-  if (u.protocol === 'http:' && process.env['ELECTRON_RENDERER_URL'] && url.startsWith(process.env['ELECTRON_RENDERER_URL'])) {
+  if (u.protocol === 'http:' && devRendererUrl() && url.startsWith(`${devRendererUrl()}/`)) {
     return (await fetch(url)).arrayBuffer();
   }
   if (u.protocol !== 'https:' || !MT_HOSTS.has(u.hostname)) throw new Error('not allowed');
@@ -815,8 +830,12 @@ app.whenReady().then(() => {
 
   // System-audio loopback for "meeting audio from system sound": Electron swaps in Chromium's
   // loopbackWithoutChrome when the page asks for restrictOwnAudio (macOS 14.2+, Windows 11).
+  // Microphone, screen and other permissions: only for our own pages.
+  session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback, details) => callback(isOurUrl(details.requestingUrl)));
+  session.defaultSession.setPermissionCheckHandler((_wc, _permission, origin) => isOurUrl(origin));
   session.defaultSession.setDisplayMediaRequestHandler(
-    (_request, callback) => {
+    (request, callback) => {
+      if (!isOurUrl(request.frame?.url ?? request.securityOrigin ?? '')) return callback({});
       desktopCapturer
         .getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } })
         .then((sources) => callback(sources[0] ? { video: sources[0], audio: 'loopback' } : {}))

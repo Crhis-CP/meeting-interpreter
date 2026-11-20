@@ -99,8 +99,10 @@ chrome.runtime.onConnect.addListener((port) => {
   port.postMessage({ t: 'subtitleStyle', size: session.data.settings.subtitleSize, showMine: session.data.settings.showMine } satisfies EngineToPage);
 });
 
-chrome.runtime.onMessage.addListener((msg: ToOffscreen, _sender, reply) => {
+chrome.runtime.onMessage.addListener((msg: ToOffscreen, sender, reply) => {
   if (msg?.target !== 'offscreen') return;
+  // Only the extension's own service worker / pages drive the engine, never a web page.
+  if (sender.id !== chrome.runtime.id || !(sender.url ?? '').startsWith(`chrome-extension://${chrome.runtime.id}/`)) return;
   (async () => {
     try {
       if (msg.type === 'start') {
