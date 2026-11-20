@@ -42,6 +42,15 @@ export interface PipelineOptions {
   log?: Logger;
   /** Backoff for reconnects in ms (tests shorten it). */
   reconnectDelays?: number[];
+  /**
+   * End the recognition session after the gate has been closed this long (ms); 0 keeps it open.
+   * Cloud services drop idle connections anyway; local models are slow to reload, so keep those.
+   */
+  idleCloseMs?: number;
+  /** Give up on a translation after this long (ms), so one stalled request can't silence a direction. */
+  translateTimeoutMs?: number;
+  /** Give up on synthesising one sentence after this long (ms). */
+  ttsTimeoutMs?: number;
 }
 
 export type PipelineEvents = {
@@ -60,7 +69,7 @@ interface Job {
   skipped: boolean;
 }
 
-const BUFFER_WHILE_CONNECTING = ASR_RATE * 2; // keep the last 2 s while (re)connecting
+const BUFFER_WHILE_CONNECTING = ASR_RATE * 8; // keep the last 8 s while (re)connecting or a model loads
 
 /**
  * One direction of interpretation: recognised speech → committed units → glossary correction →
@@ -88,6 +97,7 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
   private sentenceStart: number | null = null;
   private abort = new AbortController();
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private connecting = false;
 
   constructor(opts: PipelineOptions) {
     super();
@@ -111,7 +121,14 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
   }
 
   private async connect(isReconnect: boolean): Promise<void> {
-    if (this.stopping) return;
+    // One session at a time: a second connect while one is open or opening would leak a session
+    // (a whole worker process for local recognition, the only connection on Azure F0).
+    if (this.stopping || this.connecting || this.session) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.connecting = true;
     this.setState(isReconnect ? 'reconnecting' : 'connecting');
     try {
       const session = await this.o.asr.start({
@@ -136,6 +153,8 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
       this.log.warn('ASR connect failed', msg);
       this.setState('error', msg);
       this.scheduleReconnect();
+    } finally {
+      this.connecting = false;
     }
   }
 
@@ -189,9 +208,7 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
     while (this.pendingSamples > BUFFER_WHILE_CONNECTING && this.pendingAudio.length > 1) {
       this.pendingSamples -= this.pendingAudio.shift()!.length;
     }
-    if (!this.session && !this.reconnectTimer && this.state !== 'connecting' && this.state !== 'reconnecting') {
-      void this.connect(true);
-    }
+    if (!this.session && !this.reconnectTimer && !this.connecting) void this.connect(true);
   }
 
   /**
@@ -208,13 +225,17 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
     }
     if (!open) {
       this.session?.push(new Int16Array(Math.round(ASR_RATE * 1.2)));
-      this.idleTimer = setTimeout(() => {
-        const s = this.session;
-        this.session = null;
-        if (s) void s.end().catch(() => s.close());
-        if (!this.stopping) this.setState('idle');
-      }, 15000);
-    } else if (!this.session && !this.stopping && this.state !== 'connecting' && this.state !== 'reconnecting') {
+      const idle = this.o.idleCloseMs ?? 15000;
+      if (idle > 0) {
+        this.idleTimer = setTimeout(() => {
+          const s = this.session;
+          this.session = null;
+          if (s) void s.end().catch(() => s.close());
+          if (!this.stopping) this.setState('idle');
+        }, idle);
+      }
+    } else if (!this.session && !this.stopping) {
+      // Reconnect now rather than waiting out a backoff timer (connect() clears it).
       void this.connect(true);
     }
   }
@@ -282,7 +303,7 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
     let lastError = '';
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const raw = await this.o.translator.translate(req);
+        const raw = await this.withTimeout(this.o.translateTimeoutMs ?? 20000, (signal) => this.o.translator.translate({ ...req, signal }));
         const out = cleanTranslation(raw);
         if (!isValidTranslation(out, this.o.dstLang, job.seg.srcText)) {
           lastError = '译文无效（语言不对或为空），已丢弃';
@@ -313,17 +334,49 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
       if (!text || job.skipped || !this.o.tts || this.stopping) return;
       if (this.o.speak && !this.o.speak()) return;
       const rate = rateForBacklog(this.backlog, this.o.maxRate ?? 1.35);
+      const ac = this.linkedAbort();
+      const timer = setTimeout(() => ac.abort(), this.o.ttsTimeoutMs ?? 30000);
       try {
-        for await (const chunk of this.o.tts.synthesize({ text, lang: this.o.dstLang, voice: this.o.voice || undefined, rate, signal: this.abort.signal })) {
-          if (job.skipped) break;
+        for await (const chunk of this.o.tts.synthesize({ text, lang: this.o.dstLang, voice: this.o.voice || undefined, rate, signal: ac.signal })) {
+          if (job.skipped || ac.signal.aborted) break;
           this.emit('audio', { segmentId: job.seg.id, samples: chunk.samples, sampleRate: chunk.sampleRate });
         }
       } catch (err) {
         if (!isAbortError(err)) this.log.warn('TTS failed', err instanceof Error ? err.message : String(err));
+      } finally {
+        clearTimeout(timer);
+        ac.dispose();
       }
       this.emit('audioEnd', { segmentId: job.seg.id });
     } finally {
       this.queue = this.queue.filter((j) => j !== job);
+    }
+  }
+
+  /** An AbortController that also aborts when the pipeline stops. */
+  private linkedAbort(): AbortController & { dispose(): void } {
+    const ac = new AbortController() as AbortController & { dispose(): void };
+    const onStop = () => ac.abort();
+    if (this.abort.signal.aborted) ac.abort();
+    else this.abort.signal.addEventListener('abort', onStop, { once: true });
+    ac.dispose = () => this.abort.signal.removeEventListener('abort', onStop);
+    return ac;
+  }
+
+  private async withTimeout<T>(ms: number, fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const ac = this.linkedAbort();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        ac.abort();
+        reject(Object.assign(new Error('翻译超时'), { retryable: true }));
+      }, ms);
+    });
+    try {
+      return await Promise.race([fn(ac.signal), timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      ac.dispose();
     }
   }
 

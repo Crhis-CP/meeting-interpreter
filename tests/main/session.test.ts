@@ -152,3 +152,69 @@ describe('SessionManager', () => {
   });
 });
 
+
+describe('SessionManager start/stop edge cases', () => {
+  const base = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mi-edge-'));
+    const settings = applyPreset(defaultSettings(), 'demo');
+    settings.devices.meetingSource = 'device';
+    const sent: ToAudio[] = [];
+    return { dir, settings, sent };
+  };
+
+  it('a missing key fails the start without leaving the meeting active', async () => {
+    const { dir, settings, sent } = base();
+    let fail = true;
+    const providers = (): ProviderSet => ({
+      asr: (d) => new MockAsr(d === 'out' ? 'self' : 'remote'),
+      mt: () => {
+        if (fail) throw new Error('请先在“服务设置”里填写大模型的 Key');
+        return new MockTranslator();
+      },
+      tts: () => new MockTts(),
+      llm: () => null,
+      describe: () => ({}),
+    });
+    const sm = new SessionManager({ settings: () => settings, glossary: () => [], providers, recordsDir: () => dir, toAudio: (m) => sent.push(m), broadcast: () => {}, log: createLogger('t') });
+    await expect(sm.start({})).rejects.toThrow(/Key/);
+    expect(sm.active).toBe(false);
+    expect(sent).toHaveLength(0);
+    fail = false;
+    await sm.start({});
+    expect(sm.active).toBe(true);
+    expect(sent.some((m) => m.type === 'start')).toBe(true);
+    await sm.stop();
+  });
+
+  it('stop while recognition is still connecting does not start the audio engine afterwards', async () => {
+    const { dir, settings, sent } = base();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slowAsr = { id: 'slow', start: async (o: any) => { await gate; return new MockAsr().start(o); } };
+    const providers = (): ProviderSet => ({ asr: () => slowAsr, mt: () => new MockTranslator(), tts: () => new MockTts(), llm: () => null, describe: () => ({}) });
+    const sm = new SessionManager({ settings: () => settings, glossary: () => [], providers, recordsDir: () => dir, toAudio: (m) => sent.push(m), broadcast: () => {}, log: createLogger('t') });
+    const starting = sm.start({});
+    await new Promise((r) => setTimeout(r, 10));
+    const stopping = sm.stop();
+    release();
+    await Promise.all([starting, stopping]);
+    expect(sent.map((m) => m.type)).not.toContain('start');
+    expect(sm.active).toBe(false);
+  });
+
+  it('a recorder restarted mid-meeting continues in a new file', async () => {
+    const { dir, settings, sent } = base();
+    const providers = (): ProviderSet => ({ asr: () => new MockAsr(), mt: () => new MockTranslator(), tts: () => new MockTts(), llm: () => null, describe: () => ({}) });
+    const sm = new SessionManager({ settings: () => settings, glossary: () => [], providers, recordsDir: () => dir, toAudio: (m) => sent.push(m), broadcast: () => {}, log: createLogger('t') });
+    await sm.start({});
+    const chunk = (n: number) => new Uint8Array(n).fill(7).buffer;
+    sm.handleAudio({ type: 'recChunk', kind: 'mix', mime: 'audio/webm', data: chunk(1000) });
+    sm.handleAudio({ type: 'recStopped', kind: 'mix' });
+    sm.handleAudio({ type: 'recChunk', kind: 'mix', mime: 'audio/webm', data: chunk(5000) });
+    const folder = sm.currentFolder;
+    const meta = await sm.stop();
+    expect(readFileSync(join(folder, 'audio/mix.webm')).length).toBe(1000);
+    expect(readFileSync(join(folder, 'audio/mix-2.webm')).length).toBe(5000);
+    expect(meta!.files.mix2).toBe('audio/mix-2.webm');
+  });
+});

@@ -59,6 +59,19 @@ setLogSink((level, scope, line) => {
 });
 const log = createLogger('main');
 
+// Never show Electron's modal error box in the middle of a meeting: log it and tell the window.
+process.on('uncaughtException', (err) => {
+  log.error('uncaught exception', err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err));
+  try {
+    broadcast('toast', { level: 'error', message: `内部错误：${err instanceof Error ? err.message : String(err)}（详情见日志 app.log）` });
+  } catch {
+    /* windows may not exist yet */
+  }
+});
+process.on('unhandledRejection', (reason) => {
+  log.error('unhandled rejection', reason instanceof Error ? `${reason.message}\n${reason.stack ?? ''}` : String(reason));
+});
+
 const settings = new SettingsStore(dataDir);
 const secrets = new SecretStore(dataDir, safeStorage);
 const glossaries = new GlossaryStore(dataDir);
@@ -85,11 +98,12 @@ function broadcast<K extends keyof RendererEvents>(event: K, payload: RendererEv
 
 function toAudio(msg: ToAudio): void {
   if (!audioWindow || audioWindow.isDestroyed()) return;
-  if (msg.type === 'start') {
-    // getDisplayMedia (system-audio loopback) needs a user gesture; executeJavaScript can grant one.
+  if (msg.type === 'start' || msg.type === 'config' || msg.type === 'stop') {
+    // getDisplayMedia (system-audio loopback) needs a user gesture; executeJavaScript can grant
+    // one. Start, reconfigure (may restart capture) and stop share one ordered queue there.
     void audioWindow.webContents
-      .executeJavaScript(`window.__miAudio && window.__miAudio.start(${JSON.stringify(msg.config)})`, true)
-      .catch((err) => log.error('audio start failed', err instanceof Error ? err.message : String(err)));
+      .executeJavaScript(`window.__miAudio && window.__miAudio.handle(${JSON.stringify(msg)})`, true)
+      .catch((err) => log.error('audio command failed', err instanceof Error ? err.message : String(err)));
     return;
   }
   audioWindow.webContents.send(IPC.toAudio, msg);
@@ -370,6 +384,26 @@ ipcMain.on(IPC.fromAudio, (_e, msg: FromAudio) => {
 
 // ------------------------------------------------------------------ windows, tray, shortcuts
 
+/** The hidden audio window; recreated (and the running meeting's audio restarted) if it dies. */
+function openAudioWindow(): void {
+  const win = createAudioWindow();
+  audioWindow = win;
+  win.on('closed', () => {
+    if (audioWindow === win) audioWindow = null;
+    if (!quitting) openAudioWindow();
+  });
+  win.webContents.on('render-process-gone', (_e, details) => {
+    log.error(`audio window gone: ${details.reason}`);
+    if (quitting) return;
+    broadcast('toast', { level: 'warn', message: '音频模块意外退出，正在自动恢复…' });
+    audioWindow = null;
+    win.destroy();
+  });
+  win.webContents.once('did-finish-load', () => {
+    if (sessionManager.active && sessionManager.state.mode) sessionManager.restartAudio();
+  });
+}
+
 function showMain(): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = createMainWindow();
@@ -485,11 +519,7 @@ app.whenReady().then(() => {
     { useSystemPicker: false },
   );
 
-  audioWindow = createAudioWindow();
-  audioWindow.on('closed', () => {
-    audioWindow = null;
-    if (!quitting) audioWindow = createAudioWindow();
-  });
+  openAudioWindow();
   showMain();
   tray = new Tray(trayIcon());
   tray.on('click', showMain);
@@ -508,8 +538,17 @@ app.whenReady().then(() => {
 
 app.on('activate', () => showMain());
 
-app.on('before-quit', () => {
+let quitAfterStop = false;
+app.on('before-quit', (e) => {
   quitting = true;
+  // Stop the meeting while the audio window still exists, so recordings get their last chunks.
+  if ((sessionManager.active || room.active) && !quitAfterStop) {
+    e.preventDefault();
+    quitAfterStop = true;
+    void (room.active ? room.stop() : sessionManager.stop().then(() => undefined))
+      .catch((err) => log.error('stop on quit failed', err instanceof Error ? err.message : String(err)))
+      .finally(() => app.quit());
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -517,13 +556,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' && !sessionManager.active && !room.active) app.quit();
 });
 
-app.on('will-quit', async (e) => {
+app.on('will-quit', () => {
   globalShortcut.unregisterAll();
-  if (sessionManager.active) {
-    e.preventDefault();
-    await sessionManager.stop().catch(() => undefined);
-    app.quit();
-  }
-  void room.stop();
 });
 

@@ -37,6 +37,7 @@ export interface RoomDeps {
 
 interface Participant {
   id: string;
+  alive: boolean;
   ws: WebSocket;
   name: string;
   lang: string;
@@ -77,6 +78,7 @@ export class RoomHost {
   private publicError: string | undefined;
   private qr: Record<string, string> = {};
   private offs: (() => void)[] = [];
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
   /** Play Chinese translations of phone speakers on the host computer too. */
   hostListen = true;
 
@@ -134,6 +136,21 @@ export class RoomHost {
     }
     this.wss = new WebSocketServer({ server: this.server as Server, path: '/ws', maxPayload: 1 << 20 });
     this.wss.on('connection', (ws) => this.onConnection(ws));
+    // Phones that went to sleep or lost Wi-Fi never close their socket: ping and drop them.
+    this.heartbeat = setInterval(() => {
+      for (const p of this.participants.values()) {
+        if (!p.alive) {
+          p.ws.terminate();
+          continue;
+        }
+        p.alive = false;
+        try {
+          p.ws.ping();
+        } catch {
+          p.ws.terminate();
+        }
+      }
+    }, 20000);
     this.port = await this.listen(s.room.port);
     this.offs.push(
       this.d.session.on('segment', (seg) => this.send('*', { t: 'segment', seg })),
@@ -207,6 +224,8 @@ export class RoomHost {
     this.participants.clear();
     for (const off of this.offs) off();
     this.offs = [];
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = null;
     this.tunnel.stop();
     this.publicUrl = null;
     this.publicStatus = 'off';
@@ -232,9 +251,14 @@ export class RoomHost {
       res.writeHead(405).end();
       return;
     }
-    const url = new URL(req.url ?? '/', 'http://x');
+    let rel: string;
+    try {
+      rel = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
+    } catch {
+      res.writeHead(400).end();
+      return;
+    }
     const root = resolve(this.d.staticDir());
-    let rel = decodeURIComponent(url.pathname);
     if (rel === '/' || rel === '/index.html') rel = '/room.html';
     const file = normalize(join(root, rel));
     if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) {
@@ -282,7 +306,11 @@ export class RoomHost {
     const timer = setTimeout(() => {
       if (!me) ws.close(4001, 'join timeout');
     }, 15000);
+    ws.on('pong', () => {
+      if (me) me.alive = true;
+    });
     ws.on('message', (data, isBinary) => {
+      if (me) me.alive = true;
       if (isBinary) {
         if (!me || !me.talking) return;
         const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
@@ -296,8 +324,10 @@ export class RoomHost {
       } catch {
         return;
       }
+      // Anything from the network may be malformed: never let it throw in the main process.
+      if (!msg || typeof msg !== 'object' || typeof (msg as { t?: unknown }).t !== 'string') return;
       if (msg.t === 'join') {
-        if (msg.token !== this.token) {
+        if (typeof msg.token !== 'string' || msg.token !== this.token) {
           ws.send(JSON.stringify({ t: 'error', message: '房间链接已失效，请重新扫码 / El enlace de la sala ha caducado', fatal: true } satisfies ServerMessage));
           ws.close(4003, 'bad token');
           return;
@@ -308,8 +338,9 @@ export class RoomHost {
           return;
         }
         clearTimeout(timer);
-        const code = LANGUAGES[msg.lang] ? msg.lang : baseOf(msg.lang) === 'zh' ? 'zh-CN' : this.d.settings().languages.remote;
-        me = { id: randomBytes(3).toString('hex'), ws, name: (msg.name || '').trim().slice(0, 24) || (baseOf(code) === 'zh' ? '参会者' : 'Invitado'), lang: code, talking: false, pipeline: null };
+        const reqLang = typeof msg.lang === 'string' ? msg.lang : '';
+        const code = LANGUAGES[reqLang] ? reqLang : reqLang.toLowerCase().startsWith('zh') ? 'zh-CN' : this.d.settings().languages.remote;
+        me = { id: randomBytes(3).toString('hex'), ws, name: String(msg.name ?? '').trim().slice(0, 24) || (baseOf(code) === 'zh' ? '参会者' : 'Invitado'), lang: code, talking: false, pipeline: null, alive: true };
         this.participants.set(me.id, me);
         const remote = this.d.settings().languages.remote;
         const history = this.d.session.segments().slice(-50);
@@ -333,9 +364,17 @@ export class RoomHost {
       }
       if (!me) return;
       if (msg.t === 'talk') {
-        me.talking = msg.on;
-        if (msg.on && !me.pipeline) me.pipeline = this.makePipeline(me);
-        me.pipeline?.setGate(msg.on);
+        me.talking = msg.on === true;
+        if (me.talking && !me.pipeline) {
+          try {
+            me.pipeline = this.makePipeline(me);
+          } catch (err) {
+            me.talking = false;
+            ws.send(JSON.stringify({ t: 'error', message: `电脑端没有配置好翻译服务：${err instanceof Error ? err.message : String(err)}` } satisfies ServerMessage));
+            return;
+          }
+        }
+        me.pipeline?.setGate(me.talking);
         this.send('*', { t: 'peers', peers: this.peers() });
         void this.publishState();
       } else if (msg.t === 'ping') ws.send(JSON.stringify({ t: 'pong' } satisfies ServerMessage));
@@ -372,6 +411,7 @@ export class RoomHost {
       pinyinFuzzy: s.interpretation.pinyinFuzzy,
       lowLatency: s.interpretation.lowLatency,
       clock: () => this.d.session.clock(),
+      idleCloseMs: (dir === 'out' ? s.out.asr : s.in.asr) === 'local' ? 0 : 15000,
       log: this.d.log.child(p.id),
     });
     pipeline.on('segment', (seg: TranscriptSegment) => {

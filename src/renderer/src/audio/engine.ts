@@ -97,6 +97,8 @@ export class AudioEngine {
     if (this.running) await this.stop();
     this.cfg = cfg;
     this.running = true;
+    // A new meeting never inherits "original voice into the meeting" from the last one.
+    this.passthrough = false;
     const warnings: string[] = [];
     let loopbackExcludesSelf: boolean | null = null;
 
@@ -163,10 +165,13 @@ export class AudioEngine {
 
     if (this.outSink && this.micStream) {
       this.micToMeeting = this.outSink.ctx.createGain();
+      // Start at the target level: a default gain of 1 would leak the raw voice into the meeting.
+      this.micToMeeting.gain.value = this.passthrough ? 1 : cfg.originalMixOut;
       this.outSink.ctx.createMediaStreamSource(this.micStream).connect(this.micToMeeting).connect(this.outSink.ctx.destination);
     }
     if (this.inSink && this.meetingStream && cfg.meetingSource === 'device' && cfg.playOriginalIn) {
       this.originalGain = this.inSink.ctx.createGain();
+      this.originalGain.gain.value = cfg.originalInVolume;
       this.inSink.ctx.createMediaStreamSource(this.meetingStream).connect(this.originalGain).connect(this.inSink.ctx.destination);
     }
     this.applyGains();

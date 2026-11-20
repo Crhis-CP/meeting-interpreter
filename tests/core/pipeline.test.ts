@@ -190,4 +190,37 @@ describe('DirectionPipeline', () => {
     await p.stop();
     expect(segments.some((s) => s.status === 'done' && s.srcText === '最后一句。')).toBe(true);
   });
+
+  it('does not open a second session when the gate opens during a reconnect backoff', async () => {
+    const { p, asr } = make({ reconnectDelays: [200] });
+    await p.start();
+    asr.last.events.emit('closed', {}); // reconnect scheduled in 200 ms
+    p.setGate(false);
+    p.setGate(true); // connects now and cancels the timer
+    await new Promise((r) => setTimeout(r, 350));
+    expect(asr.sessions).toHaveLength(2);
+  });
+
+  it('keeps the session open while gated when idleCloseMs is 0', async () => {
+    const { p, asr } = make({ idleCloseMs: 0 });
+    await p.start();
+    p.setGate(false);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(asr.last.ended).toBe(false);
+    const q = make({ idleCloseMs: 20 });
+    await q.p.start();
+    q.p.setGate(false);
+    await waitFor(() => q.asr.last.ended);
+  });
+
+  it('fails a stalled translation instead of blocking the direction', async () => {
+    const { p, asr, translator, segments, ends } = make({ translateTimeoutMs: 40 });
+    translator.delays['卡住。'] = 10_000;
+    await p.start();
+    asr.last.final('卡住。');
+    asr.last.final('下一句。');
+    await waitFor(() => ends.includes('out-2'), 3000);
+    expect(segments.find((s) => s.id === 'out-1' && s.status === 'failed')?.error).toMatch(/超时/);
+  });
 });
+

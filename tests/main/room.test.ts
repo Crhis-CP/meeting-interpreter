@@ -111,4 +111,39 @@ describe('RoomHost', () => {
     expect(session.active).toBe(false);
     expect(es.msgs.some((m) => m.t === 'ended')).toBe(true);
   });
+
+  it('survives malformed requests and reports provider errors to the phone', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mi-room2-'));
+    const staticDir = mkdtempSync(join(tmpdir(), 'mi-static2-'));
+    writeFileSync(join(staticDir, 'room.html'), 'ok');
+    const settings = applyPreset(defaultSettings(), 'demo');
+    settings.room.port = 0;
+    const log = createLogger('test');
+    let broken = false;
+    const providers = {
+      asr: () => { if (broken) throw new Error('未填写 Key'); return new MockAsr(); },
+      mt: () => new MockTranslator(),
+      tts: () => new MockTts(),
+      llm: () => null,
+      describe: () => ({}),
+    } as ProviderSet;
+    const session = new SessionManager({ settings: () => settings, glossary: () => [], providers: () => providers, recordsDir: () => dir, toAudio: () => {}, broadcast: () => {}, log });
+    const room = new RoomHost({ settings: () => settings, session, providers: () => providers as never, glossary: () => [], toAudio: () => {}, broadcast: () => {}, log, dataDir: dir, staticDir: () => staticDir, devUrl: () => undefined, insecure: true });
+    const st = await room.start();
+    const url = new URL(st.urls[0]!);
+    const token = url.searchParams.get('t')!;
+    expect((await fetch(`http://127.0.0.1:${url.port}/%E0%A4%A`)).status).toBe(400);
+    const c = new Client(`ws://127.0.0.1:${url.port}/ws`);
+    await c.opened();
+    c.ws.send('null');
+    c.ws.send('{"t":5}');
+    c.send({ t: 'join', name: { evil: true }, lang: 7, token, v: ROOM_PROTOCOL_VERSION });
+    await waitFor(() => c.msgs.some((m) => m.t === 'welcome'));
+    broken = true;
+    c.send({ t: 'talk', on: true });
+    await waitFor(() => c.msgs.some((m) => m.t === 'error' && /翻译服务/.test(m.message)));
+    expect(room.active).toBe(true);
+    await room.stop();
+  });
 });
+

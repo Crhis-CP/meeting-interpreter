@@ -82,6 +82,9 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
   private recMime: Partial<Record<'mix' | 'screen', string>> = {};
   private recStartedAt: Partial<Record<'mix' | 'screen', number>> = {};
   private recStopped: Partial<Record<'mix' | 'screen', () => void>> = {};
+  /** How many files each recorder kind has started in this meeting (a device change restarts it). */
+  private recSeq: Partial<Record<'mix' | 'screen', number>> = {};
+  private startGen = 0;
   private s: MeetingState = SessionManager.emptyState();
   private stopping: Promise<MeetingMeta | null> | null = null;
   private stateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -150,117 +153,144 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     if (this.stopping) await this.stopping;
     const settings = this.d.settings();
     const mode = opts.mode ?? 'meeting';
+    const withIn = mode === 'meeting' && settings.devices.meetingSource !== 'none';
+
+    // Build every provider first: a missing key must fail before any state, file or audio exists.
+    const providers = this.d.providers();
+    const chosen: Partial<Record<Direction, { asr: StreamingAsr; mt: Translator; tts: Tts | null }>> = {
+      out: { asr: providers.asr('out'), mt: providers.mt('out'), tts: providers.tts('out') },
+    };
+    if (withIn) chosen.in = { asr: providers.asr('in'), mt: providers.mt('in'), tts: providers.tts('in') };
+
+    const gen = ++this.startGen;
     const startedAt = new Date(this.now());
     const title = sanitize(opts.title || '') || `${mode === 'room' ? '现场会议' : '会议'} ${stamp(startedAt).replace('_', ' ')}`;
     const dir = join(this.d.recordsDir(), `${stamp(startedAt)}_${sanitize(title)}`);
     let folder = dir;
     for (let i = 2; existsSync(folder); i++) folder = `${dir}-${i}`;
-    mkdirSync(join(folder, 'audio'), { recursive: true });
-    this.folder = folder;
-    this.startedAtMs = startedAt.getTime();
-
-    let providers: ProviderSet;
     try {
-      providers = this.d.providers();
+      mkdirSync(join(folder, 'audio'), { recursive: true });
+      this.folder = folder;
+      this.startedAtMs = startedAt.getTime();
+      this.pttDown = false;
+      this.recSeq = {};
+
+      const selfLang = settings.languages.self;
+      const remoteLang = settings.languages.remote;
+      this.meta = {
+        id: folder.split(/[\\/]/).pop()!,
+        title,
+        startedAt: startedAt.toISOString(),
+        selfLang,
+        remoteLang,
+        platform: opts.platform || settings.platform || undefined,
+        mode,
+        files: { transcript: 'transcript.jsonl' },
+        providers: providers.describe(),
+      };
+      writeJson(join(folder, 'meeting.json'), this.meta);
+      const transcriptPath = join(folder, 'transcript.jsonl');
+      writeFileSync(transcriptPath, '');
+      this.transcript = new Transcript((line) => appendFileSync(transcriptPath, line));
+
+      this.s = {
+        ...SessionManager.emptyState(),
+        active: true,
+        mode,
+        meta: this.meta,
+        startedAtMs: this.startedAtMs,
+        meetingSource: mode === 'meeting' ? settings.devices.meetingSource : 'none',
+        recording: { audio: settings.recording.audio, screen: settings.recording.screen },
+      };
+      this.s.out.enabled = settings.out.enabled;
+      this.s.in.enabled = settings.in.enabled && mode === 'meeting';
+      const pushToTalk = settings.interpretation.outMode === 'push-to-talk';
+      this.s.out.gate = this.s.out.enabled && !pushToTalk;
+
+      this.wav.out = new WavFileWriter(join(folder, 'audio', 'mic.wav'), 16000);
+      this.meta.files.mic = 'audio/mic.wav';
+      if (withIn) {
+        this.wav.in = new WavFileWriter(join(folder, 'audio', 'meeting.wav'), 16000);
+        this.meta.files.meeting = 'audio/meeting.wav';
+      }
+
+      const makePipeline = (dir: Direction) => {
+        const cfg = dir === 'out' ? settings.out : settings.in;
+        const src = dir === 'out' ? selfLang : remoteLang;
+        const dst = dir === 'out' ? remoteLang : selfLang;
+        const p = new DirectionPipeline({
+          dir,
+          speaker: dir === 'out' ? 'me' : 'them',
+          idPrefix: dir,
+          srcLang: src,
+          dstLang: dst || otherLanguage(src, remoteLang),
+          asr: chosen[dir]!.asr,
+          translator: chosen[dir]!.mt,
+          tts: chosen[dir]!.tts,
+          voice: cfg.voice || undefined,
+          glossary: this.d.glossary,
+          pinyinFuzzy: settings.interpretation.pinyinFuzzy,
+          lowLatency: settings.interpretation.lowLatency,
+          clock: () => this.clock(),
+          speak: dir === 'in' ? () => this.s.in.speak : () => !this.s.out.passthrough,
+          // Local models take seconds to load: keep their session open while push-to-talk is idle.
+          idleCloseMs: cfg.asr === 'local' ? 0 : 15000,
+          log: this.d.log.child(dir),
+        });
+        p.on('segment', (seg) => this.onSegment(seg));
+        p.on('partial', ({ text }) => {
+          this.s[dir].partial = text;
+          this.d.broadcast('partial', { dir, text });
+        });
+        p.on('status', ({ state, message }) => {
+          this.s[dir].state = state;
+          this.s[dir].message = message;
+          this.publish();
+        });
+        p.on('audio', ({ segmentId, samples, sampleRate }) => {
+          const pcm = samples.slice().buffer;
+          this.d.toAudio({ type: 'tts', dir, segmentId, sampleRate, pcm });
+          this.emit('tts', { dir, segmentId, samples, sampleRate });
+        });
+        p.on('audioEnd', ({ segmentId }) => {
+          this.d.toAudio({ type: 'ttsEnd', dir, segmentId });
+          this.emit('ttsEnd', { dir, segmentId });
+        });
+        p.on('audioFlush', () => this.d.toAudio({ type: 'flush', dir }));
+        return p;
+      };
+
+      this.pipelines.out = makePipeline('out');
+      this.pipelines.out.setGate(this.s.out.gate);
+      if (withIn) {
+        this.pipelines.in = makePipeline('in');
+        this.pipelines.in.setGate(this.s.in.enabled);
+      }
     } catch (err) {
-      this.startedAtMs = null;
+      this.abortStart();
       throw err;
     }
-    const selfLang = settings.languages.self;
-    const remoteLang = settings.languages.remote;
-    this.meta = {
-      id: folder.split(/[\\/]/).pop()!,
-      title,
-      startedAt: startedAt.toISOString(),
-      selfLang,
-      remoteLang,
-      platform: opts.platform || settings.platform || undefined,
-      mode,
-      files: { transcript: 'transcript.jsonl' },
-      providers: providers.describe(),
-    };
-    writeJson(join(folder, 'meeting.json'), this.meta);
-    const transcriptPath = join(folder, 'transcript.jsonl');
-    writeFileSync(transcriptPath, '');
-    this.transcript = new Transcript((line) => appendFileSync(transcriptPath, line));
-
-    this.s = {
-      ...SessionManager.emptyState(),
-      active: true,
-      mode,
-      meta: this.meta,
-      startedAtMs: this.startedAtMs,
-      meetingSource: mode === 'meeting' ? settings.devices.meetingSource : 'none',
-      recording: { audio: settings.recording.audio, screen: settings.recording.screen },
-    };
-    this.s.out.enabled = settings.out.enabled;
-    this.s.in.enabled = settings.in.enabled && mode === 'meeting';
-    const pushToTalk = settings.interpretation.outMode === 'push-to-talk';
-    this.s.out.gate = this.s.out.enabled && !pushToTalk;
-
-    this.wav.out = new WavFileWriter(join(folder, 'audio', 'mic.wav'), 16000);
-    this.meta.files.mic = 'audio/mic.wav';
-    if (mode === 'meeting' && settings.devices.meetingSource !== 'none') {
-      this.wav.in = new WavFileWriter(join(folder, 'audio', 'meeting.wav'), 16000);
-      this.meta.files.meeting = 'audio/meeting.wav';
-    }
-
-    const makePipeline = (dir: Direction) => {
-      const cfg = dir === 'out' ? settings.out : settings.in;
-      const src = dir === 'out' ? selfLang : remoteLang;
-      const dst = dir === 'out' ? (mode === 'room' ? remoteLang : remoteLang) : selfLang;
-      const p = new DirectionPipeline({
-        dir,
-        speaker: dir === 'out' ? 'me' : 'them',
-        idPrefix: dir,
-        srcLang: src,
-        dstLang: dst || otherLanguage(src, remoteLang),
-        asr: providers.asr(dir),
-        translator: providers.mt(dir),
-        tts: providers.tts(dir),
-        voice: cfg.voice || undefined,
-        glossary: this.d.glossary,
-        pinyinFuzzy: settings.interpretation.pinyinFuzzy,
-        lowLatency: settings.interpretation.lowLatency,
-        clock: () => this.clock(),
-        speak: dir === 'in' ? () => this.s.in.speak : () => !this.s.out.passthrough,
-        log: this.d.log.child(dir),
-      });
-      p.on('segment', (seg) => this.onSegment(seg));
-      p.on('partial', ({ text }) => {
-        this.s[dir].partial = text;
-        this.d.broadcast('partial', { dir, text });
-      });
-      p.on('status', ({ state, message }) => {
-        this.s[dir].state = state;
-        this.s[dir].message = message;
-        this.publish();
-      });
-      p.on('audio', ({ segmentId, samples, sampleRate }) => {
-        const pcm = samples.slice().buffer;
-        this.d.toAudio({ type: 'tts', dir, segmentId, sampleRate, pcm });
-        this.emit('tts', { dir, segmentId, samples, sampleRate });
-      });
-      p.on('audioEnd', ({ segmentId }) => {
-        this.d.toAudio({ type: 'ttsEnd', dir, segmentId });
-        this.emit('ttsEnd', { dir, segmentId });
-      });
-      p.on('audioFlush', () => this.d.toAudio({ type: 'flush', dir }));
-      return p;
-    };
-
-    this.pipelines.out = makePipeline('out');
-    this.pipelines.out.setGate(this.s.out.gate);
-    if (mode === 'meeting' && settings.devices.meetingSource !== 'none') {
-      this.pipelines.in = makePipeline('in');
-      this.pipelines.in.setGate(this.s.in.enabled);
-    }
     await Promise.all(Object.values(this.pipelines).map((p) => p!.start()));
+    // Stop may have been pressed while recognition was still connecting.
+    if (gen !== this.startGen || !this.s.active || !this.meta) return this.s;
 
     this.d.toAudio({ type: 'start', config: audioConfig(settings, mode) });
     this.publish(true);
     this.d.log.info(`meeting started: ${this.meta.id}`);
     return this.s;
+  }
+
+  /** Undoes a start that failed half-way (e.g. the folder could not be written). */
+  private abortStart(): void {
+    for (const p of Object.values(this.pipelines)) void p?.stop(0);
+    this.pipelines = {};
+    for (const w of Object.values(this.wav)) w?.close();
+    this.wav = {};
+    this.transcript = null;
+    this.meta = null;
+    this.startedAtMs = null;
+    this.s = SessionManager.emptyState();
+    this.publish(true);
   }
 
   private onSegment(seg: TranscriptSegment): void {
@@ -314,19 +344,26 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
         if (!this.s.active && !this.stopping) return;
         let w = this.rec[msg.kind];
         if (!w) {
+          // A recorder restarted mid-meeting (device change) continues in a new file.
+          const n = (this.recSeq[msg.kind] ?? 0) + 1;
+          this.recSeq[msg.kind] = n;
           const ext = msg.mime.includes('mp4') ? (msg.kind === 'mix' ? 'm4a' : 'mp4') : 'webm';
-          const rel = msg.kind === 'mix' ? `audio/mix.${ext}` : `screen.${ext}`;
+          const base = msg.kind === 'mix' ? 'audio/mix' : 'screen';
+          const rel = `${base}${n > 1 ? `-${n}` : ''}.${ext}`;
           w = new ChunkFileWriter(join(this.folder, rel));
           this.rec[msg.kind] = w;
           this.recMime[msg.kind] = msg.mime;
-          this.recStartedAt[msg.kind] = this.clock();
-          if (this.meta) this.meta.files[msg.kind === 'mix' ? 'mix' : 'screen'] = rel;
+          if (n === 1) {
+            this.recStartedAt[msg.kind] = this.clock();
+            if (this.meta) this.meta.files[msg.kind === 'mix' ? 'mix' : 'screen'] = rel;
+          } else if (this.meta) this.meta.files[`${msg.kind}${n}`] = rel;
         }
         w.write(new Uint8Array(msg.data));
         return;
       }
       case 'recStopped':
         this.rec[msg.kind]?.close();
+        delete this.rec[msg.kind];
         this.recStopped[msg.kind]?.();
         return;
       case 'recError':
@@ -384,6 +421,11 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
 
   skip(dir: Direction): void {
     this.pipelines[dir]?.skipToLatest();
+  }
+
+  /** Starts the audio window again for the running meeting (after it crashed and was recreated). */
+  restartAudio(): void {
+    if (this.s.active && this.s.mode) this.d.toAudio({ type: 'start', config: audioConfig(this.d.settings(), this.s.mode) });
   }
 
   /** Re-sends device/volume settings to the audio window during a meeting. */
@@ -448,6 +490,8 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     }
     writeJson(join(folder, 'meeting.json'), meta);
     this.recStartedAt = {};
+    this.recSeq = {};
+    this.pttDown = false;
     this.emit('ended', meta);
     this.s = SessionManager.emptyState();
     this.startedAtMs = null;

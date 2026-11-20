@@ -91,6 +91,22 @@ export function RoomClient() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [segs, partial]);
 
+  // iOS suspends audio when the screen locks or the page is hidden: resume when it comes back,
+  // and keep the connection alive with a ping.
+  useEffect(() => {
+    const resume = () => void ctx.current?.resume().catch(() => undefined);
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('pointerdown', resume);
+    const ping = setInterval(() => {
+      if (ws.current?.readyState === 1) ws.current.send(JSON.stringify({ t: 'ping' }));
+    }, 15000);
+    return () => {
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('pointerdown', resume);
+      clearInterval(ping);
+    };
+  }, []);
+
   const play = (pcm: Int16Array, rate: number) => {
     const c = ctx.current;
     if (!c || !voiceRef.current || !pcm.length) return;
@@ -174,6 +190,8 @@ export function RoomClient() {
     // Audio must be unlocked inside the tap (iOS).
     const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     ctx.current = new AC();
+    // Worklet modules belong to one AudioContext; a new one (re-join) must load it again.
+    workletLoaded.current = false;
     await ctx.current.resume().catch(() => undefined);
     try {
       await (navigator as Navigator & { wakeLock?: { request(t: 'screen'): Promise<unknown> } }).wakeLock?.request('screen');
@@ -222,9 +240,14 @@ export function RoomClient() {
     }, 2000);
   };
 
+  const pressSeq = useRef(0);
+
   const setTalk = async (on: boolean) => {
     if (releaseTimer.current) clearTimeout(releaseTimer.current);
+    // A release that happens while the microphone is still opening wins over the press.
+    const seq = ++pressSeq.current;
     if (on && !(await ensureMic())) return;
+    if (seq !== pressSeq.current) return;
     talkingRef.current = on;
     setTalking(on);
     if (ws.current?.readyState === 1) ws.current.send(JSON.stringify({ t: 'talk', on }));
