@@ -1,21 +1,45 @@
 name: Release
 
-# Push a tag like v0.1.0 to build installers for macOS, Windows and Linux and publish them on the
-# GitHub Releases page. Can also be started by hand (Actions › Release › Run workflow).
+# Builds installers for macOS, Windows and Linux and publishes them on the Releases page.
+# Runs when the version in package.json changes on main (the tag vX.Y.Z is created here),
+# when a tag v* is pushed, or by hand (Actions › Release › Run workflow).
 on:
   push:
+    branches: [main]
+    paths: ['package.json']
     tags: ['v*']
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to publish (e.g. v0.1.0); leave empty to only build'
-        required: false
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          TAG="v$(node -p "require('./package.json').version")"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; building only."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -63,8 +87,8 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: build
-    if: always() && (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != '')
+    needs: [version, build]
+    if: always() && needs.version.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -76,11 +100,11 @@ jobs:
         run: |
           cd dist
           ls -la
+          test -n "$(ls)"
           sha256sum * > SHA256SUMS.txt
       - name: Release notes
         run: |
-          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
-          python3 - "$VERSION" <<'PY'
+          python3 - "${{ needs.version.outputs.tag }}" <<'PY'
           import re, sys
           version = sys.argv[1].lstrip('v')
           text = open('CHANGELOG.md', encoding='utf-8').read()
@@ -90,9 +114,11 @@ jobs:
           PY
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: 会议同传助手 ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: 会议同传助手 ${{ needs.version.outputs.tag }}
           body_path: notes.md
           files: dist/*
           draft: false
           prerelease: false
+          make_latest: true

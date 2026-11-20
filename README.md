@@ -127,7 +127,7 @@ npm run build && xvfb-run -a npx playwright test   # 端到端测试（Linux）
 npm run dist         # 打包当前平台的安装包
 ```
 
-发布新版本：修改 `package.json` 和 `CHANGELOG.md` 里的版本号，推送 `v版本号` 标签，GitHub Actions 会自动构建 macOS / Windows / Linux 安装包并发布到 Releases。
+发布新版本：在 `CHANGELOG.md` 写好更新内容，把 `package.json` 的 `version` 改成新版本号并推送到 main，GitHub Actions 会自动打标签、构建 macOS / Windows / Linux 安装包并发布到 Releases（也可以推送 `v版本号` 标签触发）。
 
 项目结构和设计见 [docs/superpowers/specs](docs/superpowers/specs/2026-11-20-meeting-interpreter-design.md)。
 
