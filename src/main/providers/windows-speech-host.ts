@@ -65,14 +65,15 @@ export class WindowsSpeechHost {
 
   constructor(
     private readonly spawnHost: Spawn = () => spawn('powershell.exe', POWERSHELL_ARGS, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }),
-    private readonly timeouts = { startMs: 10_000, jobMs: 60_000 },
+    // A cold PowerShell (first start after boot, antivirus scanning) took 24 s on a CI machine.
+    private readonly timeouts = { startMs: 60_000, jobMs: 60_000 },
   ) {}
 
   /** Starts the process as a meeting starts, so the first sentence does not pay for it. */
   warmUp(): void {
     if (this.broken) return;
     this.start().catch(() => {
-      this.broken = true;
+      this.failed();
       this.dispose();
     });
   }
@@ -150,7 +151,7 @@ export class WindowsSpeechHost {
     try {
       await this.start();
     } catch (err) {
-      this.broken = true; // the per-sentence path takes over for good
+      this.failed(); // this sentence goes the per-sentence way; the next one tries the host again
       this.dispose();
       throw err;
     }
@@ -170,11 +171,15 @@ export class WindowsSpeechHost {
       this.failures = 0;
     } catch (err) {
       if (!(err instanceof NoVoiceError)) {
-        // Twice in a row: something is off with the long-running host; stop using it.
-        if (++this.failures >= 2) this.broken = true;
+        this.failed();
         this.dispose();
       }
       throw err;
     }
+  }
+
+  /** Twice in a row (starting or speaking): something is off with the long-running host; stop using it. */
+  private failed(): void {
+    if (++this.failures >= 2) this.broken = true;
   }
 }

@@ -323,20 +323,39 @@ describe('Windows voices through one long-running PowerShell', () => {
     host.dispose();
   });
 
-  it('falls back to one PowerShell per sentence when the host does not answer', async () => {
-    const host = new WindowsSpeechHost(fake('silent'), { startMs: 100, jobMs: 1000 });
-    let perSentence = 0;
-    const exec: ExecFn = async (_cmd, _args, input) => {
-      perSentence++;
-      const p = JSON.parse(Buffer.from(input!.match(/FromBase64String\('([^']+)'\)/)![1]!, 'base64').toString('utf8')) as { out: string };
-      writeFileSync(p.out, encodeWav(new Int16Array(22050).fill(500), 22050));
-      return { code: 0, stdout: '', stderr: '' };
-    };
-    const tts = new SystemTts({ platform: 'win32', speechHost: host, exec });
-    for await (const _ of tts.synthesize({ text: '你好', lang: 'zh-CN', rate: 1 })) void _;
-    expect(perSentence).toBe(1);
-    expect(host.broken).toBe(true);
-    for await (const _ of tts.synthesize({ text: '再见', lang: 'zh-CN', rate: 1 })) void _;
-    expect(perSentence).toBe(2);
+  let perSentence = 0;
+  const perSentenceExec: ExecFn = async (_cmd, _args, input) => {
+    perSentence++;
+    const p = JSON.parse(Buffer.from(input!.match(/FromBase64String\('([^']+)'\)/)![1]!, 'base64').toString('utf8')) as { out: string };
+    writeFileSync(p.out, encodeWav(new Int16Array(22050).fill(500), 22050));
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  const say = async (tts: SystemTts, text: string) => {
+    for await (const _ of tts.synthesize({ text, lang: 'zh-CN', rate: 1 })) void _;
+  };
+
+  it('falls back to one PowerShell per sentence when the host does not answer twice in a row', async () => {
+    perSentence = 0;
+    let spawns = 0;
+    const host = new WindowsSpeechHost(() => (spawns++, fake('silent')()), { startMs: 100, jobMs: 1000 });
+    const tts = new SystemTts({ platform: 'win32', speechHost: host, exec: perSentenceExec });
+    await say(tts, '你好');
+    expect([perSentence, host.broken]).toEqual([1, false]);
+    await say(tts, '再见');
+    expect([perSentence, host.broken]).toEqual([2, true]);
+    await say(tts, '谢谢');
+    expect([perSentence, spawns]).toEqual([3, 2]); // no third attempt
+  });
+
+  it('one slow start (a cold PowerShell) does not give up on the host', async () => {
+    perSentence = 0;
+    let spawns = 0;
+    const host = new WindowsSpeechHost(() => fake(spawns++ === 0 ? 'silent' : '')(), { startMs: 300, jobMs: 2000 });
+    const tts = new SystemTts({ platform: 'win32', speechHost: host, exec: perSentenceExec });
+    await say(tts, '你好');
+    await say(tts, '再见');
+    await say(tts, '谢谢');
+    expect([perSentence, spawns, host.broken]).toEqual([1, 2, false]);
+    host.dispose();
   });
 });
