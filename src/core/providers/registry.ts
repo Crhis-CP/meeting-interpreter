@@ -5,6 +5,7 @@ import { AzureAsr, AzureTts } from './azure';
 import { AzureTranslator } from './azure-translator';
 import { DashscopeAsr, DashscopeTts, QwenMtTranslator, type DashscopeConfig } from './dashscope';
 import { DeeplTranslator } from './deepl';
+import { DashscopeCloneTts, FallbackTts } from './dashscope/voice-clone';
 import { FallbackAsr } from './fallback-asr';
 import { LlmTranslator } from './llm-translator';
 import { MockAsr, MockLlm, MockTranslator, MockTts } from './mock';
@@ -146,8 +147,17 @@ export function createProviders(
         return null;
       case 'demo':
         return new MockTts();
-      case 'dashscope':
-        return new DashscopeTts(dashscopeConfig(settings, secrets), ctx);
+      case 'dashscope': {
+        const stock = new DashscopeTts(dashscopeConfig(settings, secrets), ctx);
+        // My own speech (→ the other language) in my cloned voice, when chosen.
+        const d = settings.dashscope;
+        if (dir === 'out' && d.useMyVoice && d.myVoiceId) {
+          return new FallbackTts(new DashscopeCloneTts(dashscopeConfig(settings, secrets), ctx, d.myVoiceId), stock, (err) =>
+            ctx.log.warn('my voice failed, using the stock voice', err instanceof Error ? err.message : String(err)),
+          );
+        }
+        return stock;
+      }
       case 'azure':
         return new AzureTts(azureConfig(settings, secrets), ctx);
       case 'system':

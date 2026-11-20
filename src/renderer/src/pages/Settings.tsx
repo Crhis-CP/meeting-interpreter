@@ -8,6 +8,7 @@ import type { AppInfo, LocalModelStatus, ProviderTestStep } from '@shared/ipc';
 import { api, errMsg, useDevices, useEvent, useSettings } from '../api';
 import { ExternalLink, Field, Toggle } from '../components/ui';
 import { DRIVER_GUIDES, guessMeetingDevice, guessVirtualMic } from '../content/guides';
+import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../../browser/voice-sample';
 
 type Tab = 'providers' | 'devices' | 'interp' | 'record' | 'overlay' | 'shortcuts' | 'about';
 
@@ -174,6 +175,57 @@ function LocalModels({ foreign }: { foreign: 'es' | 'en' }) {
   );
 }
 
+/** “用我的声音”: record a sample, clone it with 百炼, speak my translations in my own voice. */
+function MyVoiceCard({ s, update }: TabProps) {
+  const [consent, setConsent] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const has = !!s.dashscope.myVoiceId;
+  const record = async () => {
+    setError('');
+    try {
+      const wav = await recordVoiceSample(SAMPLE_SECONDS, (left) => setBusy(left ? `正在录音，请朗读上面的文字… ${left} 秒` : '录好了'));
+      setBusy('正在生成你的音色（约半分钟）…');
+      await api.voice.create(wav);
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setBusy('');
+    }
+  };
+  return (
+    <div className="card">
+      <h3>用我的声音</h3>
+      <p className="hint" style={{ marginTop: 0 }}>开启后，对方听到的翻译是你自己的音色在说西语 / 英语。录一段 16 秒的声音即可，生成音色免费，合成按百炼正常价格计费。</p>
+      {has ? (
+        <div className="stack">
+          <Toggle checked={s.dashscope.useMyVoice} onChange={(v) => void update({ dashscope: { useMyVoice: v } })} label="对方听到我的声音" />
+          <div className="row">
+            <button className="btn" disabled={!!busy} onClick={() => setConsent(true)}>重新录制</button>
+            <button className="btn" disabled={!!busy} onClick={() => void api.voice.remove()}>删除我的音色</button>
+          </div>
+        </div>
+      ) : null}
+      {(!has || consent) && (
+        <div className="stack" style={{ marginTop: has ? 12 : 0 }}>
+          <div className="callout info" style={{ fontSize: 15, lineHeight: 1.7 }}>{SAMPLE_SCRIPT}</div>
+          <label className="row small" style={{ cursor: 'pointer' }}>
+            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+            这是我本人的声音，我同意用它合成我的翻译语音
+          </label>
+          <div className="row">
+            <button className="btn primary" disabled={!consent || !!busy} onClick={() => void record()}>
+              开始录音（16 秒）
+            </button>
+            {busy && <span className="muted small">{busy}</span>}
+          </div>
+        </div>
+      )}
+      {error && <div className="callout err" style={{ marginTop: 10 }}>{error}</div>}
+    </div>
+  );
+}
+
 function ProvidersTab({ s, update }: TabProps) {
   const foreign = foreignOf(s);
   const fz = foreign === 'en' ? '英语' : '西语';
@@ -336,6 +388,8 @@ function ProvidersTab({ s, update }: TabProps) {
           <LocalModels foreign={foreign} />
         </div>
       )}
+
+      {s.out.tts === 'dashscope' && <MyVoiceCard s={s} update={update} />}
 
       <div className="card">
         <h3>Chrome 插件（免费版）</h3>

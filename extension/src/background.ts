@@ -39,8 +39,15 @@ async function ensureOffscreen() {
   }
 }
 
-async function toOffscreen(m: DOmit<ToOffscreen, 'target'>): Promise<{ ok: boolean; error?: string; state?: Partial<SessionState> }> {
-  const r = (await chrome.runtime.sendMessage({ target: 'offscreen', ...m })) as { ok: boolean; error?: string; state?: Partial<SessionState> } | undefined;
+interface OffscreenReply {
+  ok: boolean;
+  error?: string;
+  state?: Partial<SessionState>;
+  meeting?: SavedMeeting | null;
+}
+
+async function toOffscreen(m: DOmit<ToOffscreen, 'target'>): Promise<OffscreenReply> {
+  const r = (await chrome.runtime.sendMessage({ target: 'offscreen', ...m })) as OffscreenReply | undefined;
   return r ?? { ok: false, error: '翻译引擎没有响应' };
 }
 
@@ -78,14 +85,13 @@ async function stop() {
   const st = await getState();
   if (st.status !== 'running' && st.status !== 'starting') return st;
   await setState({ status: 'stopping' });
+  let meeting: SavedMeeting | null = null;
   try {
-    if (await hasOffscreen()) await toOffscreen({ type: 'stop' });
+    if (await hasOffscreen()) meeting = (await toOffscreen({ type: 'stop' })).meeting ?? null;
   } catch (err) {
     console.warn('stop failed', err);
   }
-  // `ended` from the engine finishes the stop; make sure we end up idle even without it.
-  const after = await getState();
-  if (after.status === 'stopping') await finish(null, st.tabId);
+  await finish(meeting, st.tabId);
   return getState();
 }
 

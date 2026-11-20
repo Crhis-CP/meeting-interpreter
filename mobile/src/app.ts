@@ -17,6 +17,8 @@ import { LLM_PRESETS } from '@core/providers/openai-compatible';
 import { createProviders } from '@core/providers/registry';
 import type { TranscriptSegment } from '@core/types';
 import { createMobileContext, keepAwake, openExternal } from './native';
+import { createClonedVoice, deleteClonedVoice, waitForVoice } from '@core/providers/dashscope/voice-clone';
+import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../src/browser/voice-sample';
 
 // ------------------------------------------------------------------ settings
 
@@ -29,9 +31,12 @@ interface MobileSettings {
   voiceForeign: string;
   voiceChinese: string;
   fontSize: number;
+  /** “用我的声音”: my cloned voice (百炼) speaks my translations. */
+  myVoiceId: string;
+  useMyVoice: boolean;
 }
 
-const DEFAULTS: MobileSettings = { remote: 'es-MX', mode: 'hands-free', provider: 'dashscope', mt: 'qwen-mt', llmPreset: 'zhipu-free', voiceForeign: '', voiceChinese: '', fontSize: 22 };
+const DEFAULTS: MobileSettings = { remote: 'es-MX', mode: 'hands-free', provider: 'dashscope', mt: 'qwen-mt', llmPreset: 'zhipu-free', voiceForeign: '', voiceChinese: '', fontSize: 22, myVoiceId: '', useMyVoice: false };
 const load = <T>(k: string, d: T): T => {
   try {
     return { ...d, ...(JSON.parse(localStorage.getItem(k) ?? 'null') ?? {}) } as T;
@@ -61,6 +66,7 @@ function appSettings() {
     in: { enabled: true, asr: p, mt, tts: p, voice: settings.voiceChinese },
     llm: { preset: settings.llmPreset, baseUrl: '', model: '', summaryModel: '' },
     interpretation: { lowLatency: true, pinyinFuzzy: true },
+    dashscope: { region: 'cn', myVoiceId: settings.myVoiceId, useMyVoice: settings.useMyVoice },
   });
 }
 
@@ -367,6 +373,44 @@ const gearIcon = () => svg('<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.4-3a7
 
 // ------------------------------------------------------------------ settings sheet
 
+/** Record 16 s of my voice and clone it with 百炼, so the other side hears my own voice. */
+function myVoiceGroup(close: () => void): HTMLElement {
+  const status = h('small', {});
+  const consent = h('input', { type: 'checkbox', class: 'switch' });
+  const rec = h('button', {
+    class: 'link',
+    onclick: async () => {
+      if (!secrets.dashscope) return void (status.textContent = '先填写阿里云百炼 Key');
+      if (!consent.checked) return void (status.textContent = '请先打开“这是我本人的声音”');
+      rec.disabled = true;
+      try {
+        const wav = await recordVoiceSample(SAMPLE_SECONDS, (left) => (status.textContent = left ? `正在录音，请朗读上面的文字… ${left} 秒` : '录好了'));
+        status.textContent = '正在生成你的音色（约半分钟）…';
+        const pctx = createMobileContext(log);
+        const cfg = { apiKey: secrets.dashscope, region: 'cn' as const };
+        const id = await createClonedVoice(pctx, cfg, wav);
+        await waitForVoice(pctx, cfg, id);
+        if (settings.myVoiceId) void deleteClonedVoice(pctx, cfg, settings.myVoiceId).catch(() => undefined);
+        settings.myVoiceId = id;
+        settings.useMyVoice = true;
+        close();
+      } catch (err) {
+        status.textContent = err instanceof Error ? err.message : String(err);
+        rec.disabled = false;
+      }
+    },
+  }, settings.myVoiceId ? '重新录制（16 秒）' : '开始录音（16 秒）');
+  return h('div', { class: 'group' },
+    settings.myVoiceId
+      ? h('label', { class: 'row' }, h('span', {}, '对方听到我的声音'), h('input', { type: 'checkbox', class: 'switch', checked: settings.useMyVoice, onchange: (e: Event) => (settings.useMyVoice = (e.target as HTMLInputElement).checked) }))
+      : h('div', { class: 'row' }, h('span', {}, '用我的声音'), h('small', {}, '对方听到的翻译用你自己的音色。生成音色免费。')),
+    h('div', { class: 'row' }, h('small', {}, '朗读：'), h('span', {}, SAMPLE_SCRIPT)),
+    h('label', { class: 'row' }, h('span', {}, '这是我本人的声音，我同意用它合成我的翻译语音'), consent),
+    rec,
+    status,
+  );
+}
+
 function openSettings(hint?: string) {
   const sheet = h('div', { class: 'sheet' });
   const close = () => {
@@ -404,6 +448,7 @@ function openSettings(hint?: string) {
       row('我听到的中文声音', select(settings.voiceChinese, voices, (v) => (settings.voiceChinese = v))),
       row(`字号 ${settings.fontSize}`, h('input', { type: 'range', min: 16, max: 34, value: settings.fontSize, oninput: (e: Event) => (settings.fontSize = Number((e.target as HTMLInputElement).value)) })),
     ),
+    myVoiceGroup(close),
     h('div', { class: 'group' },
       row('演示模式', h('input', { type: 'checkbox', class: 'switch', checked: settings.provider === 'demo', onchange: (e: Event) => (settings.provider = (e.target as HTMLInputElement).checked ? 'demo' : 'dashscope') }), '不用 Key，只看效果'),
     ),

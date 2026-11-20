@@ -12,7 +12,7 @@ import { Transcript } from '@core/session/transcript';
 import type { Direction, MeetingMeta, TranscriptSegment } from '@core/types';
 import { consoleLogger, createBrowserContext } from './browser-context';
 import { buildProviders } from './engine-providers';
-import { PORT_NAME, toAppSettings, type EngineToPage, type FromOffscreen, type PageToEngine, type SessionState, type StoredData, type ToOffscreen, type DOmit } from './shared';
+import { PORT_NAME, toAppSettings, type EngineToPage, type FromOffscreen, type PageToEngine, type SavedMeeting, type SessionState, type StoredData, type ToOffscreen, type DOmit } from './shared';
 
 const log = consoleLogger('engine');
 
@@ -106,7 +106,7 @@ chrome.runtime.onMessage.addListener((msg: ToOffscreen, _sender, reply) => {
         await start(msg);
         const s = session as Session | null;
         return reply({ ok: true, state: { status: 'running', startedAt: s?.startedAt ?? Date.now(), title: s?.meta.title ?? '', warnings: startWarnings } });
-      } else if (msg.type === 'stop') await stop();
+      } else if (msg.type === 'stop') return reply({ ok: true, meeting: await stop() });
       else if (msg.type === 'passthrough') setPassthrough(msg.on);
       reply({ ok: true });
     } catch (err) {
@@ -283,12 +283,12 @@ function setPassthrough(on: boolean) {
   status({ passthrough: on });
 }
 
-async function stop() {
+/** Stops the session and returns the finished meeting (null when nothing was said). */
+async function stop(): Promise<SavedMeeting | null> {
   if (starting) await starting.catch(() => undefined);
   const s = session;
   if (!s) {
-    toBackground({ type: 'ended', meeting: null });
-    return;
+    return null;
   }
   session = null;
   sendPage({ t: 'ttsFlush' }, (x) => x.mic);
@@ -299,7 +299,7 @@ async function stop() {
   await teardownSession(s);
   for (const p of [...ports]) p.port.disconnect();
   ports.clear();
-  toBackground({ type: 'ended', meeting: segments.length ? { meta: s.meta, segments } : null });
+  return segments.length ? { meta: s.meta, segments } : null;
 }
 
 async function teardownSession(s: Session) {

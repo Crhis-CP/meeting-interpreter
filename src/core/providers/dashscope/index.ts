@@ -12,3 +12,4 @@ export {
 export { DashscopeAsr, dashscopeVocabulary } from './asr';
 export { DASHSCOPE_DEFAULT_VOICE, DASHSCOPE_TTS_RATE, DASHSCOPE_VOICES, DashscopeTts } from './tts';
 export { QWEN_MT_DOMAINS, QwenMtTranslator } from './mt';
+export { CLONE_TTS_MODEL, DashscopeCloneTts, FallbackTts, clonedVoiceStatus, createClonedVoice, deleteClonedVoice, waitForVoice } from './voice-clone';

@@ -40,6 +40,9 @@ export interface ExtSettings {
   showMine: boolean;
   subtitleSize: number;
   pinyinFuzzy: boolean;
+  /** “用我的声音”: my cloned voice (百炼) and whether the other side hears it. */
+  myVoiceId: string;
+  useMyVoice: boolean;
 }
 
 export const DEFAULT_SETTINGS: ExtSettings = {
@@ -57,6 +60,8 @@ export const DEFAULT_SETTINGS: ExtSettings = {
   showMine: true,
   subtitleSize: 22,
   pinyinFuzzy: true,
+  myVoiceId: '',
+  useMyVoice: false,
 };
 
 /** Provider choices per preset; `custom` keeps the user's own per-direction choices. */
@@ -90,7 +95,7 @@ export function toAppSettings(s: ExtSettings): AppSettings {
     out: { enabled: true, asr: s.out.asr, mt: s.out.mt, tts: tts(s.out.tts), voice: s.out.voice },
     in: { enabled: true, asr: s.in.asr, mt: s.in.mt, tts: tts(s.in.tts), voice: s.in.voice },
     llm: { preset: s.llm.preset, baseUrl: s.llm.baseUrl, model: s.llm.model, summaryModel: '' },
-    dashscope: { region: s.dashscopeRegion },
+    dashscope: { region: s.dashscopeRegion, myVoiceId: s.myVoiceId, useMyVoice: s.useMyVoice },
     azure: { region: s.azureRegion, endpoint: '', translatorRegion: s.azureTranslatorRegion },
     interpretation: { pinyinFuzzy: s.pinyinFuzzy },
   });

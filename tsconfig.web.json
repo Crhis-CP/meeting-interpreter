@@ -34,6 +34,7 @@
     "src/renderer/**/*",
     "src/core/**/*",
     "src/shared/**/*",
-    "src/preload/*.d.ts"
+    "src/preload/*.d.ts",
+    "src/browser/**/*"
   ]
 }

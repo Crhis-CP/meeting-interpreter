@@ -9,6 +9,8 @@ import { makeLlm } from '@core/providers/registry';
 import { summarize, summaryToMarkdown, TEMPLATE_NAMES, type MeetingSummary, type SummaryTemplate } from '@core/session/summary';
 import { toMarkdown, toSrt } from '@core/session/transcript';
 import { testDirection } from '../../src/main/provider-test';
+import { createClonedVoice, deleteClonedVoice, waitForVoice } from '@core/providers/dashscope/voice-clone';
+import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../src/browser/voice-sample';
 import { consoleLogger, createBrowserContext } from './browser-context';
 import { buildProviders, usesDesktop } from './engine-providers';
 import { DESKTOP_BRIDGE_PORT, pingDesktop } from '@core/bridge/desktop';
@@ -193,6 +195,7 @@ async function renderSettings(body: HTMLElement) {
     results,
   );
   body.append(main);
+  if (s.out.tts === 'dashscope' && secrets.dashscope) body.append(myVoiceCard(s, set));
 
   // ---- everything else, folded away
   const more = h('details', { class: 'card', style: 'margin-top:14px' }, h('summary', {}, '更多设置'));
@@ -259,6 +262,39 @@ async function renderSettings(body: HTMLElement) {
   );
   body.append(more);
   if (location.hash === '#test') document.getElementById('test')?.scrollIntoView();
+}
+
+/** “用我的声音”: record 16 s, clone it with 百炼, and let the other side hear my own voice. */
+function myVoiceCard(s: ExtSettings, set: (p: Partial<ExtSettings>) => Promise<void>) {
+  const status = h('span', { class: 'muted small' });
+  const consent = h('input', { type: 'checkbox' });
+  const recordBtn = h('button', {
+    class: 'btn primary',
+    onclick: async () => {
+      if (!consent.checked) return void (status.textContent = '请先勾选同意');
+      recordBtn.disabled = true;
+      try {
+        const wav = await recordVoiceSample(SAMPLE_SECONDS, (left) => (status.textContent = left ? `正在录音，请朗读上面的文字… ${left} 秒` : '录好了'));
+        status.textContent = '正在生成你的音色（约半分钟）…';
+        const { secrets } = await loadAll();
+        const cfg = { apiKey: secrets.dashscope ?? '', region: s.dashscopeRegion };
+        const id = await createClonedVoice(ctx(), cfg, wav);
+        await waitForVoice(ctx(), cfg, id);
+        if (s.myVoiceId) void deleteClonedVoice(ctx(), cfg, s.myVoiceId).catch(() => undefined);
+        await set({ myVoiceId: id, useMyVoice: true });
+      } catch (err) {
+        status.textContent = err instanceof Error ? err.message : String(err);
+        recordBtn.disabled = false;
+      }
+    },
+  }, '开始录音（16 秒）');
+  return h('div', { class: 'card stack', style: 'margin-top:14px' },
+    h('div', { class: 'row between' }, h('b', {}, '用我的声音'), s.myVoiceId ? toggle(s.useMyVoice, '对方听到我的声音', (v) => set({ useMyVoice: v })) : ''),
+    h('div', { class: 'muted small' }, '对方听到的翻译用你自己的音色。生成音色免费，合成按百炼正常价格计费。'),
+    h('div', { class: 'callout info', style: 'font-size:15px;line-height:1.7' }, SAMPLE_SCRIPT),
+    h('label', { class: 'row small', style: 'cursor:pointer' }, consent, '这是我本人的声音，我同意用它合成我的翻译语音'),
+    h('div', { class: 'row' }, recordBtn, status),
+  );
 }
 
 /** Voices installed on the computer, listed by the desktop app. */

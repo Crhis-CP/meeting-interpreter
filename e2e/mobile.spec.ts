@@ -47,6 +47,8 @@ test('phone app: hands-free conversation translates what is said and speaks it',
   await expect(page.locator('.mic .cap')).toHaveText('按住说话');
   await page.getByRole('button', { name: '设置' }).click();
   await expect(page.getByText('去获取 Key ↗')).toBeVisible();
+  await expect(page.getByText('这是我本人的声音，我同意用它合成我的翻译语音')).toBeVisible();
+  await page.waitForTimeout(400);
   await page.screenshot({ path: 'test-results/mobile-settings.png' });
   await browser.close();
   server.close();

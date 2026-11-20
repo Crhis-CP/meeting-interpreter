@@ -47,8 +47,11 @@ export const SettingsSchema = z.object({
       asrModel: z.string().default('qwen-audio-3.1-asr-flash-streaming'),
       ttsModel: z.string().default('qwen3-tts-flash-realtime'),
       mtModel: z.string().default('qwen-mt-flash'),
+      /** “用我的声音”: the cloned voice id ('' = none) and whether my translation uses it. */
+      myVoiceId: z.string().default(''),
+      useMyVoice: z.boolean().default(false),
     })
-    .default({ region: 'cn', host: '', asrModel: 'qwen-audio-3.1-asr-flash-streaming', ttsModel: 'qwen3-tts-flash-realtime', mtModel: 'qwen-mt-flash' }),
+    .default({ region: 'cn', host: '', asrModel: 'qwen-audio-3.1-asr-flash-streaming', ttsModel: 'qwen3-tts-flash-realtime', mtModel: 'qwen-mt-flash', myVoiceId: '', useMyVoice: false }),
   azure: z
     .object({
       region: z.string().default('eastasia'),

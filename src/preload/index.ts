@@ -19,6 +19,7 @@ const api: RendererApi = {
   meeting: ns('meeting', ['start', 'stop', 'state', 'setOut', 'setIn', 'setInSpeak', 'setPassthrough', 'pushToTalk', 'skip', 'setRecording']),
   meetings: ns('meetings', ['list', 'get', 'summarize', 'rename', 'remove', 'openFolder', 'openFile', 'fileUrl']),
   providers: ns('providers', ['test', 'voices']),
+  voice: ns('voice', ['create', 'remove']),
   local: ns('local', ['status', 'download']),
   audio: ns('audio', ['testTone']),
   room: ns('room', ['start', 'stop', 'state', 'setPublic']),

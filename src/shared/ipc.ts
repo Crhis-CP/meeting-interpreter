@@ -144,6 +144,11 @@ export interface RendererApi {
     test(scope: 'out' | 'in' | 'llm'): Promise<ProviderTestStep[]>;
     voices(provider: string, lang: string): Promise<VoiceInfo[]>;
   };
+  /** “用我的声音”: clone the user's voice from a recorded WAV (百炼), or remove it. */
+  voice: {
+    create(wav: Uint8Array): Promise<string>;
+    remove(): Promise<void>;
+  };
   local: {
     status(): Promise<LocalModelStatus[]>;
     download(lang: 'zh' | 'es' | 'en'): Promise<void>;

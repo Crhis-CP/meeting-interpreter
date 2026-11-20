@@ -17,5 +17,5 @@
       "@shared/*": ["../src/shared/*"]
     }
   },
-  "include": ["src/**/*", "tests/**/*", "../src/core/**/*", "../src/shared/**/*", "../src/main/provider-test.ts", "../e2e/extension.spec.ts"]
+  "include": ["src/**/*", "../src/browser/**/*", "tests/**/*", "../src/core/**/*", "../src/shared/**/*", "../src/main/provider-test.ts", "../e2e/extension.spec.ts"]
 }

@@ -11,7 +11,7 @@ import { baseOf } from '../core/lang/languages';
 import { createLogger, setLogSink } from '../core/log';
 import { createProviders, makeLlm, type Providers } from '../core/providers/registry';
 import { azureVoicesFor } from '../core/providers/azure';
-import { DashscopeTts } from '../core/providers/dashscope';
+import { DashscopeTts, createClonedVoice, deleteClonedVoice, waitForVoice } from '../core/providers/dashscope';
 import type { SummaryTemplate } from '../core/session/summary';
 import type { Direction } from '../core/types';
 import { IPC, type FromAudio, type RendererEvents, type ToAudio } from '../shared/ipc';
@@ -271,6 +271,25 @@ const handlers: Record<string, Handler> = {
   'meetings.openFile': (id: string, rel: string) => shell.openPath(meetings.filePath(id, rel)),
   'meetings.fileUrl': (id: string, rel: string) => `mi-media://file/${encodeURIComponent(id)}/${rel.split('/').map(encodeURIComponent).join('/')}`,
 
+  'voice.create': async (wav: Uint8Array) => {
+    const s = settings.get();
+    const key = secrets.all().dashscope;
+    if (!key) throw new Error('先在“翻译服务”里填写阿里云百炼 Key');
+    const cfg = { apiKey: key, region: s.dashscope.region, host: s.dashscope.host || undefined };
+    const id = await createClonedVoice(ctx, cfg, new Uint8Array(wav), s.languages.self);
+    await waitForVoice(ctx, cfg, id);
+    const old = s.dashscope.myVoiceId;
+    settings.set({ dashscope: { myVoiceId: id, useMyVoice: true } });
+    if (old && old !== id) void deleteClonedVoice(ctx, cfg, old).catch(() => undefined);
+    return id;
+  },
+  'voice.remove': async () => {
+    const s = settings.get();
+    const key = secrets.all().dashscope;
+    const old = s.dashscope.myVoiceId;
+    settings.set({ dashscope: { myVoiceId: '', useMyVoice: false } });
+    if (old && key) await deleteClonedVoice(ctx, { apiKey: key, region: s.dashscope.region, host: s.dashscope.host || undefined }, old).catch(() => undefined);
+  },
   'providers.test': async (scope: 'out' | 'in' | 'llm') => {
     const s = settings.get();
     if (scope === 'llm') return testLlm(makeLlm(s, secrets.all(), ctx, true));
