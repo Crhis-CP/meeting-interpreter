@@ -252,3 +252,22 @@ describe('offline draft in front of a slow or failing translator', () => {
     expect(last.draft).toBeUndefined();
   });
 });
+
+describe('the personal voice profile in the pipeline', () => {
+  it('applies learned corrections before the glossary and listens for the corrected words', async () => {
+    const glossary = [{ id: '1', zh: '星云平台', es: 'Plataforma Nébula', aliasesZh: [], aliasesEs: [], note: '', enabled: true }];
+    const { p, asr, segments, translator } = make({
+      glossary: () => glossary,
+      personal: () => ({ rules: [{ heard: '河同', meant: '合同', lang: 'zh' as const }, { heard: 'nebular', meant: 'Nebula', lang: 'en' as const }], pairs: [], hotwords: ['合同', '星云平台'] }),
+    });
+    await p.start();
+    expect(asr.hotwords[0]).toEqual(['星云平台', '合同']);
+    asr.last.final('我们下周把河同发给你们。');
+    await waitFor(() => segments.some((s) => s.status === 'done'));
+    const done = segments.filter((s) => s.status === 'done').pop()!;
+    expect(done.srcText).toBe('我们下周把合同发给你们。');
+    expect(done.edits).toEqual([{ from: '河同', to: '合同' }]);
+    expect(translator.requests[0]!.text).toBe('我们下周把合同发给你们。');
+    await p.stop();
+  });
+});

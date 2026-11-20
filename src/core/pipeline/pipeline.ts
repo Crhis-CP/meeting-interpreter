@@ -5,6 +5,7 @@ import { findHits, hotwordsFor } from '../glossary/match';
 import type { GlossaryEntry } from '../glossary/types';
 import { baseOf } from '../lang/languages';
 import { createLogger, type Logger } from '../log';
+import { applyCorrections, type CorrectionRule } from '../profile/profile';
 import type { AsrSession, StreamingAsr, Translator, Tts } from '../providers/types';
 import type { LangCode, SegmentDir, TranscriptSegment } from '../types';
 import { Committer } from './committer';
@@ -38,6 +39,11 @@ export interface PipelineOptions {
   voice?: string;
   glossary: () => GlossaryEntry[];
   pinyinFuzzy: boolean;
+  /**
+   * The user's voice profile (read at each sentence): learned corrections applied before the
+   * glossary, their accent patterns for sound-alike glossary matching, and extra hot words.
+   */
+  personal?: () => { rules: readonly CorrectionRule[]; pairs: readonly string[]; hotwords: readonly string[] };
   lowLatency: boolean;
   /** Seconds since the meeting started. */
   clock: () => number;
@@ -138,7 +144,7 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
     try {
       const session = await this.o.asr.start({
         lang: this.o.srcLang,
-        hotwords: hotwordsFor(baseOf(this.o.srcLang), this.o.glossary()),
+        hotwords: [...new Set([...hotwordsFor(baseOf(this.o.srcLang), this.o.glossary()), ...(this.o.personal?.().hotwords ?? [])])].slice(0, 500),
         sampleRate: 16000,
       });
       if (this.stopping) {
@@ -270,7 +276,10 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
   private commit(text: string, isFinal: boolean): void {
     const src = baseOf(this.o.srcLang);
     const entries = this.o.glossary();
-    const corrected = correctText(text, src, entries, { pinyinFuzzy: this.o.pinyinFuzzy });
+    const personal = this.o.personal?.();
+    const mine = personal?.rules.length ? applyCorrections(text, personal.rules, src) : { text, edits: [] };
+    const fromGlossary = correctText(mine.text, src, entries, { pinyinFuzzy: this.o.pinyinFuzzy, extraPairs: personal?.pairs });
+    const corrected = { text: fromGlossary.text, edits: [...mine.edits, ...fromGlossary.edits] };
     const now = this.o.clock();
     const estimate = Math.max(1, [...corrected.text].length * (src === 'zh' ? 0.22 : 0.07));
     const start = this.sentenceStart ?? Math.max(0, now - estimate);
