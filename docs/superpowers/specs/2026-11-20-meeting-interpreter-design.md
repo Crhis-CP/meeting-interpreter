@@ -266,8 +266,16 @@ v1 提供：
 - `POST https://api-free.deepl.com/v2/translate`（免费 key 以 `:fx` 结尾）或 `https://api.deepl.com/v2/translate`；头 `Authorization: DeepL-Auth-Key <key>`；JSON `{text:[…],source_lang:"ZH"|"ES",target_lang:"ES"|"ES-419"|"ZH-HANS",context,glossary_id,model_type}`。
 - 术语表 v3：`POST /v3/glossaries {name, dictionaries:[{source_lang:"zh",target_lang:"es",entries:"源\t译\n…",entries_format:"tsv"},{source_lang:"es",target_lang:"zh",…}]}`；一个 glossary_id 覆盖双向；用了术语表必须给 `source_lang`。DeepL API Free 每月 50 万字符免费。
 
-### 14.5 系统声音采集（Electron）
-（Electron 调研完成后补充。）
+### 14.5 系统声音采集与路由（Electron 45 / Chromium 156）
+- **系统回环可排除自己的声音**：渲染进程 `getDisplayMedia({video:true, audio:{restrictOwnAudio:true}})`，主进程 `setDisplayMediaRequestHandler` 回调 `{video: screen, audio: 'loopback'}`，Electron 43.4+ 会换成 Chromium 的 `loopbackWithoutChrome`。只在 **macOS 14.2+ 和 Windows 11** 生效（用 `track.getCapabilities().restrictOwnAudio` 检测），其他系统退化为普通回环（会采到自己的译音）。
+- 坑：Chromium 142+ 默认开启 `RestrictOwnAudioAddChromiumBack`，会把**其他窗口**的声音混回来。所以译音必须由调用 getDisplayMedia 的同一个窗口（隐藏音频窗口）播放，并且启动参数加 `--disable-features=RestrictOwnAudioAddChromiumBack`。
+- macOS 需要 `NSAudioCaptureUsageDescription` 和“系统录音”权限；没有权限时音轨直接 ended 不报错。macOS 26.5 有已知问题：自定义选择器不弹授权，需退回 `useSystemPicker:true`。
+- 因此 v1 的“会议声音来源”三选一：**系统声音（默认，Mac 14.2+/Win11 无需第二个虚拟声卡）**、虚拟扬声器设备（Win10/Linux 或需要“压低原声”时）、不采集。系统声音模式下原声由会议软件直接播放，无法压低，只叠加中文译音。
+- 输出路由：每个物理输出设备一个 `AudioContext({sinkId, latencyHint:'interactive'})`；录音用 `sinkId:{type:'none'}` 的静音上下文混音后交给 MediaRecorder（只录第一条音轨，必须先混成一条）。
+- 录屏：Windows/macOS 支持 `video/mp4;codecs=avc1,mp4a.40.2`（分片 MP4，可直接播放）；Linux 用 `video/webm;codecs=vp9,opus`。`start(1000)` 分块经 IPC 写盘并处理背压。
+- 测试：`--use-fake-device-for-media-stream --use-file-for-fake-audio-capture=/abs/x.wav%noloop` 在 Electron 中有效；Playwright `_electron.launch` 需 xvfb。
+- 虚拟声卡名称（用正则匹配）：`CABLE Input/Output (VB-Audio Virtual Cable)`、`BlackHole 2ch/16ch`、`Voicemeeter Input`、`CABLE-A …`、`Hi-Fi Cable …`；Linux 用 `pactl load-module module-null-sink` + `module-remap-source`（Chromium 不列出 monitor 源）。
+- 许可：VB-CABLE 允许原样随免费软件分发但须保留其身份；BlackHole 为 GPL-3.0，不打包，引导用户自行安装（`brew install blackhole-2ch` 或官网 pkg）。
 
 ## 15. 我的决定清单（请评审）
 
