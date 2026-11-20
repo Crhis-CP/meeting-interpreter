@@ -8,7 +8,7 @@
  */
 import { floatToInt16, int16ToFloat, resampleLinear } from '@core/audio/pcm';
 import { parseSettings, type Secrets } from '@core/config/schema';
-import { lang, REMOTE_LANGUAGES } from '@core/lang/languages';
+import { accentsOf, lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import { createLogger } from '@core/log';
 import { SharedAsr } from '@core/pipeline/conversation';
 import { DirectionPipeline } from '@core/pipeline/pipeline';
@@ -518,7 +518,12 @@ if (!webOnly) {
     h('div', { class: 'sheet-head' }, h('b', {}, '设置'), h('button', { class: 'done', onclick: close }, '完成')),
     hint ? h('div', { class: 'hint' }, hint) : null,
     h('div', { class: 'group' },
-      row('对方说', select(settings.remote, REMOTE_LANGUAGES.map((c) => [c, lang(c).nameZh]), (v) => (settings.remote = v))),
+      row('对方说', select(lang(settings.remote).base, REMOTE_CHOICES.map((c) => [c.base, c.name]), (v) => {
+        settings.remote = withRemoteBase(settings.remote, v as 'es' | 'en');
+        close();
+        openSettings();
+      })),
+      row('口音（一般不用改）', select(settings.remote, accentsOf(lang(settings.remote).base).map((a) => [a.code, a.name]), (v) => (settings.remote = v))),
     ),
     h('div', { class: 'group' },
       row('阿里云百炼 Key', keyInput('dashscope', '粘贴 Key（sk- 开头）')),

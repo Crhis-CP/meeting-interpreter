@@ -1,7 +1,7 @@
 import type { Secrets } from '@core/config/schema';
 import { glossaryToCsv, parseGlossaryCsv } from '@core/glossary/csv';
 import { newEntryId, type GlossaryEntry } from '@core/glossary/types';
-import { baseOf, lang, REMOTE_LANGUAGES } from '@core/lang/languages';
+import { accentsOf, baseOf, lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import { azureVoicesFor } from '@core/providers/azure/common';
 import { DASHSCOPE_VOICES } from '@core/providers/dashscope/tts';
 import { LLM_PRESETS } from '@core/providers/openai-compatible';
@@ -127,7 +127,7 @@ async function renderSettings(body: HTMLElement) {
   // ---- the essentials: language, tier, key, test
   const main = h('div', { class: 'card stack' });
   main.append(
-    field('对方说', select(s.remote, REMOTE_LANGUAGES.map((c) => [c, lang(c).nameZh]), (v) => void set({ remote: v, out: { ...s.out, voice: '' } }))),
+    field('对方说', select(baseOf(s.remote), REMOTE_CHOICES.map((c) => [c.base, c.name]), (v) => void set({ remote: withRemoteBase(s.remote, v as 'es' | 'en'), out: { ...s.out, voice: '' } }))),
     h('div', { class: 'label', style: 'margin-top:14px' }, '方案'),
     h('div', { class: 'seg', style: 'max-width:420px' },
       h('button', { class: s.providers === 'free' ? 'on' : '', onclick: () => void set({ providers: 'free' }) }, '免费'),
@@ -202,6 +202,7 @@ async function renderSettings(body: HTMLElement) {
   const moreBody = h('div', { class: 'stack', style: 'margin-top:10px' });
   more.append(moreBody);
   moreBody.append(
+    field('口音（一般不用改）', select(s.remote, accentsOf(baseOf(s.remote)).map((a) => [a.code, a.name]), (v) => void set({ remote: v, out: { ...s.out, voice: '' } }))),
     h('div', { class: 'label' }, '其他方案'),
     ...MORE_SETS.map((x) =>
       h('label', { class: 'row', style: 'cursor:pointer;font-size:14px' },

@@ -14,7 +14,8 @@ import { encodeWav } from '../src/core/audio/wav';
  * joins a stand-in meeting page served at a real meeting URL. The fake microphone plays 1 kHz
  * bursts; the demo voice speaks below 300 Hz, so the page can tell what the meeting receives.
  */
-const EXT = resolve('out/extension');
+/** MI_EXTENSION_DIR tests a released extension (unzipped) instead of the local build. */
+const EXT = process.env.MI_EXTENSION_DIR ? resolve(process.env.MI_EXTENSION_DIR) : resolve('out/extension');
 
 const MEETING_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Weekly sync</title></head><body>
 <h1>Fake meeting</h1>

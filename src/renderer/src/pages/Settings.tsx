@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AppSettings, SecretName } from '@core/config/schema';
 import { PRESETS } from '@core/config/presets';
-import { lang, REMOTE_LANGUAGES } from '@core/lang/languages';
+import { accentsOf, lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import { LLM_PRESETS, llmPreset } from '@core/providers/openai-compatible';
 import type { VoiceInfo } from '@core/providers/types';
 import type { AppInfo, LocalModelStatus, ProviderTestStep } from '@shared/ipc';
@@ -593,11 +593,20 @@ function InterpTab({ s, update }: TabProps) {
               <option value="zh-CN">中文（普通话）</option>
             </select>
           </Field>
-          <Field label="对方语言" hint="影响识别口音和译音口音">
+          <Field label="对方说">
+            <select value={lang(s.languages.remote).base} onChange={(e) => void update({ languages: { remote: withRemoteBase(s.languages.remote, e.target.value as 'es' | 'en') }, out: { voice: '' }, in: { voice: '' } })}>
+              {REMOTE_CHOICES.map((c) => (
+                <option key={c.base} value={c.base}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="口音（一般不用改）">
             <select value={s.languages.remote} onChange={(e) => void update({ languages: { remote: e.target.value }, out: { voice: '' }, in: { voice: '' } })}>
-              {REMOTE_LANGUAGES.map((c) => (
-                <option key={c} value={c}>
-                  {lang(c).nameZh}
+              {accentsOf(lang(s.languages.remote).base).map((a) => (
+                <option key={a.code} value={a.code}>
+                  {a.name}
                 </option>
               ))}
             </select>

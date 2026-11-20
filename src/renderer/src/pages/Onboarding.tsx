@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import logoUrl from '../assets/logo.png';
 import { PRESETS, type PresetId } from '@core/config/presets';
-import { lang, REMOTE_LANGUAGES } from '@core/lang/languages';
+import { lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import type { SecretName } from '@core/config/schema';
 import { api, useDevices, useSettings } from '../api';
 import { ExternalLink } from '../components/ui';
@@ -71,13 +71,13 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         <div className="card">
           <h3>对方说什么语言？</h3>
           <div className="row" style={{ marginBottom: 18, flexWrap: 'wrap' }}>
-            {REMOTE_LANGUAGES.map((c) => (
+            {REMOTE_CHOICES.map((c) => (
               <button
-                key={c}
-                className={`btn ${s.languages.remote === c ? 'primary' : ''}`}
-                onClick={() => void update({ languages: { remote: c }, out: { voice: '' }, in: { voice: '' } })}
+                key={c.base}
+                className={`btn big ${lang(s.languages.remote).base === c.base ? 'primary' : ''}`}
+                onClick={() => void update({ languages: { remote: withRemoteBase(s.languages.remote, c.base) }, out: { voice: '' }, in: { voice: '' } })}
               >
-                {lang(c).nameZh}
+                {c.name}
               </button>
             ))}
           </div>

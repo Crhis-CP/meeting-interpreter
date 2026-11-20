@@ -156,3 +156,23 @@ jobs:
           draft: false
           prerelease: false
           make_latest: true
+
+  verify:
+    # Downloads what was just published and runs the end-to-end tests against those very files.
+    needs: [version, publish]
+    if: needs.version.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node node_modules/electron/install.js
+      - run: npx playwright install --with-deps chromium
+      - name: Test the released files
+        run: xvfb-run -a bash scripts/smoke-release.sh

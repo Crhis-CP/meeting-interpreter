@@ -76,6 +76,22 @@ export const LANGUAGES: Record<LangCode, LanguageInfo> = {
 export const SELF_LANGUAGES: LangCode[] = ['zh-CN'];
 export const REMOTE_LANGUAGES: LangCode[] = ['es-MX', 'es-ES', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'en-US', 'en-GB'];
 
+/** What users choose: just the language. The accent (region) is an optional detail. */
+export const REMOTE_CHOICES: { base: 'es' | 'en'; name: string; code: LangCode }[] = [
+  { base: 'es', name: '西班牙语', code: 'es-MX' },
+  { base: 'en', name: 'English 英语', code: 'en-US' },
+];
+
+/** The accents offered for a language, e.g. es → 拉美（墨西哥）、西班牙… */
+export function accentsOf(base: LangBase): { code: LangCode; name: string }[] {
+  return REMOTE_LANGUAGES.filter((c) => lang(c).base === base).map((c) => ({ code: c, name: lang(c).nameZh.replace(/^.*（(.*)）$/, '$1') }));
+}
+
+/** Changing the language keeps the accent when it still fits, else the language's default. */
+export function withRemoteBase(current: LangCode, base: 'es' | 'en'): LangCode {
+  return baseOf(current) === base ? current : REMOTE_CHOICES.find((c) => c.base === base)!.code;
+}
+
 export function lang(code: LangCode): LanguageInfo {
   const info = LANGUAGES[code];
   if (info) return info;

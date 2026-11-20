@@ -161,3 +161,14 @@ describe('English meeting records', () => {
     expect(summaryToMarkdown(sum, 'zh', meta)).toContain('| 中文 | English | 说明 |');
   });
 });
+
+describe('choosing the other language', () => {
+  it('offers just Spanish and English, with the accent kept when it fits', async () => {
+    const { REMOTE_CHOICES, accentsOf, withRemoteBase } = await import('@core/lang/languages');
+    expect(REMOTE_CHOICES.map((c) => c.base)).toEqual(['es', 'en']);
+    expect(withRemoteBase('es-AR', 'es')).toBe('es-AR');
+    expect(withRemoteBase('es-AR', 'en')).toBe('en-US');
+    expect(withRemoteBase('en-GB', 'es')).toBe('es-MX');
+    expect(accentsOf('en').map((a) => a.name)).toEqual(['美国', '英国']);
+  });
+});

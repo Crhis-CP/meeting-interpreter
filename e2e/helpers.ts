@@ -32,9 +32,12 @@ export async function launchApp(settings: object = {}): Promise<{ app: ElectronA
     }),
   );
   const wav = speechWav(dataDir);
+  // MI_APP_EXECUTABLE runs a packaged build (e.g. the released AppImage, extracted) instead of the source.
+  const packaged = process.env.MI_APP_EXECUTABLE;
   const app = await electron.launch({
+    ...(packaged ? { executablePath: packaged } : {}),
     args: [
-      '.',
+      ...(packaged ? ['--no-sandbox'] : ['.']),
       '--use-fake-device-for-media-stream',
       `--use-file-for-fake-audio-capture=${wav}`,
       '--disable-audio-output',
