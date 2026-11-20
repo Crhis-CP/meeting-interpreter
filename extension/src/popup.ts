@@ -2,7 +2,7 @@ import { pingDesktop } from '@core/bridge/desktop';
 import { checkForUpdate } from '../../src/main/update-check';
 import { consoleLogger, createBrowserContext } from './browser-context';
 import { h, settingsProblem } from './dom';
-import { usesDesktop } from './engine-providers';
+import { offlineMt, usesDesktop } from './engine-providers';
 import { DESKTOP_DOWNLOAD, IDLE_STATE, KEY_LINKS, loadAll, MEETING_SITES, missingKey, withDefaults, type SessionState, type ToBackground } from './shared';
 
 const app = document.getElementById('app')!;
@@ -99,6 +99,13 @@ async function render() {
       app.append(slot);
       void pingDesktop(createBrowserContext(consoleLogger('popup'), async () => undefined)).then((ok) => {
         if (!ok) slot.replaceWith(h('div', { class: 'callout warn' }, '免费版要先打开电脑上的桌面客户端 ', h('a', { href: DESKTOP_DOWNLOAD, target: '_blank' }, '下载 ↗')));
+      });
+    }
+    if ([s.out.mt, s.in.mt].includes('offline')) {
+      const slot = h('div');
+      app.append(slot);
+      void offlineMt().missingBytes().then((missing) => {
+        if (missing) slot.replaceWith(h('div', { class: 'callout warn' }, `第一次使用要下载离线翻译（约 ${Math.round(missing / 1_000_000)} MB） `, h('a', { onclick: () => openOptions('#offline') }, '去下载')));
       });
     }
     const onMeeting = isMeetingSite(tab?.url);

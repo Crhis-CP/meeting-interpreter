@@ -219,7 +219,7 @@ function ensureOverlay(): Overlay {
         trim();
       }
       // For the other side: Chinese first, original below. For me: what they hear, my words below.
-      const main = seg.dstText ?? (seg.status === 'failed' ? '（翻译失败）' : '翻译中…');
+      const main = seg.dstText ?? (seg.status === 'failed' ? `（翻译失败${seg.error ? `：${seg.error.slice(0, 80)}` : ''}）` : '翻译中…');
       (row.querySelector('.zh') as HTMLDivElement).textContent = mine ? `→ ${main}` : main;
       (row.querySelector('.src') as HTMLDivElement).textContent = seg.srcText;
       if (seg.dir === 'in') partialEl.remove();

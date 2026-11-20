@@ -41,6 +41,7 @@ for (const n of ['page-mic', 'bridge']) {
 
 for (const f of ['popup.html', 'options.html', 'offscreen.html']) cpSync(join(src, f), join(out, f));
 cpSync(join(root, 'extension/public'), out, { recursive: true });
+execFileSync(process.execPath, [join(root, 'scripts/copy-offline-mt.mjs'), out]);
 const manifest = JSON.parse(readFileSync(join(root, 'extension/manifest.json'), 'utf8'));
 manifest.version = version;
 writeFileSync(join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));

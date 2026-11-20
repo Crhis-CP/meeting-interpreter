@@ -16,7 +16,8 @@ import { DASHSCOPE_VOICES } from '@core/providers/dashscope/tts';
 import { LLM_PRESETS } from '@core/providers/openai-compatible';
 import { createProviders } from '@core/providers/registry';
 import type { TranscriptSegment } from '@core/types';
-import { createMobileContext, keepAwake, native, openExternal } from './native';
+import { createMobileContext, keepAwake, native, nativeFetchLarge, openExternal } from './native';
+import { OFFLINE_MT_BYTES, OfflineMt } from '../../src/browser/offline-mt/engine';
 import { checkForUpdate } from '../../src/main/update-check';
 
 declare const __APP_VERSION__: string;
@@ -29,7 +30,7 @@ interface MobileSettings {
   remote: string;
   mode: 'hands-free' | 'ptt';
   provider: 'dashscope' | 'demo';
-  mt: 'qwen-mt' | 'llm';
+  mt: 'offline' | 'qwen-mt' | 'llm';
   llmPreset: string;
   voiceForeign: string;
   voiceChinese: string;
@@ -39,7 +40,7 @@ interface MobileSettings {
   useMyVoice: boolean;
 }
 
-const DEFAULTS: MobileSettings = { remote: 'es-MX', mode: 'hands-free', provider: 'dashscope', mt: 'qwen-mt', llmPreset: 'zhipu-free', voiceForeign: '', voiceChinese: '', fontSize: 22, myVoiceId: '', useMyVoice: false };
+const DEFAULTS: MobileSettings = { remote: 'es-MX', mode: 'hands-free', provider: 'dashscope', mt: 'offline', llmPreset: 'zhipu-free', voiceForeign: '', voiceChinese: '', fontSize: 22, myVoiceId: '', useMyVoice: false };
 const load = <T>(k: string, d: T): T => {
   try {
     return { ...d, ...(JSON.parse(localStorage.getItem(k) ?? 'null') ?? {}) } as T;
@@ -76,9 +77,23 @@ function appSettings() {
   });
 }
 
+/** Offline translation (Mozilla models) in this WebView; large downloads go through the app. */
+const offline = new OfflineMt({
+  workerUrl: new URL('offline-mt/worker.js', location.href).href,
+  glueUrl: new URL('offline-mt/bergamot-translator.js', location.href).href,
+  wasmUrl: new URL('offline-mt/bergamot-translator.wasm', location.href).href,
+  fetchImpl: async (input) => {
+    const url = String(input);
+    return /^https?:/.test(url) && !url.startsWith(location.origin) ? nativeFetchLarge(url) : fetch(input);
+  },
+});
+let offlineMissing = 0;
+void offline.missingBytes().then((n) => (offlineMissing = n)).catch(() => undefined);
+
 /** What still stops the conversation from starting (a missing key), or null. */
 function problem(): string | null {
   if (settings.provider === 'demo') return null;
+  if (settings.mt === 'offline' && offlineMissing) return `先下载离线翻译（约 ${Math.round(offlineMissing / 1_000_000)} MB，只需一次）`;
   if (!secrets.dashscope) return '先填写阿里云百炼 Key';
   if (settings.mt === 'llm' && !secrets.llm) return '先填写翻译大模型的 Key';
   return null;
@@ -131,7 +146,7 @@ if (!webOnly) {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
     const s = appSettings();
     const pctx = createMobileContext(log);
-    const providers = createProviders(s, secrets, pctx, () => []);
+    const providers = createProviders(s, secrets, pctx, () => [], { offlineMt: { translate: (text, from, to) => offline.translate(text, from, to) } });
     const shared = new SharedAsr(providers.asr('out'), 'zh-CN', settings.remote);
     const t0 = Date.now();
     const make = (side: 'zh' | 'foreign') =>
@@ -452,6 +467,27 @@ const gearIcon = () => svg('<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.4-3a7
 
 // ------------------------------------------------------------------ settings sheet
 
+/** Offline translation models: download once, then translation needs no network. */
+function offlineRow(): HTMLElement {
+  const status = h('small', {}, offlineMissing ? '只需下载一次' : '✅ 已下载，不联网也能翻译');
+  const btn = h('button', {
+    class: 'link',
+    onclick: async () => {
+      btn.disabled = true;
+      try {
+        await offline.download((p) => (status.textContent = `下载中 ${Math.round((p.received / p.total) * 100)}%`));
+        offlineMissing = 0;
+        status.textContent = '✅ 已下载，不联网也能翻译';
+        btn.remove();
+      } catch (err) {
+        status.textContent = err instanceof Error ? err.message : String(err);
+        btn.disabled = false;
+      }
+    },
+  }, `下载离线翻译（约 ${Math.round((offlineMissing || OFFLINE_MT_BYTES) / 1_000_000)} MB）`);
+  return h('div', { class: 'row' }, offlineMissing ? btn : null, status);
+}
+
 /** Record 16 s of my voice and clone it with 百炼, so the other side hears my own voice. */
 function myVoiceGroup(close: () => void): HTMLElement {
   const status = h('small', {});
@@ -528,11 +564,12 @@ if (!webOnly) {
     h('div', { class: 'group' },
       row('阿里云百炼 Key', keyInput('dashscope', '粘贴 Key（sk- 开头）')),
       h('button', { class: 'link', onclick: () => openExternal(KEY_URL) }, '去获取 Key ↗'),
-      row('翻译', select(settings.mt, [['qwen-mt', '百炼翻译（快）'], ['llm', '大模型（可选免费的智谱）']], (v) => {
+      row('翻译', select(settings.mt, [['offline', '离线翻译（免费，最快）'], ['qwen-mt', '百炼翻译'], ['llm', '大模型（可选免费的智谱）']], (v) => {
         settings.mt = v as MobileSettings['mt'];
         close();
         openSettings();
       })),
+      settings.mt === 'offline' ? offlineRow() : null,
       settings.mt === 'llm' ? row('大模型', select(settings.llmPreset, LLM_PRESETS.filter((p) => p.id !== 'ollama' && p.id !== 'custom').map((p) => [p.id, p.name]), (v) => (settings.llmPreset = v))) : null,
       settings.mt === 'llm' ? row('大模型 Key', keyInput('llm', '粘贴 Key')) : null,
     ),

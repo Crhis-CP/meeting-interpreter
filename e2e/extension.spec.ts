@@ -55,8 +55,10 @@ type Stats = Record<'before' | 'after' | 'end', { hi: number; lo: number }>;
 const stats = (p: Page) => p.evaluate(() => (window as unknown as { stats: Stats }).stats);
 const subtitles = (p: Page) => p.evaluate(() => document.getElementById('meeting-interpreter-subtitles')?.shadowRoot?.textContent ?? '');
 
-async function launch() {
+async function launch(network = false) {
   const dir = mkdtempSync(join(tmpdir(), 'mi-ext-'));
+  // Tests that download from the internet go through the environment's proxy when there is one.
+  const proxy = network && process.env.HTTPS_PROXY ? [`--proxy-server=${process.env.HTTPS_PROXY}`, '--ignore-certificate-errors'] : ['--no-proxy-server'];
   const context = await chromium.launchPersistentContext(join(dir, 'profile'), {
     headless: false,
     executablePath: process.env.CHROMIUM_PATH || undefined,
@@ -67,7 +69,7 @@ async function launch() {
       '--use-fake-ui-for-media-stream',
       `--use-file-for-fake-audio-capture=${micWav(dir)}`,
       '--autoplay-policy=no-user-gesture-required',
-      '--no-proxy-server',
+      ...proxy,
     ],
   });
   await context.route('https://meet.google.com/**', (r) => r.fulfill({ contentType: 'text/html', body: MEETING_PAGE }));
@@ -209,4 +211,22 @@ test('extension free tier: recognition and voice come from the desktop app', asy
   } finally {
     await bridge.stop();
   }
+});
+
+test('extension: free offline translation (models downloaded into the browser)', async () => {
+  test.setTimeout(600_000);
+  const { context, sw, extId, ext } = await launch(true);
+  await ext.evaluate(() =>
+    chrome.storage.local.set({ settings: { providers: 'custom', remote: 'es-MX', out: { asr: 'demo', mt: 'offline', tts: 'demo', voice: '' }, in: { asr: 'demo', mt: 'offline', tts: 'demo', voice: '' } } }),
+  );
+  await ext.goto(`chrome-extension://${extId}/options.html#offline`); // starts the download
+  await expect(ext.getByText('✅ 离线翻译已下载（不联网也能翻译）')).toBeVisible({ timeout: 540_000 });
+  const { page, tabId } = await joinMeeting(context, sw);
+  const st = await ext.evaluate((id) => chrome.runtime.sendMessage({ type: 'start', tabId: id }), tabId);
+  expect(st.status, JSON.stringify(st)).toBe('running');
+  // The second demo sentence, as Mozilla's model (not the demo translator) words it.
+  await expect.poll(() => subtitles(page), { timeout: 60_000 }).toMatch(/tiempo de entrega|plazo de entrega/);
+  console.log('extension offline subtitles:', (await subtitles(page)).slice(0, 300));
+  await ext.evaluate(() => chrome.runtime.sendMessage({ type: 'stop' }));
+  await context.close();
 });

@@ -12,7 +12,7 @@ import { testDirection } from '../../src/main/provider-test';
 import { createClonedVoice, deleteClonedVoice, waitForVoice } from '@core/providers/dashscope/voice-clone';
 import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../src/browser/voice-sample';
 import { consoleLogger, createBrowserContext } from './browser-context';
-import { buildProviders, usesDesktop } from './engine-providers';
+import { buildProviders, offlineMt, usesDesktop } from './engine-providers';
 import { DESKTOP_BRIDGE_PORT, pingDesktop } from '@core/bridge/desktop';
 import { h, settingsProblem } from './dom';
 import { DESKTOP_DOWNLOAD, KEY_LINKS, loadAll, missingKey, toAppSettings, withDefaults, type ExtSettings, type ProviderSet, type SavedMeeting } from './shared';
@@ -157,6 +157,7 @@ async function renderSettings(body: HTMLElement) {
       }
     });
   }
+  if (uses('offline')) main.append(offlineMtRow());
   if (problem && !missingKey(s, secrets)) main.append(h('div', { class: 'callout warn' }, problem));
 
   const results = h('div', { class: 'stack' });
@@ -296,6 +297,33 @@ function myVoiceCard(s: ExtSettings, set: (p: Partial<ExtSettings>) => Promise<v
     h('label', { class: 'row small', style: 'cursor:pointer' }, consent, '这是我本人的声音，我同意用它合成我的翻译语音'),
     h('div', { class: 'row' }, recordBtn, status),
   );
+}
+
+/** Offline translation models: status and one-click download (kept in this browser). */
+function offlineMtRow(): HTMLElement {
+  const row = h('div', { class: 'stack' });
+  const render = async () => {
+    const missing = await offlineMt().missingBytes();
+    if (!missing) return row.replaceChildren(h('div', { class: 'muted small' }, '✅ 离线翻译已下载（不联网也能翻译）'));
+    const status = h('span', { class: 'muted small' }, '只需下载一次');
+    const btn = h('button', {
+      class: 'btn primary',
+      onclick: async () => {
+        btn.disabled = true;
+        try {
+          await offlineMt().download((p) => (status.textContent = `下载中 ${Math.round((p.received / p.total) * 100)}%`));
+          void render();
+        } catch (err) {
+          status.textContent = err instanceof Error ? err.message : String(err);
+          btn.disabled = false;
+        }
+      },
+    }, `下载离线翻译（约 ${Math.round(missing / 1_000_000)} MB）`);
+    row.replaceChildren(h('b', {}, '离线翻译（免费，不用 Key）'), h('div', { class: 'row' }, btn, status));
+    if (location.hash === '#offline') btn.click();
+  };
+  void render();
+  return row;
 }
 
 /** Voices installed on the computer, listed by the desktop app. */

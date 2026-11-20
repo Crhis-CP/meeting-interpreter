@@ -47,7 +47,11 @@
     "https://api-free.deepl.com/*",
     "http://localhost/*",
     "http://127.0.0.1/*",
-    "https://api.github.com/*"
+    "https://api.github.com/*",
+    "https://github.com/*",
+    "https://objects.githubusercontent.com/*",
+    "https://release-assets.githubusercontent.com/*",
+    "https://storage.googleapis.com/*"
   ],
   "optional_host_permissions": [
     "https://*/*"
@@ -96,5 +100,8 @@
       "run_at": "document_start",
       "all_frames": true
     }
-  ]
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
 }

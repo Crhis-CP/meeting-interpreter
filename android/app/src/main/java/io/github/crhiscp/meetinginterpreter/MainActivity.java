@@ -46,6 +46,14 @@ public class MainActivity extends Activity {
                 Uri u = request.getUrl();
                 if (!ORIGIN.equals(u.getScheme() + "://" + u.getHost())) return null;
                 String path = u.getPath() == null || u.getPath().equals("/") ? "/index.html" : u.getPath();
+                if (path.startsWith("/mt-cache/")) {
+                    java.io.File f = new java.io.File(new java.io.File(getCacheDir(), "mt"), path.substring("/mt-cache/".length()).replaceAll("[^A-Za-z0-9._-]", "_"));
+                    try {
+                        return new WebResourceResponse("application/octet-stream", null, new java.io.FileInputStream(f));
+                    } catch (IOException e) {
+                        return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found", null, null);
+                    }
+                }
                 try {
                     InputStream in = getAssets().open("www" + path);
                     return new WebResourceResponse(mime(path), "utf-8", in);

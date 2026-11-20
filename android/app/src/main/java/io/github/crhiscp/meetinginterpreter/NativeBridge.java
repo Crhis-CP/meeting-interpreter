@@ -133,6 +133,49 @@ final class NativeBridge {
         });
     }
 
+    /** Downloads a (large) file into the app cache; the page reads it from /mt-cache/<name>. */
+    @JavascriptInterface
+    public void downloadToCache(String id, String url, String name) {
+        pool.execute(() -> {
+            String q = JSONObject.quote(id);
+            try {
+                java.io.File dir = new java.io.File(activity.getCacheDir(), "mt");
+                dir.mkdirs();
+                java.io.File out = new java.io.File(dir, name.replaceAll("[^A-Za-z0-9._-]", "_"));
+                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                c.setInstanceFollowRedirects(true);
+                c.setConnectTimeout(20000);
+                c.setReadTimeout(60000);
+                int status = c.getResponseCode();
+                if (status >= 400) throw new java.io.IOException("HTTP " + status);
+                long total = c.getContentLengthLong();
+                long received = 0;
+                long lastReport = 0;
+                try (InputStream is = c.getInputStream(); java.io.FileOutputStream os = new java.io.FileOutputStream(out)) {
+                    byte[] b = new byte[65536];
+                    int n;
+                    while ((n = is.read(b)) > 0) {
+                        os.write(b, 0, n);
+                        received += n;
+                        if (received - lastReport > 1_000_000) {
+                            lastReport = received;
+                            js("MiNativeEvents.dl(" + q + "," + received + "," + total + ",'')");
+                        }
+                    }
+                }
+                c.disconnect();
+                js("MiNativeEvents.dl(" + q + ",-1," + received + ",'')");
+            } catch (Exception e) {
+                js("MiNativeEvents.dl(" + q + ",-2,0," + JSONObject.quote(String.valueOf(e.getMessage())) + ")");
+            }
+        });
+    }
+
+    @JavascriptInterface
+    public void deleteCached(String name) {
+        new java.io.File(new java.io.File(activity.getCacheDir(), "mt"), name.replaceAll("[^A-Za-z0-9._-]", "_")).delete();
+    }
+
     @JavascriptInterface
     public void keepAwake(boolean on) {
         activity.runOnUiThread(() -> {

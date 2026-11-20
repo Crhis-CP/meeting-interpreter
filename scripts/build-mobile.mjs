@@ -2,6 +2,7 @@
 import { build } from 'esbuild';
 import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const root = new URL('..', import.meta.url).pathname;
 const out = join(root, 'out/mobile');
@@ -21,6 +22,7 @@ await build({
   logLevel: 'warning',
 });
 for (const f of ['index.html', 'app.css']) cpSync(join(root, 'mobile/src', f), join(out, f));
+execFileSync(process.execPath, [join(root, 'scripts/copy-offline-mt.mjs'), out]);
 const assets = join(root, 'android/app/src/main/assets/www');
 rmSync(assets, { recursive: true, force: true });
 mkdirSync(assets, { recursive: true });

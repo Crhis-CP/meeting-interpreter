@@ -16,6 +16,8 @@ interface NativeApi {
   http(id: string, method: string, url: string, headersJson: string, bodyBase64: string): void;
   keepAwake(on: boolean): void;
   openUrl(url: string): void;
+  downloadToCache(id: string, url: string, name: string): void;
+  deleteCached(name: string): void;
 }
 
 type WsEvent = 'open' | 'text' | 'binary' | 'close' | 'error';
@@ -26,6 +28,7 @@ declare global {
     MiNativeEvents?: {
       ws(id: string, type: WsEvent, payload: string, code?: number): void;
       http(id: string, status: number, headersJson: string, bodyBase64: string, error: string): void;
+      dl(id: string, received: number, total: number, error: string): void;
     };
   }
 }
@@ -36,7 +39,21 @@ let seq = 0;
 const sockets = new Map<string, WebSocketLike & { state: number }>();
 const requests = new Map<string, { resolve: (r: Response) => void; reject: (e: Error) => void }>();
 
+const downloads = new Map<string, { onBytes: (n: number) => void; resolve: () => void; reject: (e: Error) => void }>();
+
 window.MiNativeEvents = {
+  dl(id, received, total, error) {
+    const d = downloads.get(id);
+    if (!d) return;
+    if (received === -2) {
+      downloads.delete(id);
+      d.reject(new Error(error || '下载失败'));
+    } else if (received === -1) {
+      downloads.delete(id);
+      d.onBytes(total);
+      d.resolve();
+    } else d.onBytes(received);
+  },
   ws(id, type, payload, code) {
     const s = sockets.get(id);
     if (!s) return;
@@ -145,4 +162,22 @@ export function openExternal(url: string): void {
 
 export function keepAwake(on: boolean): void {
   native()?.keepAwake(on);
+}
+
+/**
+ * A download the page cannot fetch itself (no CORS): the app saves it to its cache and serves it
+ * back at /mt-cache/<name>; the cached copy is removed once read.
+ */
+export async function nativeFetchLarge(url: string, onBytes: (n: number) => void = () => undefined): Promise<Response> {
+  const api = native();
+  if (!api) return fetch(url);
+  const id = `d${++seq}`;
+  const name = url.split('/').pop()!.replace(/[^A-Za-z0-9._-]/g, '_');
+  await new Promise<void>((resolve, reject) => {
+    downloads.set(id, { onBytes, resolve, reject });
+    api.downloadToCache(id, url, name);
+  });
+  const buf = await (await fetch(`/mt-cache/${name}`)).arrayBuffer();
+  api.deleteCached(name);
+  return new Response(buf);
 }
