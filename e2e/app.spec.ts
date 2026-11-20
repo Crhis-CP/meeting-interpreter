@@ -33,5 +33,16 @@ test('demo meeting: microphone audio becomes bilingual segments and a saved reco
   await win.getByRole('button', { name: '查看会议记录' }).click();
   await expect(win.getByText('句').first()).toBeVisible();
   await win.screenshot({ path: 'test-results/history.png' });
+
+  // Open the meeting and check the recording plays through the mi-media:// protocol.
+  await win.locator('.list-item').first().click();
+  await win.getByRole('button', { name: '录音录屏' }).click();
+  const audio = win.locator('audio').first();
+  await expect(audio).toBeVisible();
+  await expect.poll(async () => audio.evaluate((el: HTMLAudioElement) => (el.error ? -1 : el.readyState)), { timeout: 15_000 }).toBeGreaterThan(0);
+  await win.getByRole('button', { name: '中文纪要' }).click();
+  await win.getByRole('button', { name: '生成纪要' }).click();
+  await expect(win.getByText('新产品交货与价格洽谈').first()).toBeVisible({ timeout: 20_000 });
+  await win.screenshot({ path: 'test-results/summary.png' });
   await app.close();
 });
