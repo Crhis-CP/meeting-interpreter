@@ -23,11 +23,11 @@ describe('stores', () => {
   it('persists and validates settings, keeping a backup of corrupt files', () => {
     const dir = tmp();
     const s = new SettingsStore(dir);
-    s.set({ languages: { remote: 'es-MX' }, interpretation: { duckLevel: 0.4 } });
-    expect(new SettingsStore(dir).get().languages.remote).toBe('es-MX');
+    s.set({ languages: { remote: 'es-AR' }, interpretation: { duckLevel: 0.4 } });
+    expect(new SettingsStore(dir).get().languages.remote).toBe('es-AR');
     expect(new SettingsStore(dir).get().interpretation.duckLevel).toBe(0.4);
     writeFileSync(join(dir, 'settings.json'), '{not json');
-    expect(new SettingsStore(dir).get().languages.remote).toBe('es-ES');
+    expect(new SettingsStore(dir).get().languages.remote).toBe('es-MX'); // defaults after a corrupt file
     const p = new SettingsStore(dir).applyPreset('dashscope');
     expect(p.out.asr).toBe('dashscope');
     expect(p.llm.preset).toBe('qwen');

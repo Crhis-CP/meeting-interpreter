@@ -98,7 +98,7 @@ describe('RoomHost', () => {
     await waitFor(() => es.tts.length > 0, 5000);
     expect(zh.tts).toHaveLength(0); // the speaker does not hear their own translation
     const seg = es.msgs.find((m): m is Extract<ServerMessage, { t: 'segment' }> => m.t === 'segment' && m.seg.status === 'done')!.seg;
-    expect(seg.dstLang).toBe('es-ES'); // the room's Spanish variant
+    expect(seg.dstLang).toBe('es-MX'); // the room's Spanish variant
     expect(seg.dstText).toMatch(/[a-z]/i);
 
     // A Spanish speaker reaches the Chinese phone and the host computer.

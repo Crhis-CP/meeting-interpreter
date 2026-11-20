@@ -57,7 +57,7 @@ export const LANGUAGES: Record<LangCode, LanguageInfo> = {
 };
 
 export const SELF_LANGUAGES: LangCode[] = ['zh-CN'];
-export const REMOTE_LANGUAGES: LangCode[] = ['es-ES', 'es-MX', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE'];
+export const REMOTE_LANGUAGES: LangCode[] = ['es-MX', 'es-ES', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE'];
 
 export function lang(code: LangCode): LanguageInfo {
   const info = LANGUAGES[code];
@@ -74,7 +74,7 @@ export function baseOf(code: LangCode): LangBase {
 }
 
 /** The other side's language in a zh⇄es pair. */
-export function otherLanguage(code: LangCode, remote: LangCode = 'es-ES'): LangCode {
+export function otherLanguage(code: LangCode, remote: LangCode = 'es-MX'): LangCode {
   return baseOf(code) === 'zh' ? remote : 'zh-CN';
 }
 

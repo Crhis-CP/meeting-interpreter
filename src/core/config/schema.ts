@@ -24,9 +24,9 @@ export const SettingsSchema = z.object({
   languages: z
     .object({
       self: z.string().default('zh-CN'),
-      remote: z.string().default('es-ES'),
+      remote: z.string().default('es-MX'),
     })
-    .default({ self: 'zh-CN', remote: 'es-ES' }),
+    .default({ self: 'zh-CN', remote: 'es-MX' }),
   /** My speech → the meeting. */
   out: DirectionConfigSchema.default({ enabled: true, asr: 'demo', mt: 'demo', tts: 'demo', voice: '' }),
   /** The meeting → me. */
