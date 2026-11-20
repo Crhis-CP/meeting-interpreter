@@ -10,6 +10,8 @@ import type { Glossary } from '../core/glossary/types';
 import { baseOf } from '../core/lang/languages';
 import { createLogger, setLogSink } from '../core/log';
 import { createProviders, makeLlm, type Providers } from '../core/providers/registry';
+import { azureVoicesFor } from '../core/providers/azure';
+import { DashscopeTts } from '../core/providers/dashscope';
 import type { SummaryTemplate } from '../core/session/summary';
 import type { Direction } from '../core/types';
 import { IPC, type FromAudio, type RendererEvents, type ToAudio } from '../shared/ipc';
@@ -253,6 +255,9 @@ const handlers: Record<string, Handler> = {
     const s = settings.get();
     try {
       if (provider === 'system') return await new SystemTts().listVoices(langCode);
+      // Voice lists are static for the cloud providers: show them even before a key is saved.
+      if (provider === 'azure') return azureVoicesFor(langCode);
+      if (provider === 'dashscope') return new DashscopeTts({ apiKey: 'list-only', region: s.dashscope.region }, ctx).voices(langCode);
       const p = createProviders({ ...s, out: { ...s.out, tts: provider as AppSettings['out']['tts'] } }, secrets.all(), ctx, () => [], { systemTts, localAsr });
       return p.tts('out')?.voices(langCode) ?? [];
     } catch {
