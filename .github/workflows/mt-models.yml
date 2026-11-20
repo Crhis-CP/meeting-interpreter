@@ -1,0 +1,39 @@
+name: Translation models
+
+# Mirrors the Mozilla translation models listed in src/browser/offline-mt/manifest.json to the
+# release “mt-models-v1”, after checking every file's SHA-256. Apps download from here first.
+on:
+  push:
+    branches: [main]
+    paths: ['src/browser/offline-mt/manifest.json']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and verify
+        run: |
+          mkdir -p mt
+          python3 - <<'PY'
+          import hashlib, json, urllib.request
+          m = json.load(open('src/browser/offline-mt/manifest.json'))
+          for f in m['files']:
+              data = urllib.request.urlopen(f['upstream']).read()
+              assert hashlib.sha256(data).hexdigest() == f['sha256'], f['name']
+              open('mt/' + f['name'], 'wb').write(data)
+              print('ok', f['name'], len(data))
+          PY
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mt-models-v1
+          target_commitish: ${{ github.sha }}
+          name: 离线翻译模型 v1（Mozilla，MPL-2.0）
+          body: 会议同传助手的离线翻译模型（中英、英中、西英、英西），软件会自动下载，不需要手动下载。来源：Mozilla Firefox Translations，MPL-2.0。
+          files: mt/*
+          prerelease: true
+          make_latest: false

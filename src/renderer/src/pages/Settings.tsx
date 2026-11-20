@@ -179,6 +179,48 @@ function LocalModels({ foreign }: { foreign: 'es' | 'en' }) {
   );
 }
 
+/** Offline translation models: status and one-click download. */
+function OfflineMtCard() {
+  const [st, setSt] = useState<{ missingBytes: number; totalBytes: number } | null>(null);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const load = () => void api.mt.status().then(setSt).catch((e) => setError(errMsg(e)));
+  useEffect(load, []);
+  useEvent('model-progress', (p) => {
+    if (p.id === 'offline-mt') setBusy(`下载中 ${p.total ? Math.round((p.received / p.total) * 100) : 0}%`);
+  });
+  const download = async () => {
+    setError('');
+    setBusy('下载中…');
+    try {
+      await api.mt.download();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy('');
+      load();
+    }
+  };
+  const mb = (n: number) => Math.round(n / 1_000_000);
+  return (
+    <div className="card">
+      <h3>离线翻译（免费）</h3>
+      <p className="hint" style={{ marginTop: 0 }}>Mozilla 的离线翻译模型（Firefox 用的就是它），翻一句不到 0.1 秒，不联网、不用 Key。</p>
+      {st && !st.missingBytes ? (
+        <div className="callout info">✅ 已下载，可以离线翻译</div>
+      ) : (
+        <div className="row">
+          <button className="btn primary" disabled={!!busy} onClick={() => void download()}>
+            {busy || `下载离线翻译（约 ${mb(st?.missingBytes ?? st?.totalBytes ?? 140_000_000)} MB）`}
+          </button>
+          <span className="muted small">只需下载一次</span>
+        </div>
+      )}
+      {error && <div className="callout err" style={{ marginTop: 8 }}>{error}</div>}
+    </div>
+  );
+}
+
 /** “用我的声音”: record a sample, clone it with 百炼, speak my translations in my own voice. */
 function MyVoiceCard({ s, update }: TabProps) {
   const [consent, setConsent] = useState(false);
@@ -393,6 +435,7 @@ function ProvidersTab({ s, update }: TabProps) {
         </div>
       )}
 
+      {(s.out.mt === 'offline' || s.in.mt === 'offline') && <OfflineMtCard />}
       {s.out.tts === 'dashscope' && <MyVoiceCard s={s} update={update} />}
 
       <div className="card">
@@ -421,6 +464,7 @@ function ProvidersTab({ s, update }: TabProps) {
                 <Field label="翻译">
                   <select value={c.mt} onChange={(e) => void update({ [d]: { mt: e.target.value }, preset: 'custom' })}>
                     <option value="qwen-mt">通义 Qwen-MT（百炼）</option>
+                    <option value="offline">离线翻译（免费，不用 Key）</option>
                     <option value="llm">大模型（上面配置的）</option>
                     <option value="deepl">DeepL</option>
                     <option value="azure-translator">Azure 翻译</option>

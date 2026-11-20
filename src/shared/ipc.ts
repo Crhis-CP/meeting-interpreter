@@ -149,6 +149,11 @@ export interface RendererApi {
     create(wav: Uint8Array): Promise<string>;
     remove(): Promise<void>;
   };
+  /** Offline translation models (Mozilla): how much is left to download, and downloading them. */
+  mt: {
+    status(): Promise<{ missingBytes: number; totalBytes: number }>;
+    download(): Promise<void>;
+  };
   local: {
     status(): Promise<LocalModelStatus[]>;
     download(lang: 'zh' | 'es' | 'en'): Promise<void>;
@@ -222,7 +227,10 @@ export type ToAudio =
   | { type: 'micGate'; open: boolean }
   | { type: 'startRecording'; audio: boolean; screen: boolean; screenSourceId: string }
   | { type: 'stopRecording' }
-  | { type: 'testTone'; target: 'virtualMic' | 'headphones'; config: AudioConfig };
+  | { type: 'testTone'; target: 'virtualMic' | 'headphones'; config: AudioConfig }
+  | { type: 'mt'; id: number; text: string; from: 'zh' | 'es' | 'en'; to: 'zh' | 'es' | 'en' }
+  | { type: 'mtStatus'; id: number }
+  | { type: 'mtDownload'; id: number };
 
 /** audio window → main */
 export type FromAudio =
@@ -234,7 +242,9 @@ export type FromAudio =
   | { type: 'recStopped'; kind: 'mix' | 'screen' }
   | { type: 'recError'; kind: 'mix' | 'screen'; message: string }
   | { type: 'error'; message: string }
-  | { type: 'log'; message: string };
+  | { type: 'log'; message: string }
+  | { type: 'mtReply'; id: number; text?: string; missingBytes?: number; error?: string }
+  | { type: 'mtProgress'; received: number; total: number; file: string };
 
 export const IPC = {
   invoke: 'mi:invoke',

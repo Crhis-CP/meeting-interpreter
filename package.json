@@ -15,8 +15,8 @@
   },
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "dev": "node scripts/copy-offline-mt.mjs && electron-vite dev",
+    "build": "node scripts/copy-offline-mt.mjs && electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p extension/tsconfig.json && tsc --noEmit -p mobile/tsconfig.json",
     "test": "vitest run",

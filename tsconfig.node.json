@@ -45,6 +45,7 @@
   ],
   "exclude": [
     "e2e/extension.spec.ts",
-    "e2e/mobile.spec.ts"
+    "e2e/mobile.spec.ts",
+    "tests/core/offline-translator.test.ts"
   ]
 }

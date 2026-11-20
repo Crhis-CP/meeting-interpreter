@@ -2,7 +2,7 @@ import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, M
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { release } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { PresetId } from '../core/config/presets';
 import type { AppSettings, SecretName } from '../core/config/schema';
 import { glossaryToCsv, parseGlossaryCsv } from '../core/glossary/csv';
@@ -24,6 +24,10 @@ import { ModelManager } from './providers/local-asr/model-manager';
 import { modelsForLang, modelsSize, type ModelId } from './providers/local-asr/models';
 import { SystemTts } from './providers/system-tts';
 import { RoomHost } from './room/room-host';
+import { AudioWindowMt } from './offline-mt';
+import manifest from '../browser/offline-mt/manifest.json';
+
+const OFFLINE_MT_TOTAL = manifest.files.reduce((n, f) => n + f.size, 0);
 import { DesktopBridge } from './bridge/desktop-bridge';
 import { audioConfig, SessionManager } from './session/session-manager';
 import { GlossaryStore } from './stores/glossary-store';
@@ -143,8 +147,18 @@ const desktopBridge = new DesktopBridge({
   onClients: (n) => log.info(`extension recognition sessions: ${n}`),
 });
 
+/** Offline translation (Mozilla models), run in the hidden audio window. */
+const offlineMt = new AudioWindowMt(
+  (msg) => {
+    if (!audioWindow || audioWindow.isDestroyed()) return false;
+    audioWindow.webContents.send(IPC.toAudio, msg);
+    return true;
+  },
+  (p) => broadcast('model-progress', { id: 'offline-mt', ...p }),
+);
+
 function providers(): Providers {
-  return createProviders(settings.get(), secrets.all(), ctx, () => glossaries.active(), { systemTts, localAsr });
+  return createProviders(settings.get(), secrets.all(), ctx, () => glossaries.active(), { systemTts, localAsr, offlineMt });
 }
 
 const sessionManager = new SessionManager({
@@ -189,6 +203,7 @@ const handlers: Record<string, Handler> = {
     const s = settings.applyPreset(id);
     broadcast('settings', s);
     if (usesLocalAsr()) void prefetchModels();
+    if (usesOfflineMt()) void prefetchOfflineMt();
     return s;
   },
   'secrets.status': () => secrets.status(),
@@ -221,6 +236,7 @@ const handlers: Record<string, Handler> = {
   'meeting.start': async (opts: { title?: string; platform?: string; mode?: 'meeting' | 'room' }) => {
     if (process.platform === 'darwin') await systemPreferences.askForMediaAccess('microphone').catch(() => false);
     await requireLocalModels(opts?.mode ?? 'meeting');
+    await requireOfflineMt();
     const state = await sessionManager.start(opts ?? {});
     updateTray();
     if (settings.get().ui.overlay.enabled && opts?.mode !== 'room') showOverlay();
@@ -321,6 +337,8 @@ const handlers: Record<string, Handler> = {
     await models.ensureFor(base, settings.get().local.esModel, (p) => broadcast('model-progress', p));
   },
 
+  'mt.status': async () => ({ missingBytes: await offlineMt.missingBytes(), totalBytes: OFFLINE_MT_TOTAL }),
+  'mt.download': () => offlineMt.download(),
   'audio.installDriver': () => installVirtualAudio(proxiedFetch, log.child('driver'), (text) => broadcast('driver-progress', { text })),
   'audio.testTone': (target: 'virtualMic' | 'headphones') => {
     toAudio({ type: 'testTone', target, config: audioConfig(settings.get(), 'meeting') });
@@ -328,6 +346,7 @@ const handlers: Record<string, Handler> = {
 
   'room.start': async () => {
     await requireLocalModels('room');
+    await requireOfflineMt();
     return room.start();
   },
   'room.stop': () => room.stop(),
@@ -363,6 +382,31 @@ const handlers: Record<string, Handler> = {
     overlayWindow?.setIgnoreMouseEvents(on, { forward: true });
   },
 };
+
+function usesOfflineMt(): boolean {
+  const s = settings.get();
+  return s.out.mt === 'offline' || s.in.mt === 'offline';
+}
+
+let mtPrefetch: Promise<void> | null = null;
+/** Downloads the offline translation models in the background, once. */
+function prefetchOfflineMt(): Promise<void> {
+  mtPrefetch ??= offlineMt
+    .missingBytes()
+    .then((missing) => (missing ? offlineMt.download().then(() => broadcast('toast', { level: 'info', message: '离线翻译模型已下载完成，以后不联网也能翻译。' })) : undefined))
+    .catch((err) => broadcast('toast', { level: 'warn', message: `离线翻译模型下载失败：${err instanceof Error ? err.message : String(err)}（可在 设置 › 翻译服务 里重试）` }))
+    .finally(() => (mtPrefetch = null));
+  return mtPrefetch;
+}
+
+/** Before a meeting with offline translation, make sure its models are there. */
+async function requireOfflineMt(): Promise<void> {
+  if (!usesOfflineMt()) return;
+  const missing = await offlineMt.missingBytes().catch(() => 0);
+  if (!missing) return;
+  void prefetchOfflineMt();
+  throw new Error(`正在下载离线翻译模型（约 ${Math.round(missing / 1_000_000)} MB），下载完成后即可开始。可在 设置 › 翻译服务 查看进度。`);
+}
 
 function usesLocalAsr(): boolean {
   const s = settings.get();
@@ -415,7 +459,28 @@ ipcMain.handle(IPC.invoke, async (_e, method: string, ...args: unknown[]) => {
   }
 });
 
+/** Bundled engine files and translation-model downloads for the audio window (no CORS here). */
+const MT_HOSTS = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'storage.googleapis.com']);
+ipcMain.handle('mi:fetch-bytes', async (_e, url: string) => {
+  const u = new URL(url);
+  if (u.protocol === 'file:') {
+    const path = fileURLToPath(u);
+    const root = join(__dirname, '../renderer');
+    if (!path.startsWith(root)) throw new Error('not allowed');
+    const b = readFileSync(path);
+    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+  }
+  if (u.protocol === 'http:' && process.env['ELECTRON_RENDERER_URL'] && url.startsWith(process.env['ELECTRON_RENDERER_URL'])) {
+    return (await fetch(url)).arrayBuffer();
+  }
+  if (u.protocol !== 'https:' || !MT_HOSTS.has(u.hostname)) throw new Error('not allowed');
+  const res = await proxiedFetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.arrayBuffer();
+});
+
 ipcMain.on(IPC.fromAudio, (_e, msg: FromAudio) => {
+  if (msg.type === 'mtReply' || msg.type === 'mtProgress') return offlineMt.handle(msg);
   sessionManager.handleAudio(msg);
   room.handleAudio(msg);
 });

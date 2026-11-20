@@ -31,10 +31,11 @@
     }
   },
   "include": [
-    "src/renderer/**/*",
+    "src/browser/**/*",
     "src/core/**/*",
-    "src/shared/**/*",
     "src/preload/*.d.ts",
-    "src/browser/**/*"
+    "src/renderer/**/*",
+    "src/shared/**/*",
+    "tests/core/offline-translator.test.ts"
   ]
 }

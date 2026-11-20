@@ -21,12 +21,12 @@ export const PRESETS: ProviderPreset[] = [
   {
     id: 'free',
     name: '免费方案',
-    description: '本机离线识别 + 免费大模型翻译 + 系统自带语音。只需一个免费的智谱 key（也可以用本机 Ollama，完全离线）。',
+    description: '本机离线识别 + 离线翻译 + 系统自带语音。不用任何 Key，不联网也能用（第一次自动下载模型）。',
     cost: '免费',
     quality: 2,
-    needs: ['llm'],
-    out: { asr: 'local', mt: 'llm', tts: 'system' },
-    in: { asr: 'local', mt: 'llm', tts: 'system' },
+    needs: [],
+    out: { asr: 'local', mt: 'offline', tts: 'system' },
+    in: { asr: 'local', mt: 'offline', tts: 'system' },
     llmPreset: 'zhipu-free',
   },
   {

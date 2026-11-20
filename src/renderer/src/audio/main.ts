@@ -1,5 +1,6 @@
-import type { ToAudio } from '@shared/ipc';
+import type { FromAudio, ToAudio } from '@shared/ipc';
 import { AudioEngine } from './engine';
+import { OfflineMt } from '../../../browser/offline-mt/engine';
 
 const engine = new AudioEngine((msg) => window.audioBridge.send(msg));
 
@@ -12,7 +13,40 @@ function enqueue(msg: ToAudio): Promise<void> {
   return queue;
 }
 
+// Offline translation (Mozilla models) runs here, in a web worker, for the main process. Files are
+// read and downloaded by the main process (no cross-origin limits) and handed over as blobs.
+const bridge = window.audioBridge as typeof window.audioBridge & { fetchBytes(url: string): Promise<ArrayBuffer> };
+const blobUrl = async (rel: string, type: string) =>
+  URL.createObjectURL(new Blob([await bridge.fetchBytes(new URL(rel, location.href).href)], { type }));
+let mtEngine: Promise<OfflineMt> | null = null;
+const getMt = () =>
+  (mtEngine ??= (async () =>
+    new OfflineMt({
+      workerUrl: await blobUrl('./offline-mt/worker.js', 'text/javascript'),
+      glueUrl: await blobUrl('./offline-mt/bergamot-translator.js', 'text/javascript'),
+      wasmUrl: await blobUrl('./offline-mt/bergamot-translator.wasm', 'application/wasm'),
+      fetchImpl: async (input) => (String(input).startsWith('blob:') ? fetch(input) : new Response(await bridge.fetchBytes(String(input)))),
+    }))());
+async function handleMt(msg: Extract<ToAudio, { type: 'mt' | 'mtStatus' | 'mtDownload' }>) {
+  const reply = (r: Omit<Extract<FromAudio, { type: 'mtReply' }>, 'type' | 'id'>) => window.audioBridge.send({ type: 'mtReply', id: msg.id, ...r });
+  try {
+    const mt = await getMt();
+    if (msg.type === 'mt') reply({ text: await mt.translate(msg.text, msg.from, msg.to) });
+    else if (msg.type === 'mtStatus') reply({ missingBytes: await mt.missingBytes() });
+    else {
+      await mt.download((p) => window.audioBridge.send({ type: 'mtProgress', ...p }));
+      reply({ missingBytes: 0 });
+    }
+  } catch (err) {
+    reply({ error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 window.audioBridge.onMessage((msg: ToAudio) => {
+  if (msg.type === 'mt' || msg.type === 'mtStatus' || msg.type === 'mtDownload') {
+    void handleMt(msg);
+    return;
+  }
   // Playback is time-critical and independent of device setup order.
   if (msg.type === 'tts' || msg.type === 'ttsEnd') {
     engine.handle(msg).catch(() => undefined);

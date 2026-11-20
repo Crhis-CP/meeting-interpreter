@@ -5,6 +5,7 @@ import { AzureAsr, AzureTts } from './azure';
 import { AzureTranslator } from './azure-translator';
 import { DashscopeAsr, DashscopeTts, QwenMtTranslator, type DashscopeConfig } from './dashscope';
 import { DeeplTranslator } from './deepl';
+import { OfflineTranslator, type OfflineMtEngine } from './offline-translator';
 import { DashscopeCloneTts, FallbackTts } from './dashscope/voice-clone';
 import { FallbackAsr } from './fallback-asr';
 import { LlmTranslator } from './llm-translator';
@@ -17,6 +18,8 @@ export interface ProviderExtras {
   systemTts?: () => Tts;
   /** Offline recogniser for a language (main process only). */
   localAsr?: (dir: Direction) => StreamingAsr;
+  /** Offline translation engine (Mozilla models in a browser context). */
+  offlineMt?: OfflineMtEngine;
 }
 
 export interface Providers {
@@ -127,6 +130,9 @@ export function createProviders(
     switch (cfg(dir).mt) {
       case 'demo':
         return new MockTranslator();
+      case 'offline':
+        if (!extras.offlineMt) throw new ProviderError('离线翻译需要先下载翻译模型（设置里点“下载离线翻译”）', 'offline');
+        return new OfflineTranslator(extras.offlineMt);
       case 'llm': {
         const llm = makeLlm(settings, secrets, ctx);
         if (!llm) throw new ProviderError('请先在“服务设置”里填写大模型的 Key（例如免费的智谱 GLM）', 'llm');

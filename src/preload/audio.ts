@@ -11,5 +11,9 @@ contextBridge.exposeInMainWorld('audioBridge', {
   onMessage(fn: (msg: ToAudio) => void) {
     ipcRenderer.on(IPC.toAudio, (_e, msg: ToAudio) => fn(msg));
   },
+  /** Bytes of a bundled file or a model download (fetched by the main process). */
+  fetchBytes(url: string): Promise<ArrayBuffer> {
+    return ipcRenderer.invoke('mi:fetch-bytes', url);
+  },
 });
 contextBridge.exposeInMainWorld('platform', process.platform);
