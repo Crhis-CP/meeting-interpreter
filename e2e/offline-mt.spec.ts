@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { launchApp, mainWindow } from './helpers';
+import { launchApp, mainWindow, attachAppLogs } from './helpers';
+
+test.afterEach(async ({}, info) => attachAppLogs(info));
 
 /**
  * Free tier, no key: offline translation with Mozilla's models inside the real app. Downloads

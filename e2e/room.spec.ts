@@ -1,7 +1,9 @@
 import { chromium, expect, test } from '@playwright/test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { launchApp, mainWindow, speechWav } from './helpers';
+import { launchApp, mainWindow, speechWav, attachAppLogs } from './helpers';
+
+test.afterEach(async ({}, info) => attachAppLogs(info));
 
 test('room: a Chinese phone speaks, a Spanish phone sees the translation', async () => {
   const { app } = await launchApp({ room: { port: 0, publicLink: false } });

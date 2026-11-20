@@ -1,7 +1,9 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { launchApp, mainWindow } from './helpers';
+import { launchApp, mainWindow, attachAppLogs } from './helpers';
+
+test.afterEach(async ({}, info) => attachAppLogs(info));
 
 test('accent calibration, then correcting a sentence teaches the profile', async () => {
   const { app, recordsDir, dataDir } = await launchApp();

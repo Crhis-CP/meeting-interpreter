@@ -1,7 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { launchApp, mainWindow } from './helpers';
+import { launchApp, mainWindow, attachAppLogs } from './helpers';
+
+test.afterEach(async ({}, info) => attachAppLogs(info));
 
 test('demo meeting: microphone audio becomes bilingual segments and a saved record', async () => {
   const { app, recordsDir } = await launchApp();

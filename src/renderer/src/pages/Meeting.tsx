@@ -127,12 +127,12 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
       {state?.warnings?.map((w) => (
         <div key={w} className="callout" role="alert" style={{ marginBottom: 10 }}>
           {w}
-          {window.platform === 'darwin' && /系统声音|录屏/.test(w) && (
+          {window.platform === 'darwin' && /^无法采集系统声音/.test(w) && (
             <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => void api.app.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture')}>
               打开“录屏与系统录音”设置
             </button>
           )}
-          {window.platform === 'darwin' && /麦克风/.test(w) && (
+          {window.platform === 'darwin' && /^无法打开麦克风/.test(w) && (
             <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => void api.app.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone')}>
               打开“麦克风”权限设置
             </button>

@@ -1,7 +1,9 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { launchApp, mainWindow } from './helpers';
+import { launchApp, mainWindow, attachAppLogs } from './helpers';
+
+test.afterEach(async ({}, info) => attachAppLogs(info));
 
 test('a device change mid-meeting and a second meeting both keep working', async () => {
   const { app, recordsDir } = await launchApp();

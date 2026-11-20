@@ -1,7 +1,7 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { _electron as electron, type ElectronApplication } from '@playwright/test';
+import { _electron as electron, type ElectronApplication, type TestInfo } from '@playwright/test';
 import { concatInt16, silence, tone } from '../src/core/audio/pcm';
 import { encodeWav } from '../src/core/audio/wav';
 
@@ -14,8 +14,27 @@ export function speechWav(dir: string): string {
   return path;
 }
 
+const launchedDataDirs: string[] = [];
+
+/**
+ * For test.afterEach: when the test failed, attaches each app's log to the report and prints its
+ * end, so a CI failure shows what the app itself saw (audio devices, levels, errors).
+ */
+export async function attachAppLogs(info: TestInfo): Promise<void> {
+  const dirs = launchedDataDirs.splice(0);
+  if (info.status === info.expectedStatus) return;
+  for (const d of dirs) {
+    const p = join(d, 'app.log');
+    if (!existsSync(p)) continue;
+    const text = readFileSync(p, 'utf8');
+    await info.attach('app.log', { body: text, contentType: 'text/plain' });
+    console.log(`--- app.log (last 60 lines) ---\n${text.trimEnd().split('\n').slice(-60).join('\n')}\n---`);
+  }
+}
+
 export async function launchApp(settings: object = {}): Promise<{ app: ElectronApplication; dataDir: string; recordsDir: string }> {
   const dataDir = mkdtempSync(join(tmpdir(), 'mi-e2e-data-'));
+  launchedDataDirs.push(dataDir);
   const recordsDir = mkdtempSync(join(tmpdir(), 'mi-e2e-rec-'));
   writeFileSync(
     join(dataDir, 'settings.json'),

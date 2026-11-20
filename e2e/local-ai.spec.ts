@@ -1,7 +1,9 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { launchApp, mainWindow } from './helpers';
+import { launchApp, mainWindow, attachAppLogs } from './helpers';
+
+test.afterEach(async ({}, info) => attachAppLogs(info));
 
 // Needs the real model: MI_AI_MODEL=/path/to/Hy-MT2-1.8B-Q4_K_M.gguf (1.1 GB; the Mac / Windows CI job
 // fetches it with scripts/dev/fetch-ai-model.mts).

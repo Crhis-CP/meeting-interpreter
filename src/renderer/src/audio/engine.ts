@@ -197,8 +197,21 @@ export class AudioEngine {
     const ctx = this.captureCtx!;
     const src = ctx.createMediaStreamSource(stream);
     const node = new AudioWorkletNode(ctx, 'pcm-capture', { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 2, channelCountMode: 'explicit' });
+    // For the log: which device opened, and whether any sound came from it in the first seconds
+    // ("it doesn't hear me" is then one line in app.log).
+    const name = dir === 'out' ? 'microphone' : 'meeting audio';
+    const track = stream.getAudioTracks()[0];
+    const st = track?.getSettings?.() ?? {};
+    this.log(`${name}: "${track?.label ?? '?'}" ${st.sampleRate ?? '?'} Hz, ${track?.muted ? 'muted' : 'live'}; capture context ${ctx.sampleRate} Hz (${ctx.state})`);
+    let frames = 0;
+    let peak = 0;
+    setTimeout(() => {
+      if (this.running) this.log(`${name}: ${frames} audio frames in 3 s, peak ${peak > 1e-5 ? Math.round(20 * Math.log10(peak)) : -100} dB (context ${ctx.state})`);
+    }, 3000);
     node.port.onmessage = (e: MessageEvent<{ pcm: ArrayBuffer; level: number }>) => {
       if (!this.running) return;
+      frames++;
+      peak = Math.max(peak, e.data.level);
       this.send({ type: 'pcm', dir, pcm: e.data.pcm });
       const key = dir === 'out' ? 'mic' : 'meeting';
       this.levels[key] = Math.max(this.levels[key] * 0.6, e.data.level);
