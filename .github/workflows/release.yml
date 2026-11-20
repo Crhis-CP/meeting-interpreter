@@ -143,8 +143,10 @@ jobs:
           if-no-files-found: error
 
   publish:
+    # Only when every installer was built: a release missing one platform would send that
+    # platform's users from the website to a page without their download.
     needs: [version, build, android]
-    if: always() && needs.version.outputs.publish == 'true'
+    if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write

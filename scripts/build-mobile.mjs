@@ -1,10 +1,11 @@
 // Builds the phone app's web part into out/mobile and copies it into the Android project.
+import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-const root = new URL('..', import.meta.url).pathname;
+const root = fileURLToPath(new URL('..', import.meta.url));
 const out = join(root, 'out/mobile');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });

@@ -1,11 +1,12 @@
 // Builds the Chrome extension into out/extension and zips it into release/.
 // Usage: node scripts/build-extension.mjs [--zip]
+import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
-const root = new URL('..', import.meta.url).pathname;
+const root = fileURLToPath(new URL('..', import.meta.url));
 const src = join(root, 'extension/src');
 const out = join(root, 'out/extension');
 const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
