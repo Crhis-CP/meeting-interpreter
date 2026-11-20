@@ -229,7 +229,45 @@ v1 提供：
 
 ## 14. 调研结论（服务商协议、系统回环）
 
-（由并行调研填写，见下文更新。）
+调研日期 2026-11-20，来源为官方文档（阿里云 help.aliyun.com 中文文档、learn.microsoft.com、developers.openai.com、developers.deepl.com）。标 **未验证** 的要靠“连接测试”在真实 key 上确认。
+
+### 14.1 阿里云百炼（DashScope）
+- **Gummy 已下线**（文档全部重定向到 LiveTranslate），`qwen-mt-turbo` 也已下线。
+- 主机：旧域名 `dashscope.aliyuncs.com`（北京）/ `dashscope-intl.aliyuncs.com`（新加坡）仍可用但 2026-09-30 起不再加新功能；新域名 `{WorkspaceId}.cn-beijing.maas.aliyuncs.com` / `{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com`。设置里允许填“业务空间主机”，默认旧域名。最新模型在旧域名是否可用 **未验证**。
+- 鉴权：WebSocket 握手头 `Authorization: Bearer <key>`；北京和新加坡的 key 不通用。
+- **实时识别**（中文 + 西语）：推荐 `qwen-audio-3.1-asr-flash-streaming`，备选 `qwen-audio-3.0-asr-flash-streaming`、`fun-asr-realtime`（`language_hints` 只能 1 个）。`paraformer-realtime-v2` **不支持西语**。
+  - 协议（双工任务）：`wss://<host>/api-ws/v1/inference`。发 `run-task` → 收 `task-started` → 发二进制 PCM（100ms=3200B）→ 发 `finish-task` → 收 `task-finished` / `task-failed`。
+  - `run-task`：`{"header":{"action":"run-task","task_id":"<32位>","streaming":"duplex"},"payload":{"task_group":"audio","task":"asr","function":"recognition","model":"…","parameters":{"format":"pcm","sample_rate":16000,"language_hints":["zh"],"max_sentence_silence":800,"heartbeat":true,"vocabulary":{"术语":4}},"input":{}}}`；`vocabulary`（内联热词，权重 1–5）只在 qwen-audio 系列有。
+  - 结果：`result-generated` → `payload.output.sentence{sentence_id,begin_time,end_time,text,sentence_end,heartbeat}`；`sentence_end:false` 是该句的中间结果（替换），`true` 是该句最终结果；`heartbeat:true` 的忽略。
+  - `finish-task`：`{"header":{"action":"finish-task","task_id":"…","streaming":"duplex"},"payload":{"input":{}}}`。
+- **实时合成**（中西都自然）：`qwen3-tts-flash-realtime`，`wss://<host>/api-ws/v1/realtime?model=qwen3-tts-flash-realtime`。
+  - 客户端：`session.update{session:{voice,mode:"server_commit",language_type:"Chinese"|"Spanish",response_format:"pcm",sample_rate:24000,speech_rate:0.5–2.0}}` → `input_text_buffer.append{text}` → `input_text_buffer.commit` → `session.finish`。
+  - 服务端：`response.audio.delta{delta:base64 PCM}`、`response.audio.done`、`response.done`、`session.finished`、`error`。
+  - 音色：所有音色都会说普通话和西语；西语人设 `Sonrisa`（拉美女声）、`Bodega`（西班牙男声）；中文 `Cherry`、`Serena`、`Ethan`、`Neil`。
+  - CosyVoice 系统音色**没有西语**，不用。
+- **翻译**：`qwen-mt-flash`（推荐）/ `qwen-mt-plus` / `qwen-mt-lite`，`POST https://<host>/compatible-mode/v1/chat/completions`，只能一条 user 消息、不能有 system；顶层 `translation_options:{source_lang:"Chinese",target_lang:"Spanish",terms:[{source,target}],tm_list:[{source,target}],domains:"<English>"}`。北京区 60 RPM（多人房间可能不够，可切换为通义千问大模型翻译）。
+- **端到端同传**（路线图）：`qwen3.8-livetranslate-flash-realtime`，中西互译带语音输出，延迟约 2.3s，`translation.corpus.phrases` 支持术语；每个会话只有一个目标语言（双向需两个会话）。
+- 热词表 API：`POST https://<host>/api/v1/services/audio/asr/customization`，`model:"speech-biasing"`，`create_vocabulary` 返回 `vocabulary_id`。v1 先用内联 `vocabulary`。
+
+### 14.2 Azure 语音
+- JS SDK `microsoft-cognitiveservices-speech-sdk@1.53.0` 在 Node 中可直接用（Node 22+ 用全局 WebSocket）；推送流只接受 16k/8k PCM。
+- 识别：`SpeechConfig.fromSubscription(key, region)`（`china*` 区域自动映射到 `*.stt.speech.azure.cn`）或 `fromEndpoint(new URL("https://<资源>.cognitiveservices.azure.cn"), key)`；`speechRecognitionLanguage = "zh-CN" | "es-ES" | "es-MX"`；`recognizing`（中间）/`recognized`（`ResultReason.RecognizedSpeech`）/`canceled`（`errorCode`、`errorDetails`）/`sessionStopped`；offset/duration 单位 100ns。
+- 热词：`PhraseListGrammar.fromRecognizer(r).addPhrases([...])`，建议 ≤2000 条。
+- 断句：`Speech_SegmentationSilenceTimeoutMs`（100–5000，取 500）。
+- 合成：REST `POST https://<region>.tts.speech.microsoft.com/cognitiveservices/v1`（中国区 `https://<region>.tts.speech.azure.cn/cognitiveservices/v1`），头 `Ocp-Apim-Subscription-Key`、`X-Microsoft-OutputFormat: raw-24khz-16bit-mono-pcm`、`Content-Type: application/ssml+xml`，响应体边合成边流式返回。`<prosody rate="+20%">`（HD 音色不支持语速）。
+- 音色：中文 `zh-CN-XiaoxiaoNeural`、`zh-CN-YunxiNeural`、`zh-CN-YunyangNeural`；西班牙 `es-ES-ElviraNeural`、`es-ES-AlvaroNeural`；墨西哥 `es-MX-DaliaNeural`、`es-MX-JorgeNeural`；美国 `es-US-PalomaNeural`、`es-US-AlonsoNeural`。
+- Azure 中国（世纪互联）：支持实时识别、实时翻译、神经网络合成。免费层 F0 每月有一定识别时长和合成字数，适合“免费额度”预设。
+
+### 14.3 OpenAI
+- `/v1/audio/speech` 的 TTS 模型 2027-01-06 停用，旧转写模型 2027-02-26 停用：**v1 不做 OpenAI 的识别/合成**；OpenAI 只作为“OpenAI 兼容大模型”用于翻译和纪要。
+- 新的 `gpt-realtime-translate`（专用实时同传，中西均支持，$0.034/分钟，无术语表，音色跟随说话人）：`wss://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate`，24kHz PCM，事件 `session.input_transcript.delta` / `session.output_transcript.delta` / `session.output_audio.delta`。列入路线图（端到端引擎）。
+
+### 14.4 DeepL
+- `POST https://api-free.deepl.com/v2/translate`（免费 key 以 `:fx` 结尾）或 `https://api.deepl.com/v2/translate`；头 `Authorization: DeepL-Auth-Key <key>`；JSON `{text:[…],source_lang:"ZH"|"ES",target_lang:"ES"|"ES-419"|"ZH-HANS",context,glossary_id,model_type}`。
+- 术语表 v3：`POST /v3/glossaries {name, dictionaries:[{source_lang:"zh",target_lang:"es",entries:"源\t译\n…",entries_format:"tsv"},{source_lang:"es",target_lang:"zh",…}]}`；一个 glossary_id 覆盖双向；用了术语表必须给 `source_lang`。DeepL API Free 每月 50 万字符免费。
+
+### 14.5 系统声音采集（Electron）
+（Electron 调研完成后补充。）
 
 ## 15. 我的决定清单（请评审）
 
