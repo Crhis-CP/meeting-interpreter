@@ -81,6 +81,7 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
   private rec: Partial<Record<'mix' | 'screen', ChunkFileWriter>> = {};
   private recMime: Partial<Record<'mix' | 'screen', string>> = {};
   private recStartedAt: Partial<Record<'mix' | 'screen', number>> = {};
+  private recStopped: Partial<Record<'mix' | 'screen', () => void>> = {};
   private s: MeetingState = SessionManager.emptyState();
   private stopping: Promise<MeetingMeta | null> | null = null;
   private stateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -326,6 +327,7 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
       }
       case 'recStopped':
         this.rec[msg.kind]?.close();
+        this.recStopped[msg.kind]?.();
         return;
       case 'recError':
         if (msg.kind === 'screen') this.s.recording.screenError = msg.message;
@@ -408,11 +410,14 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     const folder = this.folder;
     this.s.active = false;
     this.publish(true);
+    // Wait (bounded) for the audio window to deliver the last recorder chunks.
+    const kinds = Object.keys(this.rec) as ('mix' | 'screen')[];
+    const recordersDone = Promise.all(kinds.map((k) => new Promise<void>((resolve) => (this.recStopped[k] = resolve))));
     this.d.toAudio({ type: 'stop' });
     await Promise.all(Object.values(this.pipelines).map((p) => p!.stop()));
     this.pipelines = {};
-    // Give the audio window a moment to deliver the last recorder chunks.
-    await new Promise((r) => setTimeout(r, 600));
+    await Promise.race([recordersDone, new Promise((r) => setTimeout(r, kinds.length ? 5000 : 300))]);
+    this.recStopped = {};
     for (const w of Object.values(this.wav)) w?.close();
     for (const w of Object.values(this.rec)) w?.close();
     this.wav = {};

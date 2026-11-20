@@ -332,11 +332,15 @@ export class AudioEngine {
   }
 
   private wireRecorder(rec: MediaRecorder, kind: 'mix' | 'screen', mime: string): void {
-    rec.ondataavailable = async (e) => {
+    // Chunks are read asynchronously; keep them in order and report "stopped" only after the last
+    // one has been sent, or the end of the recording would be lost.
+    let pending: Promise<void> = Promise.resolve();
+    rec.ondataavailable = (e) => {
       if (!e.data.size) return;
-      this.send({ type: 'recChunk', kind, mime, data: await e.data.arrayBuffer() });
+      const blob = e.data;
+      pending = pending.then(async () => this.send({ type: 'recChunk', kind, mime, data: await blob.arrayBuffer() }));
     };
-    rec.onstop = () => this.send({ type: 'recStopped', kind });
+    rec.onstop = () => void pending.then(() => this.send({ type: 'recStopped', kind }));
     rec.onerror = (e) => this.send({ type: 'recError', kind, message: String((e as unknown as { error?: Error }).error?.message ?? 'MediaRecorder error') });
     rec.start(1000);
     this.recorders.push({ kind, rec });
