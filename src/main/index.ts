@@ -26,6 +26,7 @@ import { MeetingsStore } from './stores/meetings-store';
 import { SecretStore } from './stores/secret-store';
 import { SettingsStore } from './stores/settings-store';
 import { createAudioWindow, createMainWindow, createOverlayWindow } from './windows';
+import { TRAY_IDLE, TRAY_LIVE, TRAY_TEMPLATE } from './assets/tray-icons';
 
 // Chromium mixes audio of *other* windows back into "exclude own audio" loopback captures unless
 // this is disabled; we never want our own speech in the meeting capture.
@@ -334,12 +335,12 @@ function toggleOverlay(): void {
 }
 
 function trayIcon(): Electron.NativeImage {
-  // A small coloured dot drawn at runtime so we don't depend on image files.
-  const size = 32;
   const active = sessionManager.active || room.active;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="16" cy="16" r="12" fill="${active ? '#e5484d' : '#3b82f6'}"/><text x="16" y="21" font-size="14" text-anchor="middle" fill="white" font-family="sans-serif">译</text></svg>`;
-  const img = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
-  return img.isEmpty() ? nativeImage.createEmpty() : img.resize({ width: 18, height: 18 });
+  // macOS menu bar wants a monochrome "template" image; elsewhere a coloured one.
+  const url = process.platform === 'darwin' && !active ? TRAY_TEMPLATE : active ? TRAY_LIVE : TRAY_IDLE;
+  const img = nativeImage.createFromDataURL(url).resize({ width: 18, height: 18 });
+  if (process.platform === 'darwin' && !active) img.setTemplateImage(true);
+  return img;
 }
 
 function updateTray(): void {

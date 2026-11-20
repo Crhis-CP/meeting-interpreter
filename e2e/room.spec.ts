@@ -15,7 +15,7 @@ test('room: a Chinese phone speaks, a Spanish phone sees the translation', async
 
   const wav = speechWav(mkdtempSync(`${tmpdir()}/mi-room-wav-`));
   const browser = await chromium.launch({
-    executablePath: '/opt/pw-browsers/chromium',
+    executablePath: process.env.CHROMIUM_PATH || undefined,
     args: ['--no-proxy-server', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-audio-capture=${wav}`, '--autoplay-policy=no-user-gesture-required'],
   });
   const ctx = await browser.newContext({ ignoreHTTPSErrors: true, permissions: ['microphone'], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });

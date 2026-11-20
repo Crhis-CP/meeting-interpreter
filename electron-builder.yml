@@ -1,0 +1,57 @@
+appId: io.github.crhis-cp.meetinginterpreter
+productName: MeetingInterpreter
+copyright: Copyright © 2026 Chirs Codex
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+asarUnpack:
+  # Native recogniser and its shared libraries must live outside the asar archive.
+  - node_modules/sherpa-onnx-*/**
+  - node_modules/sherpa-onnx-node/**
+afterPack: build/after-pack.cjs
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.productivity
+  icon: build/icon.png
+  # No paid Apple developer account: skip electron-builder signing; after-pack.cjs signs ad hoc.
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  darkModeSupport: true
+  extendInfo:
+    CFBundleDisplayName: 会议同传助手
+    NSMicrophoneUsageDescription: 会议同传需要使用麦克风来识别你说的话。
+    NSAudioCaptureUsageDescription: 采集会议软件播放的声音，用来翻译对方的发言。
+    NSScreenCaptureUsageDescription: 录制会议画面（可选），以及采集系统声音。
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+dmg:
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  writeUpdateInfo: false
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.png
+  artifactName: ${productName}-${version}-windows-${arch}-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 会议同传助手
+  differentialPackage: false
+linux:
+  target:
+    - AppImage
+  category: Office
+  icon: build/icon.png
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+publish: null

@@ -1,0 +1,23 @@
+Meeting Interpreter (会议同传助手)
+Copyright (c) 2026 Chirs Codex. Licensed under the MIT License.
+
+This product's design and some rules/prompts were adapted from:
+
+- Cicada (知了), https://github.com/wquguru/cicada — Apache License 2.0.
+  Speech segmentation rules (0.6 s pause, 8 s maximum cut at the quietest frame, 30 ms onset),
+  the "never speak untranslated text" rule, interpreter prompt wording and the evidence-linked
+  meeting-notes structure.
+- Parrots, https://github.com/smitea/parrots — MIT License.
+  Clause-level early submission idea and pinyin-based hot-word correction idea.
+- HuiYi (会译), https://github.com/LingyiChen-AI/huiyi — Apache License 2.0.
+  Glossary applied to recognition, translation and notes; summary templates.
+- electron-audio-loopback, https://github.com/alectrocute/electron-audio-loopback — MIT License.
+
+Third-party components used at runtime:
+
+- sherpa-onnx / sherpa-onnx-node (Apache License 2.0), with Silero VAD (MIT), SenseVoice
+  (FunASR model license) and Whisper (MIT) models downloaded on first use.
+- Microsoft Cognitive Services Speech SDK for JavaScript (MIT).
+- pinyin-pro (MIT), zod (MIT), ws (MIT), qrcode (MIT), selfsigned (MIT), React (MIT), Electron (MIT).
+- cloudflared (Apache License 2.0), downloaded on demand for public room links.
+- BlackHole (GPL-3.0) and VB-CABLE (donationware) are NOT bundled; users install them themselves.
