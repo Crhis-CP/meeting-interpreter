@@ -7,7 +7,8 @@ import type { GlossaryEntry } from '../../core/glossary/types';
 import { baseOf, otherLanguage, type LangBase } from '../../core/lang/languages';
 import type { CorrectionRule } from '../../core/profile/profile';
 import type { Logger } from '../../core/log';
-import { DirectionPipeline } from '../../core/pipeline/pipeline';
+import type { DirectionPipeline } from '../../core/pipeline/pipeline';
+import { createDirection } from '../../core/pipeline/direction';
 import type { Llm, StreamingAsr, Translator, Tts } from '../../core/providers/types';
 import { summarize, summaryToMarkdown, type MeetingSummary, type SummaryTemplate } from '../../core/session/summary';
 import { Transcript, toMarkdown, toSrt } from '../../core/session/transcript';
@@ -231,7 +232,7 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
         const cfg = dir === 'out' ? settings.out : settings.in;
         const src = dir === 'out' ? selfLang : remoteLang;
         const dst = dir === 'out' ? remoteLang : selfLang;
-        const p = new DirectionPipeline({
+        const p = createDirection({
           dir,
           speaker: dir === 'out' ? 'me' : 'them',
           idPrefix: dir,
@@ -239,17 +240,14 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
           dstLang: dst || otherLanguage(src, remoteLang),
           asr: chosen[dir]!.asr,
           translator: chosen[dir]!.mt,
-          draft: chosen[dir]!.mt.id === 'offline' || chosen[dir]!.mt.id === 'demo' ? undefined : draft,
+          draft,
           tts: chosen[dir]!.tts,
           voice: cfg.voice || undefined,
           glossary: this.d.glossary,
           personal: this.d.personal ? () => this.d.personal!(baseOf(src)) : undefined,
-          pinyinFuzzy: settings.interpretation.pinyinFuzzy,
-          lowLatency: settings.interpretation.lowLatency,
+          interpretation: settings.interpretation,
           clock: () => this.clock(),
           speak: dir === 'in' ? () => this.s.in.speak : () => !this.s.out.passthrough,
-          // Local models take seconds to load: keep their session open while push-to-talk is idle.
-          idleCloseMs: cfg.asr === 'local' ? 0 : 15000,
           log: this.d.log.child(dir),
         });
         p.on('segment', (seg) => this.onSegment(seg));

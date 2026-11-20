@@ -9,7 +9,8 @@ import type { GlossaryEntry } from '../../core/glossary/types';
 import { baseOf, lang, LANGUAGES, otherLanguage, type LangBase } from '../../core/lang/languages';
 import type { CorrectionRule } from '../../core/profile/profile';
 import type { Logger } from '../../core/log';
-import { DirectionPipeline } from '../../core/pipeline/pipeline';
+import type { DirectionPipeline } from '../../core/pipeline/pipeline';
+import { createDirection } from '../../core/pipeline/direction';
 import type { Providers } from '../../core/providers/registry';
 import { decodeFrame, encodeTtsFrame, ROOM_PROTOCOL_VERSION, type ClientMessage, type RoomPeer, type ServerMessage } from '../../core/room/protocol';
 import type { Direction, TranscriptSegment } from '../../core/types';
@@ -471,7 +472,7 @@ export class RoomHost {
     // A Chinese speaker uses the "out" providers (zh → es); a Spanish speaker the "in" ones.
     const dir: Direction = baseOf(p.lang) === baseOf(s.languages.self) ? 'out' : 'in';
     const dstLang = otherLanguage(p.lang, s.languages.remote);
-    const pipeline = new DirectionPipeline({
+    const pipeline = createDirection({
       dir: 'room',
       speaker: p.name,
       idPrefix: `room-${p.id}`,
@@ -483,10 +484,8 @@ export class RoomHost {
       voice: (dir === 'out' ? s.out.voice : s.in.voice) || undefined,
       glossary: this.d.glossary,
       personal: this.d.personal ? () => this.d.personal!(baseOf(p.lang)) : undefined,
-      pinyinFuzzy: s.interpretation.pinyinFuzzy,
-      lowLatency: s.interpretation.lowLatency,
+      interpretation: s.interpretation,
       clock: () => this.d.session.clock(),
-      idleCloseMs: (dir === 'out' ? s.out.asr : s.in.asr) === 'local' ? 0 : 15000,
       log: this.d.log.child(p.id),
     });
     pipeline.on('segment', (seg: TranscriptSegment) => {

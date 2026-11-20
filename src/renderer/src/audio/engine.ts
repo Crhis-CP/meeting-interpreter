@@ -1,3 +1,4 @@
+import { OrderedPlayer } from '../../../browser/ordered-player';
 import type { AudioConfig, FromAudio, ToAudio } from '@shared/ipc';
 
 type Dir = 'out' | 'in';
@@ -48,8 +49,8 @@ export class AudioEngine {
   private inSink: SinkCtx | null = null;
   private micToMeeting: GainNode | null = null;
   private originalGain: GainNode | null = null;
-  private nextTime: Record<Dir, number> = { out: 0, in: 0 };
-  private sources: Record<Dir, Set<AudioBufferSourceNode>> = { out: new Set(), in: new Set() };
+  /** Translated speech, per direction: whole sentences, in order (also across room speakers). */
+  private players: Record<Dir, OrderedPlayer | null> = { out: null, in: null };
   private levels = { mic: 0, meeting: 0 };
   private timer: ReturnType<typeof setInterval> | null = null;
   private recorders: { kind: 'mix' | 'screen'; rec: MediaRecorder }[] = [];
@@ -69,9 +70,9 @@ export class AudioEngine {
       case 'stop':
         return this.stop();
       case 'tts':
-        return this.playTts(msg.dir, new Int16Array(msg.pcm), msg.sampleRate);
+        return this.players[msg.dir]?.push(msg.segmentId, new Int16Array(msg.pcm), msg.sampleRate);
       case 'ttsEnd':
-        return;
+        return this.players[msg.dir]?.end(msg.segmentId);
       case 'flush':
         return this.flush(msg.dir);
       case 'passthrough':
@@ -162,6 +163,8 @@ export class AudioEngine {
     if (cfg.virtualMic) this.outSink = await this.makeSink(cfg.virtualMic);
     else if (cfg.mode === 'meeting') warnings.push('未选择“虚拟麦克风”输出设备：对方听不到译音（只记录文字）。');
     this.inSink = await this.makeSink(cfg.headphones || '');
+    this.players.out = this.outSink ? new OrderedPlayer(this.outSink.ctx, this.outSink.bus) : null;
+    this.players.in = this.inSink ? new OrderedPlayer(this.inSink.ctx, this.inSink.bus, { onActivity: () => this.applyDuck() }) : null;
 
     if (this.outSink && this.micStream) {
       this.micToMeeting = this.outSink.ctx.createGain();
@@ -204,9 +207,7 @@ export class AudioEngine {
   }
 
   private backlog(dir: Dir): number {
-    const sink = dir === 'out' ? this.outSink : this.inSink;
-    if (!sink) return 0;
-    return Math.max(0, this.nextTime[dir] - sink.ctx.currentTime);
+    return this.players[dir]?.backlog() ?? 0;
   }
 
   private tick(): void {
@@ -235,34 +236,8 @@ export class AudioEngine {
     this.originalGain.gain.setTargetAtTime(target, this.inSink.ctx.currentTime, speaking ? 0.08 : 0.4);
   }
 
-  private playTts(dir: Dir, pcm: Int16Array, sampleRate: number): void {
-    const sink = dir === 'out' ? this.outSink : this.inSink;
-    if (!sink || !pcm.length) return;
-    const ctx = sink.ctx;
-    const buf = ctx.createBuffer(1, pcm.length, sampleRate);
-    const ch = buf.getChannelData(0);
-    for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i]! / 32768;
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(sink.bus);
-    const at = Math.max(ctx.currentTime + 0.03, this.nextTime[dir]);
-    src.start(at);
-    this.nextTime[dir] = at + buf.duration;
-    this.sources[dir].add(src);
-    src.onended = () => this.sources[dir].delete(src);
-    if (dir === 'in') this.applyDuck();
-  }
-
   private flush(dir: Dir): void {
-    for (const s of this.sources[dir]) {
-      try {
-        s.stop();
-      } catch {
-        /* already stopped */
-      }
-    }
-    this.sources[dir].clear();
-    this.nextTime[dir] = 0;
+    this.players[dir]?.flush();
     this.applyDuck();
   }
 
@@ -386,6 +361,7 @@ export class AudioEngine {
     this.captureCtx = null;
     this.outSink = null;
     this.inSink = null;
+    this.players = { out: null, in: null };
     this.micToMeeting = null;
     this.originalGain = null;
   }

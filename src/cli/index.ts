@@ -18,7 +18,7 @@ import { defaultSettings, type Secrets } from '../core/config/schema';
 import { sleep } from '../core/events';
 import { otherLanguage } from '../core/lang/languages';
 import { createLogger, setLogLevel } from '../core/log';
-import { DirectionPipeline } from '../core/pipeline/pipeline';
+import { createDirection } from '../core/pipeline/direction';
 import { createProviders, makeLlm } from '../core/providers/registry';
 import { toMarkdown } from '../core/session/transcript';
 import type { Direction, MeetingMeta, TranscriptSegment } from '../core/types';
@@ -77,7 +77,7 @@ async function translateFile(file: string, flags: Record<string, string>): Promi
   const segments = new Map<string, TranscriptSegment>();
   const audio: Int16Array[] = [];
   let audioRate = 24000;
-  const p = new DirectionPipeline({
+  const p = createDirection({
     dir,
     speaker: dir === 'out' ? 'me' : 'them',
     idPrefix: dir,
@@ -87,8 +87,7 @@ async function translateFile(file: string, flags: Record<string, string>): Promi
     translator: providers.mt(dir),
     tts: flags.out ? providers.tts(dir) : null,
     glossary: () => [],
-    pinyinFuzzy: s.interpretation.pinyinFuzzy,
-    lowLatency: s.interpretation.lowLatency,
+    interpretation: s.interpretation,
     clock: () => ((Date.now() - started) / 1000) * speed,
   });
   p.on('segment', (seg) => {

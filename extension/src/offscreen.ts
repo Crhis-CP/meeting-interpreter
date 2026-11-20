@@ -7,13 +7,15 @@
  */
 import { base64ToBytes, bytesToBase64, bytesToInt16, floatToInt16, int16ToBytes, int16ToFloat, resampleLinear } from '@core/audio/pcm';
 import { otherLanguage } from '@core/lang/languages';
-import { DirectionPipeline } from '@core/pipeline/pipeline';
+import type { DirectionPipeline } from '@core/pipeline/pipeline';
+import { createDirection } from '@core/pipeline/direction';
 import { Transcript } from '@core/session/transcript';
 import type { Direction, MeetingMeta, TranscriptSegment } from '@core/types';
 import { consoleLogger, createBrowserContext } from './browser-context';
 import { buildProviders, offlineMt, usesLocalAi } from './engine-providers';
 import { pingDesktop } from '@core/bridge/desktop';
 import { OfflineTranslator } from '@core/providers/offline-translator';
+import { OrderedPlayer } from '../../src/browser/ordered-player';
 import { personalFor } from '@core/profile/profile';
 import { baseOf } from '@core/lang/languages';
 import { PORT_NAME, toAppSettings, type EngineToPage, type FromOffscreen, type PageToEngine, type SavedMeeting, type SessionState, type StoredData, type ToOffscreen, type DOmit } from './shared';
@@ -38,8 +40,8 @@ interface Session {
   tab: { stream: MediaStream; nodes: AudioNode[]; original: GainNode } | null;
   /** When the translated speech already sent to the page will have finished playing (ms). */
   outPlayedUntil: number;
-  inNext: number;
-  inPlaying: Set<AudioBufferSourceNode>;
+  /** The other side's translation, spoken to me: whole sentences, in order. */
+  inPlayer: OrderedPlayer;
 }
 
 let session: Session | null = null;
@@ -154,9 +156,13 @@ async function start(msg: Extract<ToOffscreen, { type: 'start' }>) {
       ctx,
       tab: null,
       outPlayedUntil: 0,
-      inNext: 0,
-      inPlaying: new Set(),
+      inPlayer: null as unknown as OrderedPlayer,
     };
+    // The meeting's own audio is lowered while a translation plays to me.
+    s.inPlayer = new OrderedPlayer(ctx, ctx.destination, {
+      lead: 0.02,
+      onActivity: (playing) => s.tab?.original.gain.setTargetAtTime(playing ? 0.25 * originalVolume(s) : originalVolume(s), ctx.currentTime, playing ? 0.05 : 0.15),
+    });
     const warnings: string[] = [];
 
     // An offline draft in front of a cloud / LLM translator, when the models are in this browser.
@@ -166,32 +172,35 @@ async function start(msg: Extract<ToOffscreen, { type: 'start' }>) {
       const src = dir === 'out' ? settings.languages.self : settings.languages.remote;
       const dst = otherLanguage(src, settings.languages.remote);
       const cfg = dir === 'out' ? settings.out : settings.in;
-      const p = new DirectionPipeline({
+      const p = createDirection({
         dir,
         // What is still waiting to play, asked each time (it counts down while it plays).
-        backlog: () => (!session ? 0 : dir === 'out' ? Math.max(0, (session.outPlayedUntil - Date.now()) / 1000) : Math.max(0, session.inNext - session.ctx.currentTime)),
+        backlog: () => (!session ? 0 : dir === 'out' ? Math.max(0, (session.outPlayedUntil - Date.now()) / 1000) : session.inPlayer.backlog()),
         speaker: dir === 'out' ? 'me' : 'them',
         idPrefix: dir,
         srcLang: src,
         dstLang: dst,
         asr: providers.asr(dir),
         translator: translators[dir],
-        draft: translators[dir].id === 'offline' || translators[dir].id === 'demo' ? undefined : draft,
+        draft,
         personal: () => personalFor(data.profile, baseOf(src)),
         tts: providers.tts(dir),
         voice: cfg.voice || undefined,
         glossary: () => data.glossary,
-        pinyinFuzzy: settings.interpretation.pinyinFuzzy,
-        lowLatency: settings.interpretation.lowLatency,
+        interpretation: settings.interpretation,
         clock: () => (Date.now() - now) / 1000,
         speak: dir === 'out' ? () => !s.passthrough : () => s.data.settings.speakIn,
-        idleCloseMs: 15000,
         log: log.child(dir),
       });
       p.on('segment', (seg) => onSegment(s, seg));
       p.on('partial', ({ text }) => sendPage({ t: 'partial', dir, text }, (x) => x.top));
       p.on('status', ({ state, message }) => status({ [dir]: { state, message } }));
-      p.on('audio', ({ samples, sampleRate }) => (dir === 'out' ? sendOutAudio(s, samples, sampleRate) : playIn(s, samples, sampleRate)));
+      p.on('audio', ({ segmentId, samples, sampleRate }) => (dir === 'out' ? sendOutAudio(s, segmentId, samples, sampleRate) : s.inPlayer.push(segmentId, samples, sampleRate)));
+      if (dir === 'out') p.on('audioEnd', ({ segmentId }) => sendPage({ t: 'ttsEnd', id: segmentId }, (x) => x.mic));
+      if (dir === 'in') {
+        p.on('audioEnd', ({ segmentId }) => s.inPlayer.end(segmentId));
+        p.on('audioFlush', () => s.inPlayer.flush());
+      }
       s.pipelines[dir] = p;
     }
 
@@ -225,34 +234,14 @@ function onSegment(s: Session, seg: TranscriptSegment) {
 }
 
 /** Translated speech for the meeting: to every frame that holds the page's microphone. */
-function sendOutAudio(s: Session, samples: Int16Array, rate: number) {
+function sendOutAudio(s: Session, id: string, samples: Int16Array, rate: number) {
   const n = Date.now();
   s.outPlayedUntil = Math.max(s.outPlayedUntil, n) + (samples.length / rate) * 1000;
   // ~0.5 s per message keeps messages small.
   const step = Math.max(1, Math.floor(rate / 2));
   for (let i = 0; i < samples.length; i += step) {
-    sendPage({ t: 'tts', id: '', rate, pcm: bytesToBase64(int16ToBytes(samples.subarray(i, i + step))) }, (x) => x.mic);
+    sendPage({ t: 'tts', id, rate, pcm: bytesToBase64(int16ToBytes(samples.subarray(i, i + step))) }, (x) => x.mic);
   }
-}
-
-/** Chinese speech of the other side, to me (only when enabled). Lowers the original meanwhile. */
-function playIn(s: Session, samples: Int16Array, rate: number) {
-  const f = int16ToFloat(samples);
-  if (!f.length) return;
-  const buf = s.ctx.createBuffer(1, f.length, rate);
-  buf.copyToChannel(f as Float32Array<ArrayBuffer>, 0);
-  const src = s.ctx.createBufferSource();
-  src.buffer = buf;
-  src.connect(s.ctx.destination);
-  const at = Math.max(s.ctx.currentTime + 0.02, s.inNext);
-  src.start(at);
-  s.inNext = at + buf.duration;
-  s.inPlaying.add(src);
-  if (s.tab) s.tab.original.gain.setTargetAtTime(0.25 * originalVolume(s), at, 0.05);
-  src.onended = () => {
-    s.inPlaying.delete(src);
-    if (!s.inPlaying.size && s.tab) s.tab.original.gain.setTargetAtTime(originalVolume(s), s.ctx.currentTime, 0.15);
-  };
 }
 
 const originalVolume = (s: Session) => (s.data.settings.playOriginal ? s.data.settings.originalVolume : 0);
@@ -317,13 +306,7 @@ async function stop(): Promise<SavedMeeting | null> {
 async function teardownSession(s: Session) {
   for (const t of s.tab?.stream.getTracks() ?? []) t.stop();
   for (const n of s.tab?.nodes ?? []) n.disconnect();
-  for (const src of s.inPlaying) {
-    try {
-      src.stop();
-    } catch {
-      // already stopped
-    }
-  }
+  s.inPlayer.flush();
   await s.ctx.close().catch(() => undefined);
 }
 

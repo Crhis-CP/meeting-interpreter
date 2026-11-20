@@ -10,6 +10,7 @@
  */
 import { base64ToBytes, bytesToBase64, bytesToInt16, floatToInt16, int16ToBytes, int16ToFloat, resampleLinear } from '@core/audio/pcm';
 import { PAGE_TAG, type BridgeToMain, type MainToBridge, type DOmit } from './protocol';
+import { OrderedPlayer } from '../../src/browser/ordered-player';
 
 interface Hook {
   real: MediaStreamTrack;
@@ -30,8 +31,8 @@ interface Hook {
   let ttsBus: GainNode | null = null;
   let active = false;
   let passthrough = false;
-  let nextTime = 0;
-  const playing = new Set<AudioBufferSourceNode>();
+  /** The translated voice into the meeting's microphone: whole sentences, in order. */
+  let player: OrderedPlayer | null = null;
 
   const post = (m: DOmit<MainToBridge, typeof PAGE_TAG>) => window.postMessage({ [PAGE_TAG]: 'main', ...m }, '*');
 
@@ -60,32 +61,12 @@ interface Hook {
     if (!active) flush();
   };
 
-  const flush = () => {
-    for (const s of playing) {
-      try {
-        s.stop();
-      } catch {
-        // already stopped
-      }
-    }
-    playing.clear();
-    nextTime = 0;
-  };
+  const flush = () => player?.flush();
 
-  const playTts = (pcmB64: string, rate: number) => {
+  const playTts = (id: string, pcmB64: string, rate: number) => {
     if (!ctx || !ttsBus || !active) return;
-    const samples = int16ToFloat(bytesToInt16(base64ToBytes(pcmB64)));
-    if (!samples.length) return;
-    const buf = ctx.createBuffer(1, samples.length, rate);
-    buf.copyToChannel(samples as Float32Array<ArrayBuffer>, 0);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(ttsBus);
-    const at = Math.max(ctx.currentTime + 0.02, nextTime);
-    src.start(at);
-    nextTime = at + buf.duration;
-    playing.add(src);
-    src.onended = () => playing.delete(src);
+    player ??= new OrderedPlayer(ctx, ttsBus, { lead: 0.02 });
+    player.push(id || 'tts', bytesToInt16(base64ToBytes(pcmB64)), rate);
   };
 
   const hook = (stream: MediaStream): MediaStream => {
@@ -164,7 +145,10 @@ interface Hook {
         applyMode();
         break;
       case 'tts':
-        playTts(m.pcm, m.rate);
+        playTts(m.id, m.pcm, m.rate);
+        break;
+      case 'ttsEnd':
+        player?.end(m.id);
         break;
       case 'ttsFlush':
         flush();

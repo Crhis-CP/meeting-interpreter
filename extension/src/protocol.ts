@@ -13,6 +13,7 @@ export type PageToEngine =
 export type EngineToPage =
   | { t: 'mode'; active: boolean; passthrough: boolean }
   | { t: 'tts'; id: string; rate: number; pcm: string }
+  | { t: 'ttsEnd'; id: string }
   | { t: 'ttsFlush' }
   | { t: 'seg'; seg: TranscriptSegment; mine: boolean }
   | { t: 'partial'; dir: 'out' | 'in'; text: string }
@@ -26,6 +27,7 @@ export const PAGE_TAG = '__meetingInterpreter';
 export type MainToBridge = { [PAGE_TAG]: 'main'; t: 'mic'; pcm: string } | { [PAGE_TAG]: 'main'; t: 'hooked' };
 export type BridgeToMain =
   | { [PAGE_TAG]: 'bridge'; t: 'mode'; active: boolean; passthrough: boolean }
-  | { [PAGE_TAG]: 'bridge'; t: 'tts'; rate: number; pcm: string }
+  | { [PAGE_TAG]: 'bridge'; t: 'tts'; id: string; rate: number; pcm: string }
+  | { [PAGE_TAG]: 'bridge'; t: 'ttsEnd'; id: string }
   | { [PAGE_TAG]: 'bridge'; t: 'ttsFlush' }
   | { [PAGE_TAG]: 'bridge'; t: 'ping' };

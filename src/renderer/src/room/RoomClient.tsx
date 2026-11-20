@@ -1,3 +1,4 @@
+import { OrderedPlayer } from '../../../browser/ordered-player';
 import { useEffect, useRef, useState } from 'react';
 import { decodeFrame, encodeAudioUp, ROOM_PROTOCOL_VERSION, type RoomPeer, type ServerMessage } from '@core/room/protocol';
 import type { TranscriptSegment } from '@core/types';
@@ -105,7 +106,8 @@ export function RoomClient() {
   const workletLoaded = useRef(false);
   const talkingRef = useRef(false);
   const voiceRef = useRef(true);
-  const nextTime = useRef(0);
+  /** Translations of everyone in the room: whole sentences, in order, never two at once. */
+  const player = useRef<OrderedPlayer | null>(null);
   const myId = useRef('');
   const retry = useRef(0);
   const leaving = useRef(false);
@@ -133,18 +135,11 @@ export function RoomClient() {
     };
   }, []);
 
-  const play = (pcm: Int16Array, rate: number) => {
+  const play = (segmentId: string, pcm: Int16Array, rate: number) => {
     const c = ctx.current;
     if (!c || !voiceRef.current || !pcm.length) return;
-    const buf = c.createBuffer(1, pcm.length, rate);
-    const ch = buf.getChannelData(0);
-    for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i]! / 32768;
-    const src = c.createBufferSource();
-    src.buffer = buf;
-    src.connect(c.destination);
-    const at = Math.max(c.currentTime + 0.05, nextTime.current);
-    src.start(at);
-    nextTime.current = at + buf.duration;
+    player.current ??= new OrderedPlayer(c, c.destination, { lead: 0.05 });
+    player.current.push(segmentId, pcm, rate);
   };
 
   const connect = () => {
@@ -159,11 +154,14 @@ export function RoomClient() {
     sock.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) {
         const f = decodeFrame(new Uint8Array(e.data));
-        if (f?.kind === 'tts') play(f.pcm, f.sampleRate);
+        if (f?.kind === 'tts') play(f.segmentId, f.pcm, f.sampleRate);
         return;
       }
       const msg = JSON.parse(e.data as string) as ServerMessage;
       switch (msg.t) {
+        case 'audioEnd':
+          player.current?.end(msg.segmentId);
+          break;
         case 'welcome':
           myId.current = msg.id;
           setJoined(true);
@@ -216,6 +214,7 @@ export function RoomClient() {
     // Audio must be unlocked inside the tap (iOS).
     const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     ctx.current = new AC();
+    player.current = null; // belongs to the old context
     // Worklet modules belong to one AudioContext; a new one (re-join) must load it again.
     workletLoaded.current = false;
     await ctx.current.resume().catch(() => undefined);

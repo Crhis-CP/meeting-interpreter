@@ -11,7 +11,8 @@ import { parseSettings, type Secrets } from '@core/config/schema';
 import { accentsOf, lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import { createLogger } from '@core/log';
 import { SharedAsr } from '@core/pipeline/conversation';
-import { DirectionPipeline } from '@core/pipeline/pipeline';
+import type { DirectionPipeline } from '@core/pipeline/pipeline';
+import { createDirection } from '@core/pipeline/direction';
 import { DASHSCOPE_VOICES } from '@core/providers/dashscope/tts';
 import { LLM_PRESETS } from '@core/providers/openai-compatible';
 import { createProviders } from '@core/providers/registry';
@@ -19,6 +20,7 @@ import type { TranscriptSegment } from '@core/types';
 import { createMobileContext, keepAwake, native, nativeFetchLarge, openExternal } from './native';
 import { OFFLINE_MT_BYTES, OfflineMt } from '../../src/browser/offline-mt/engine';
 import { OfflineTranslator } from '@core/providers/offline-translator';
+import { OrderedPlayer } from '../../src/browser/ordered-player';
 import { emptyProfile, personalFor, ProfileSchema, type VoiceProfile } from '@core/profile/profile';
 import { profileJson, profileSummary, readProfileFile } from '../../src/browser/profile-io';
 import { checkForUpdate } from '../../src/main/update-check';
@@ -112,8 +114,10 @@ interface Engine {
   ctx: AudioContext;
   stream: MediaStream;
   nodes: AudioNode[];
-  playingUntil: number;
-  sources: Set<AudioBufferSourceNode>;
+  /** Both directions' speech through one player: whole sentences, in order, never mixed. */
+  player: OrderedPlayer;
+  /** When the phone last stopped talking (AudioContext time), for the microphone's quiet tail. */
+  quietSince: number;
   startedAt: number;
 }
 
@@ -126,7 +130,7 @@ let partial = '';
 
 /** While the phone is talking (and a moment after), the microphone is ignored. */
 const TAIL_S = 0.35;
-const phoneTalking = (e: Engine) => e.ctx.currentTime < e.playingUntil + TAIL_S;
+const phoneTalking = (e: Engine) => e.player.backlog() > 0 || e.ctx.currentTime < e.quietSince + TAIL_S;
 
 async function start() {
   if (engine || status === 'starting') return;
@@ -145,7 +149,7 @@ async function start() {
     const t0 = Date.now();
     const draft = settings.mt !== 'offline' && settings.provider !== 'demo' && !(await offline.missingBytes().catch(() => 1)) ? new OfflineTranslator({ translate: (t, f, to) => offline.translate(t, f, to) }) : undefined;
     const make = (side: 'zh' | 'foreign') =>
-      new DirectionPipeline({
+      createDirection({
         dir: side === 'zh' ? 'out' : 'in',
         speaker: side === 'zh' ? 'me' : 'them',
         idPrefix: side === 'zh' ? 'zh' : 'fx',
@@ -154,20 +158,28 @@ async function start() {
         asr: shared.view(side),
         translator: providers.mt(side === 'zh' ? 'out' : 'in'),
         draft,
-        backlog: () => (engine ? Math.max(0, engine.playingUntil - engine.ctx.currentTime) : 0),
+        backlog: () => engine?.player.backlog() ?? 0,
         tts: providers.tts(side === 'zh' ? 'out' : 'in'),
         voice: (side === 'zh' ? settings.voiceForeign : settings.voiceChinese) || undefined,
         glossary: () => [],
         personal: () => personalFor(profile, side === 'zh' ? 'zh' : lang(settings.remote).base),
-        pinyinFuzzy: true,
-        lowLatency: true,
+        interpretation: { pinyinFuzzy: true, lowLatency: true },
         clock: () => (Date.now() - t0) / 1000,
+        // One shared recogniser for both languages: always open.
         idleCloseMs: 0,
         log: log.child(side),
       });
     const out = make('zh');
     const inn = make('foreign');
-    const e: Engine = { out, inn, ctx, stream, nodes: [], playingUntil: 0, sources: new Set(), startedAt: t0 };
+    const e: Engine = { out, inn, ctx, stream, nodes: [], player: null as unknown as OrderedPlayer, quietSince: 0, startedAt: t0 };
+    e.player = new OrderedPlayer(ctx, ctx.destination, {
+      onActivity: (playing) => {
+        if (engine !== e) return;
+        if (!playing) e.quietSince = ctx.currentTime;
+        status = playing ? 'speaking' : 'listening';
+        renderStatus();
+      },
+    });
     for (const p of [out, inn]) {
       p.on('segment', (seg) => {
         segs.set(seg.id, seg);
@@ -185,7 +197,9 @@ async function start() {
           render();
         }
       });
-      p.on('audio', ({ samples, sampleRate }) => play(e, samples, sampleRate));
+      p.on('audio', ({ segmentId, samples, sampleRate }) => engine === e && e.player.push(segmentId, samples, sampleRate));
+      p.on('audioEnd', ({ segmentId }) => e.player.end(segmentId));
+      p.on('audioFlush', () => e.player.flush());
     }
     // Microphone → 16 kHz → the shared recogniser (unless the phone is talking or the button is up).
     const src = ctx.createMediaStreamSource(stream);
@@ -223,42 +237,13 @@ async function stop() {
     status = 'idle';
     return render();
   }
-  for (const s of e.sources) {
-    try {
-      s.stop();
-    } catch {
-      // already stopped
-    }
-  }
+  e.player.flush();
   for (const n of e.nodes) n.disconnect();
   for (const t of e.stream.getTracks()) t.stop();
   await Promise.all([e.out.stop(2000).catch(() => undefined), e.inn.stop(2000).catch(() => undefined)]);
   await e.ctx.close().catch(() => undefined);
   status = 'idle';
   render();
-}
-
-function play(e: Engine, samples: Int16Array, rate: number) {
-  if (engine !== e || !samples.length) return;
-  const f = int16ToFloat(samples);
-  const buf = e.ctx.createBuffer(1, f.length, rate);
-  buf.copyToChannel(f as Float32Array<ArrayBuffer>, 0);
-  const src = e.ctx.createBufferSource();
-  src.buffer = buf;
-  src.connect(e.ctx.destination);
-  const at = Math.max(e.ctx.currentTime + 0.03, e.playingUntil);
-  src.start(at);
-  e.playingUntil = at + buf.duration;
-  e.sources.add(src);
-  status = 'speaking';
-  renderStatus();
-  src.onended = () => {
-    e.sources.delete(src);
-    if (!e.sources.size && engine === e) {
-      status = 'listening';
-      renderStatus();
-    }
-  };
 }
 
 function setHeld(on: boolean) {

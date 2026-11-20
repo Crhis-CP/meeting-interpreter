@@ -49,7 +49,10 @@ function onEngine(m: EngineToPage) {
       if (top) ensureOverlay().setLive(m.active);
       break;
     case 'tts':
-      toMain({ t: 'tts', rate: m.rate, pcm: m.pcm });
+      toMain({ t: 'tts', id: m.id, rate: m.rate, pcm: m.pcm });
+      break;
+    case 'ttsEnd':
+      toMain({ t: 'ttsEnd', id: m.id });
       break;
     case 'ttsFlush':
       toMain({ t: 'ttsFlush' });
