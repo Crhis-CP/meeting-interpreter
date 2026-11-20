@@ -59,9 +59,9 @@ export async function launchApp(settings: object = {}): Promise<{ app: ElectronA
       ...(packaged ? ['--no-sandbox'] : ['.']),
       '--use-fake-device-for-media-stream',
       `--use-file-for-fake-audio-capture=${wav}`,
-      // macOS: the sandboxed audio-service process cannot read the WAV above and captures
-      // silence; run the audio service inside the browser process for tests.
-      ...(process.platform === 'darwin' ? ['--disable-features=AudioServiceOutOfProcess'] : []),
+      // macOS: the sandboxed audio-service process cannot open the WAV above and captures pure
+      // silence (permission "granted", peak 0 with every setting); unsandboxed for tests only.
+      ...(process.platform === 'darwin' ? [...(packaged ? [] : ['--no-sandbox']), '--disable-features=AudioServiceSandbox'] : []),
       '--disable-audio-output',
       '--disable-gpu',
     ],

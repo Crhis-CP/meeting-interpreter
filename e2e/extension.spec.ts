@@ -97,7 +97,7 @@ test('extension: my Chinese is replaced by the translation in the meeting, subti
   await ext.evaluate(() => chrome.storage.local.set({ settings: { providers: 'demo', remote: 'es-MX' } }));
   await ext.reload();
   await expect(ext.getByRole('button', { name: '测试一下' })).toBeEnabled();
-  await ext.screenshot({ path: 'test-results/extension-options.png' });
+  await ext.screenshot({ path: 'test-results/extension-options.png' }).catch(() => undefined); // documentation only
 
   const { page, tabId } = await joinMeeting(context, sw);
   expect(await page.evaluate(() => (window as unknown as { trackLabel: string }).trackLabel)).not.toBe('');
@@ -119,7 +119,7 @@ test('extension: my Chinese is replaced by the translation in the meeting, subti
   await page.waitForTimeout(3000);
   const s = await stats(page);
   expect(s.after.hi, JSON.stringify(s)).toBeLessThan(s.before.hi - 30);
-  await page.screenshot({ path: 'test-results/extension-meeting.png' });
+  await page.screenshot({ path: 'test-results/extension-meeting.png' }).catch(() => undefined); // documentation only
 
   // Stop: the meeting gets the real microphone back and the record is saved.
   const done = await ext.evaluate(() => chrome.runtime.sendMessage({ type: 'stop' }));
@@ -134,16 +134,16 @@ test('extension: my Chinese is replaced by the translation in the meeting, subti
   await expect(ext.getByText('下载双语记录')).toBeVisible();
   await ext.getByRole('button', { name: '生成会议纪要' }).click();
   await expect(ext.getByText('下载中文纪要')).toBeVisible();
-  await ext.screenshot({ path: 'test-results/extension-history.png' });
+  await ext.screenshot({ path: 'test-results/extension-history.png' }).catch(() => undefined); // documentation only
   await ext.evaluate(() => chrome.storage.local.set({ settings: {} }));
   await ext.setViewportSize({ width: 352, height: 560 });
   await ext.goto(`chrome-extension://${extId}/popup.html`);
   await expect(ext.getByRole('button', { name: '开始同传' })).toBeVisible();
-  await ext.screenshot({ path: 'test-results/extension-popup.png' });
+  await ext.screenshot({ path: 'test-results/extension-popup.png' }).catch(() => undefined); // documentation only
   await ext.setViewportSize({ width: 1000, height: 820 });
   await ext.goto(`chrome-extension://${extId}/options.html`);
   await expect(ext.getByRole('link', { name: '去获取 ↗' })).toHaveAttribute('href', /bigmodel\.cn/);
-  await ext.screenshot({ path: 'test-results/extension-options-free.png' });
+  await ext.screenshot({ path: 'test-results/extension-options-free.png' }).catch(() => undefined); // documentation only
   await context.close();
 });
 
