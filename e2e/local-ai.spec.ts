@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { launchApp, mainWindow } from './helpers';
 
-// Needs the real model: MI_AI_MODEL=/path/to/Hy-MT2-1.8B-Q4_K_M.gguf (1.1 GB, not downloaded in CI).
+// Needs the real model: MI_AI_MODEL=/path/to/Hy-MT2-1.8B-Q4_K_M.gguf (1.1 GB; the Mac / Windows CI job
+// fetches it with scripts/dev/fetch-ai-model.mts).
 const MODEL = process.env.MI_AI_MODEL;
 const SHA = 'dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699';
 
@@ -16,7 +17,11 @@ test('local AI translation: a meeting is translated by the model on this compute
   // As if downloaded and checked: the model file and its checked-hash marker.
   const dir = join(dataDir, 'models', 'hy-mt2-1.8b');
   mkdirSync(dir, { recursive: true });
-  symlinkSync(MODEL!, join(dir, 'Hy-MT2-1.8B-Q4_K_M.gguf'));
+  try {
+    symlinkSync(MODEL!, join(dir, 'Hy-MT2-1.8B-Q4_K_M.gguf'));
+  } catch {
+    copyFileSync(MODEL!, join(dir, 'Hy-MT2-1.8B-Q4_K_M.gguf')); // Windows without the symlink right
+  }
   writeFileSync(join(dir, 'Hy-MT2-1.8B-Q4_K_M.gguf.sha256'), SHA);
 
   const win = await mainWindow(app);
