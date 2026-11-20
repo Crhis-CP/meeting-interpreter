@@ -6,21 +6,30 @@ import { writeFileSync } from 'node:fs';
 const appSvg = (size) => `
 <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#7c3aed"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f46e5"/><stop offset="0.55" stop-color="#2563eb"/><stop offset="1" stop-color="#06b6d4"/>
     </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4338ca"/><stop offset="1" stop-color="#0891b2"/>
+    </linearGradient>
+    <filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#0f172a" flood-opacity="0.28"/></filter>
   </defs>
-  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#g)"/>
-  <path d="M240 260h340a70 70 0 0 1 70 70v160a70 70 0 0 1-70 70H400l-110 90v-90h-50a70 70 0 0 1-70-70V330a70 70 0 0 1 70-70z" fill="#fff" opacity="0.96"/>
-  <text x="410" y="488" font-size="200" text-anchor="middle" font-family="'Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-weight="700" fill="#4338ca">中</text>
-  <path d="M800 520H500a70 70 0 0 0-70 70v150a70 70 0 0 0 70 70h170l110 90v-90h20a70 70 0 0 0 70-70V590a70 70 0 0 0-70-70z" fill="#fde68a"/>
-  <text x="650" y="728" font-size="170" text-anchor="middle" font-family="'Noto Sans','Helvetica Neue',Arial,sans-serif" font-weight="800" fill="#92400e">ES</text>
+  <rect x="48" y="48" width="928" height="928" rx="220" fill="url(#bg)"/>
+  <g filter="url(#sh)">
+    <path d="M300 236h300a116 116 0 0 1 116 116v236a116 116 0 0 1-116 116H452l-134 104a14 14 0 0 1-22-12v-92a116 116 0 0 1-112-116V352a116 116 0 0 1 116-116z" fill="#fff"/>
+  </g>
+  <text x="450" y="560" font-size="300" text-anchor="middle" font-family="'Noto Sans CJK SC','Source Han Sans SC','PingFang SC','Microsoft YaHei',sans-serif" font-weight="800" fill="url(#ink)">译</text>
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="44">
+    <path d="M786 400a150 150 0 0 1 0 140" opacity="0.95"/>
+    <path d="M858 340a240 240 0 0 1 0 260" opacity="0.6"/>
+  </g>
 </svg>`;
 
 const traySvg = (color) => `
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <path d="M10 12h30a6 6 0 0 1 6 6v14a6 6 0 0 1-6 6H24l-10 8v-8h-4a6 6 0 0 1-6-6V18a6 6 0 0 1 6-6z" fill="${color}"/>
-  <path d="M54 24H50v14a10 10 0 0 1-10 10H30v0a6 6 0 0 0 6 4h12l8 7v-7a6 6 0 0 0 4-6V30a6 6 0 0 0-6-6z" fill="${color}"/>
+  <path d="M14 10h26a9 9 0 0 1 9 9v18a9 9 0 0 1-9 9H27l-11 9v-9h-2a9 9 0 0 1-9-9V19a9 9 0 0 1 9-9z" fill="${color}"/>
+  <path d="M54 22a12 12 0 0 1 0 12" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round"/>
+  <path d="M59 17a19 19 0 0 1 0 22" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round"/>
 </svg>`;
 
 async function render(page, svg, size, path, transparent = true) {

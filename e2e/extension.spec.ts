@@ -93,7 +93,7 @@ test('extension: my Chinese is replaced by the translation in the meeting, subti
   // The options page talks to the service worker (as the popup does).
   await ext.evaluate(() => chrome.storage.local.set({ settings: { providers: 'demo', remote: 'es-MX' } }));
   await ext.reload();
-  await expect(ext.getByText('当前方案不需要 Key。')).toBeVisible();
+  await expect(ext.getByRole('button', { name: '测试一下' })).toBeEnabled();
   await ext.screenshot({ path: 'test-results/extension-options.png' });
 
   const { page, tabId } = await joinMeeting(context, sw);
@@ -137,6 +137,10 @@ test('extension: my Chinese is replaced by the translation in the meeting, subti
   await ext.goto(`chrome-extension://${extId}/popup.html`);
   await expect(ext.getByRole('button', { name: '开始同传' })).toBeVisible();
   await ext.screenshot({ path: 'test-results/extension-popup.png' });
+  await ext.setViewportSize({ width: 1000, height: 820 });
+  await ext.goto(`chrome-extension://${extId}/options.html`);
+  await expect(ext.getByRole('link', { name: '去获取 ↗' })).toHaveAttribute('href', /bigmodel\.cn/);
+  await ext.screenshot({ path: 'test-results/extension-options-free.png' });
   await context.close();
 });
 
@@ -190,7 +194,7 @@ test('extension free tier: recognition and voice come from the desktop app', asy
       }),
     );
     await ext.reload();
-    await expect(ext.getByText('已连接桌面客户端 test')).toBeVisible();
+    await expect(ext.getByText('桌面客户端已连接（test）')).toBeVisible();
     const { page, tabId } = await joinMeeting(context, sw);
     const st = await ext.evaluate((id) => chrome.runtime.sendMessage({ type: 'start', tabId: id }), tabId);
     expect(st.status, JSON.stringify(st)).toBe('running');

@@ -2,7 +2,7 @@ import { pingDesktop } from '@core/bridge/desktop';
 import { consoleLogger, createBrowserContext } from './browser-context';
 import { h, settingsProblem } from './dom';
 import { usesDesktop } from './engine-providers';
-import { IDLE_STATE, loadAll, MEETING_SITES, withDefaults, type SessionState, type ToBackground } from './shared';
+import { DESKTOP_DOWNLOAD, IDLE_STATE, KEY_LINKS, loadAll, MEETING_SITES, missingKey, withDefaults, type SessionState, type ToBackground } from './shared';
 
 const app = document.getElementById('app')!;
 
@@ -39,90 +39,87 @@ async function render() {
   app.replaceChildren();
 
   app.append(
-    h('div', { class: 'row between', style: 'margin-bottom:14px' }, h('h1', {}, '会议同传'), h('a', { class: 'small', onclick: () => openOptions() }, '设置')),
+    h(
+      'div',
+      { class: 'row between', style: 'margin-bottom:16px' },
+      h('div', { class: 'row' }, h('img', { src: 'icons/icon-32.png', width: 24, height: 24, alt: '' }), h('h1', {}, '会议同传')),
+      h('a', { class: 'small', title: '设置', onclick: () => openOptions() }, '⚙ 设置'),
+    ),
   );
 
   if (!running) {
     const isEn = s.remote.startsWith('en');
-    const setRemote = async (code: string) => {
-      await chrome.storage.local.set({ settings: withDefaults({ ...s, remote: code }) });
-      void render();
-    };
-    app.append(
-      h('div', { class: 'muted', style: 'margin-bottom:6px' }, '对方说'),
-      h(
-        'div',
-        { class: 'seg', style: 'margin-bottom:14px' },
-        h('button', { class: isEn ? '' : 'on', onclick: () => !isEn || void setRemote('es-MX') }, '西班牙语'),
-        h('button', { class: isEn ? 'on' : '', onclick: () => isEn || void setRemote('en-US') }, 'English'),
-      ),
-    );
-    const setProviders = async (providers: 'free' | 'dashscope') => {
-      await chrome.storage.local.set({ settings: withDefaults({ ...s, providers }) });
+    const save = async (patch: Partial<typeof s>) => {
+      await chrome.storage.local.set({ settings: withDefaults({ ...s, ...patch }) });
       void render();
     };
     const other = s.providers !== 'free' && s.providers !== 'dashscope';
     app.append(
-      h('div', { class: 'muted', style: 'margin-bottom:6px' }, '方案'),
-      h(
-        'div',
-        { class: 'seg', style: 'margin-bottom:6px' },
-        h('button', { class: s.providers === 'free' ? 'on' : '', onclick: () => void setProviders('free') }, '免费版'),
-        h('button', { class: s.providers === 'dashscope' ? 'on' : '', onclick: () => void setProviders('dashscope') }, '高级版'),
+      h('div', { class: 'label' }, '对方说'),
+      h('div', { class: 'seg' },
+        h('button', { class: isEn ? '' : 'on', onclick: () => isEn && void save({ remote: 'es-MX' }) }, '西班牙语'),
+        h('button', { class: isEn ? 'on' : '', onclick: () => isEn || void save({ remote: 'en-US' }) }, 'English'),
+      ),
+      h('div', { class: 'label' }, '方案'),
+      h('div', { class: 'seg' },
+        h('button', { class: s.providers === 'free' ? 'on' : '', onclick: () => void save({ providers: 'free' }) }, '免费'),
+        h('button', { class: s.providers === 'dashscope' ? 'on' : '', onclick: () => void save({ providers: 'dashscope' }) }, '高级 · 最准'),
         other ? h('button', { class: 'on', onclick: () => openOptions() }, { azure: 'Azure', custom: '自定义', demo: '演示' }[s.providers as 'azure'] ?? '自定义') : null,
       ),
-      h(
-        'div',
-        { class: 'muted small', style: 'margin-bottom:14px;line-height:1.5' },
-        s.providers === 'free' ? '免费：需要电脑上同时打开桌面客户端，翻译用免费的智谱 GLM。' : s.providers === 'dashscope' ? '准确度最高、声音最自然：阿里云百炼，一个 Key。' : '',
-      ),
     );
+
+    // The key this tier needs: get it in one click, paste it here.
+    const need = missingKey(s, data.secrets);
+    if (need) {
+      const info = KEY_LINKS[need];
+      const input = h('input', { type: 'password', placeholder: '粘贴 Key', autocomplete: 'off' });
+      app.append(
+        h('div', { class: 'keybox' },
+          h('div', { class: 'row between' }, h('b', {}, info.label), h('a', { href: info.url, target: '_blank', class: 'btn sm primary' }, '去获取 ↗')),
+          h('div', { class: 'muted small' }, info.hint),
+          h('div', { class: 'row' }, input, h('button', {
+            class: 'btn',
+            onclick: async () => {
+              const v = input.value.trim();
+              if (!v) return;
+              await chrome.storage.local.set({ secrets: { ...data.secrets, [need]: v } });
+              void render();
+            },
+          }, '保存')),
+        ),
+      );
+    }
+    const problem = need ? 'key' : settingsProblem(data);
+    if (problem && !need) app.append(h('div', { class: 'callout warn' }, problem, ' ', h('a', { onclick: () => openOptions() }, '去设置')));
+
     if (usesDesktop(s)) {
-      const warn = h('div');
-      app.append(warn);
+      const slot = h('div');
+      app.append(slot);
       void pingDesktop(createBrowserContext(consoleLogger('popup'), async () => undefined)).then((ok) => {
-        if (!ok) {
-          warn.replaceWith(
-            h('div', { class: 'callout warn', style: 'margin-bottom:12px' }, '免费版需要先打开电脑上的“会议同传助手”桌面客户端。', ' ', h('a', { href: 'https://github.com/Crhis-CP/meeting-interpreter/releases/latest', target: '_blank' }, '下载')),
-          );
-        }
+        if (!ok) slot.replaceWith(h('div', { class: 'callout warn' }, '免费版要先打开电脑上的桌面客户端 ', h('a', { href: DESKTOP_DOWNLOAD, target: '_blank' }, '下载 ↗')));
       });
     }
-    const problem = settingsProblem(data);
-    if (problem) {
-      app.append(
-        h('div', { class: 'callout warn', style: 'margin-bottom:12px' }, problem, ' ', h('a', { onclick: () => openOptions() }, '去填写')),
-      );
-    }
-    if (!isMeetingSite(tab?.url)) {
-      app.append(
-        h('div', { class: 'callout info', style: 'margin-bottom:12px' }, '请先在浏览器里打开会议（Teams、Google Meet、飞书、腾讯会议、Zoom 网页版），再点开始。'),
-      );
-    }
-    if (st.error) app.append(h('div', { class: 'callout err', style: 'margin-bottom:12px' }, st.error));
+    const onMeeting = isMeetingSite(tab?.url);
+    if (st.error) app.append(h('div', { class: 'callout err' }, st.error));
     app.append(
-      h(
-        'button',
-        {
-          class: 'big',
-          disabled: busy || !!problem || !tab?.id,
-          onclick: async () => {
-            busy = true;
-            void render();
-            await send({ type: 'start', tabId: tab!.id! });
-            busy = false;
-            void render();
-          },
+      h('button', {
+        class: 'big',
+        disabled: busy || !!problem || !tab?.id,
+        onclick: async () => {
+          busy = true;
+          void render();
+          await send({ type: 'start', tabId: tab!.id! });
+          busy = false;
+          void render();
         },
-        busy ? '正在启动…' : '开始同传',
-      ),
-      h(
-        'p',
-        { class: 'muted small', style: 'line-height:1.6' },
-        `你说中文，对方在会议里听到${isEn ? '英语' : '西班牙语'}；对方说话时，屏幕上出现中文字幕。`,
+      }, busy ? '正在启动…' : '开始同传'),
+      onMeeting ? '' : h('div', { class: 'hint-line' }, '先在浏览器里打开会议、入会，再点开始'),
+      h('div', { class: 'row between small', style: 'margin-top:12px' },
+        h('a', { onclick: () => openOptions('#test') }, '测试一下'),
+        h('a', { onclick: () => openOptions('#glossary') }, '术语表'),
+        h('a', { onclick: () => openOptions(st.lastMeetingId ? `#meeting=${st.lastMeetingId}` : '#meetings') }, '会议记录'),
       ),
     );
-    if (st.lastMeetingId) app.append(h('a', { class: 'small', onclick: () => openOptions(`#meeting=${st.lastMeetingId}`) }, '查看上一场会议记录 →'));
     return;
   }
 
@@ -138,17 +135,17 @@ async function render() {
     h('div', { class: 'row between', style: 'margin-bottom:10px' }, h('b', {}, st.status === 'starting' ? '正在启动…' : st.status === 'stopping' ? '正在结束…' : '同传中'), clock),
     h('div', { class: 'muted small', style: 'margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis' }, st.title),
     h('div', { class: 'stack', style: 'margin-bottom:12px' },
-      h('div', {}, h('span', { class: `dot ${dotClass(st.out.state)}` }), `我说中文 → 对方听译音：${STATE_TEXT[st.out.state] ?? st.out.state}`),
-      h('div', {}, h('span', { class: `dot ${dotClass(st.in.state)}` }), `对方说话 → 中文字幕：${STATE_TEXT[st.in.state] ?? st.in.state}`),
+      h('div', {}, h('span', { class: `dot ${dotClass(st.out.state)}` }), `我说话：${STATE_TEXT[st.out.state] ?? st.out.state}`),
+      h('div', {}, h('span', { class: `dot ${dotClass(st.in.state)}` }), `对方说话：${STATE_TEXT[st.in.state] ?? st.in.state}`),
     ),
   );
   for (const m of [st.out.state === 'error' ? st.out.message : '', st.in.state === 'error' ? st.in.message : ''].filter(Boolean)) {
-    app.append(h('div', { class: 'callout err', style: 'margin-bottom:8px' }, m!));
+    app.append(h('div', { class: 'callout err' }, m!));
   }
   if (here && st.status === 'running' && !st.micHooked) {
-    app.append(h('div', { class: 'callout warn', style: 'margin-bottom:8px' }, '还没接管到会议的麦克风：请刷新会议页面重新入会（或在会议里关掉再打开麦克风）。在此之前对方听到的是你的原声。'));
+    app.append(h('div', { class: 'callout warn', style: 'margin-bottom:8px' }, '对方现在听到的还是你的原声：请刷新会议页面重新入会'));
   }
-  for (const w of st.warnings) app.append(h('div', { class: 'callout warn', style: 'margin-bottom:8px' }, w));
+  for (const w of st.warnings) app.append(h('div', { class: 'callout warn' }, w));
   if (!here && st.tabId !== null) {
     app.append(
       h('div', { class: 'callout info', style: 'margin-bottom:8px' }, '同传正在另一个标签页运行。', ' ', h('a', { onclick: () => void chrome.tabs.update(st.tabId!, { active: true }) }, '切换过去')),
@@ -166,7 +163,7 @@ async function render() {
           void render();
         },
       }),
-      '原声直通（我自己直接说外语时打开）',
+      '我直接说外语（不翻译）',
     ),
     h(
       'button',

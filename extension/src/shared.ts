@@ -96,6 +96,21 @@ export function toAppSettings(s: ExtSettings): AppSettings {
   });
 }
 
+/** Where to get the key each tier needs (opened in a new tab). */
+export const KEY_LINKS = {
+  llm: { label: '智谱 Key（免费）', url: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys', hint: '注册后点“添加新的 API Key”，复制粘贴到这里' },
+  dashscope: { label: '阿里云百炼 Key', url: 'https://bailian.console.aliyun.com/?tab=model#/api-key', hint: '登录后点“创建 API Key”（sk- 开头），复制粘贴到这里' },
+} as const;
+
+export const DESKTOP_DOWNLOAD = 'https://github.com/Crhis-CP/meeting-interpreter/releases/latest';
+
+/** The key the chosen tier still needs, if any. */
+export function missingKey(s: ExtSettings, secrets: Secrets): keyof typeof KEY_LINKS | null {
+  if (s.providers === 'free' && s.llm.preset === 'zhipu-free' && !secrets.llm) return 'llm';
+  if (s.providers === 'dashscope' && !secrets.dashscope) return 'dashscope';
+  return null;
+}
+
 export const SECRET_NAMES = ['dashscope', 'azure', 'azureTranslator', 'llm', 'deepl'] as const;
 
 export interface StoredData {

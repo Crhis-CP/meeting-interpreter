@@ -8,12 +8,12 @@ import { LLM_PRESETS } from '@core/providers/openai-compatible';
 import { makeLlm } from '@core/providers/registry';
 import { summarize, summaryToMarkdown, TEMPLATE_NAMES, type MeetingSummary, type SummaryTemplate } from '@core/session/summary';
 import { toMarkdown, toSrt } from '@core/session/transcript';
-import { testDirection, testLlm } from '../../src/main/provider-test';
+import { testDirection } from '../../src/main/provider-test';
 import { consoleLogger, createBrowserContext } from './browser-context';
 import { buildProviders, usesDesktop } from './engine-providers';
 import { DESKTOP_BRIDGE_PORT, pingDesktop } from '@core/bridge/desktop';
 import { h, settingsProblem } from './dom';
-import { loadAll, toAppSettings, withDefaults, type ExtSettings, type ProviderSet, type SavedMeeting } from './shared';
+import { DESKTOP_DOWNLOAD, KEY_LINKS, loadAll, missingKey, toAppSettings, withDefaults, type ExtSettings, type ProviderSet, type SavedMeeting } from './shared';
 
 const app = document.getElementById('app')!;
 let tab: 'settings' | 'glossary' | 'meetings' = 'settings';
@@ -24,6 +24,7 @@ function readHash() {
     tab = 'meetings';
     openMeeting = decodeURIComponent(m[1]!);
   } else if (location.hash === '#glossary') tab = 'glossary';
+  else if (location.hash === '#test') tab = 'settings';
   else if (location.hash === '#meetings') tab = 'meetings';
 }
 readHash();
@@ -54,7 +55,7 @@ async function render() {
     h(
       'div',
       { class: 'row between', style: 'margin-bottom:8px' },
-      h('h1', {}, '会议同传 · 设置'),
+      h('div', { class: 'row' }, h('img', { src: 'icons/icon-48.png', width: 32, height: 32, alt: '' }), h('h1', {}, '会议同传')),
       h('span', { class: 'muted small' }, `版本 ${chrome.runtime.getManifest().version}`),
     ),
     h(
@@ -78,26 +79,26 @@ async function render() {
 
 // ------------------------------------------------------------------ settings
 
-const SETS: { id: ProviderSet; name: string; desc: string }[] = [
-  { id: 'free', name: '免费版（配合桌面客户端）', desc: '识别用电脑上的离线模型，对方听到的是电脑自带的声音，翻译用免费的智谱 GLM（注册即可拿免费 Key）。需要同时打开“会议同传助手”桌面客户端。' },
-  { id: 'dashscope', name: '高级版：阿里云百炼（推荐）', desc: '一个 Key 搞定识别、翻译、发音，国内直连，准确度最高。新用户有免费额度，之后约 2–4 元/小时。' },
-  { id: 'azure', name: '微软 Azure', desc: '需要 Azure 语音和 Azure 翻译两个 Key（都有免费层）。免费层同一时间只能识别一路，双向同传请用标准层。' },
-  { id: 'custom', name: '自己组合', desc: '每个方向分别选识别、翻译、发音服务，例如翻译换成免费的智谱 GLM 或 DeepL。' },
-  { id: 'demo', name: '演示', desc: '不需要 Key，只用来看看效果（说什么都会出固定的演示句子）。' },
+const MORE_SETS: { id: ProviderSet; name: string }[] = [
+  { id: 'azure', name: '微软 Azure（语音 + 翻译两个 Key）' },
+  { id: 'custom', name: '自己组合（每个方向分别选服务）' },
+  { id: 'demo', name: '演示（不需要 Key，只看效果）' },
 ];
 
-function secretInput(secrets: Secrets, name: keyof Secrets, label: string, hint?: string) {
-  const input = h('input', { type: 'password', placeholder: secrets[name] ? '已保存（重新输入可替换）' : '粘贴 Key', autocomplete: 'off' });
+function secretInput(secrets: Secrets, name: keyof Secrets, label: string, link?: string) {
+  const input = h('input', { type: 'password', placeholder: secrets[name] ? '已保存 ✓（重新粘贴可替换）' : '粘贴 Key', autocomplete: 'off' });
   const save = h('button', {
     class: 'btn',
     onclick: async () => {
       const { secrets: cur } = await loadAll();
-      const v = input.value.trim();
-      await chrome.storage.local.set({ secrets: { ...cur, [name]: v || undefined } });
+      await chrome.storage.local.set({ secrets: { ...cur, [name]: input.value.trim() || undefined } });
       void render();
     },
   }, '保存');
-  return h('label', { class: 'field' }, h('span', {}, label, secrets[name] ? ' ✅' : ''), h('div', { class: 'row' }, input, save), hint ? h('div', { class: 'small', style: 'margin-top:4px' }, hint) : null);
+  return h('div', { class: 'stack' },
+    h('div', { class: 'row between' }, h('b', {}, label, secrets[name] ? ' ✅' : ''), link ? h('a', { href: link, target: '_blank', class: 'btn sm primary' }, '去获取 ↗') : ''),
+    h('div', { class: 'row' }, input, save),
+  );
 }
 
 function select(value: string, options: [string, string][], onchange: (v: string) => void) {
@@ -109,63 +110,108 @@ function voiceOptions(tts: string, code: string): [string, string][] {
   return [['', '默认'], ...list];
 }
 
+const field = (label: string, control: Node) => h('label', { class: 'field' }, h('span', {}, label), control);
+
 async function renderSettings(body: HTMLElement) {
-  const { settings: s, secrets } = await loadAll();
-  const problem = settingsProblem(await loadAll());
+  const data = await loadAll();
+  const { settings: s, secrets } = data;
+  const problem = settingsProblem(data);
   const set = async (patch: Partial<ExtSettings>) => {
     await saveSettings(patch);
     void render();
   };
-
-  body.append(
-    h('div', { class: 'card stack' },
-      h('h2', { style: 'margin-top:0' }, '① 对方说什么语言'),
-      select(s.remote, REMOTE_LANGUAGES.map((c) => [c, lang(c).nameZh]), (v) => void set({ remote: v, out: { ...s.out, voice: '' } })),
-      h('div', { class: 'muted small' }, '我方固定为中文。对方的口音选对了，识别和发音更准。'),
-    ),
-  );
-
-  body.append(
-    h('div', { class: 'card stack', style: 'margin-top:14px' },
-      h('h2', { style: 'margin-top:0' }, '② 翻译服务'),
-      ...SETS.map((x) =>
-        h('label', { class: 'row', style: 'align-items:flex-start;cursor:pointer' },
-          h('input', { type: 'radio', name: 'set', checked: s.providers === x.id, onchange: () => void set({ providers: x.id }) }),
-          h('div', {}, h('b', {}, x.name), h('div', { class: 'muted small' }, x.desc)),
-        ),
-      ),
-    ),
-  );
-
-  const keys = h('div', { class: 'card stack', style: 'margin-top:14px' }, h('h2', { style: 'margin-top:0' }, '③ 填写 Key'));
   const uses = (p: string) => [s.out.asr, s.out.mt, s.out.tts, s.in.asr, s.in.mt, s.in.tts].includes(p);
-  const usesLlm = uses('llm');
-  if (uses('dashscope') || uses('qwen-mt') || (usesLlm && s.llm.preset === 'qwen')) {
-    keys.append(
-      secretInput(secrets, 'dashscope', '阿里云百炼 API Key', '登录 bailian.console.aliyun.com › API Key 创建（sk- 开头）。'),
-      h('label', { class: 'field' }, h('span', {}, '百炼地域'), select(s.dashscopeRegion, [['cn', '中国（北京）'], ['intl', '国际（新加坡）']], (v) => void set({ dashscopeRegion: v as 'cn' | 'intl' }))),
-    );
+
+  // ---- the essentials: language, tier, key, test
+  const main = h('div', { class: 'card stack' });
+  main.append(
+    field('对方说', select(s.remote, REMOTE_LANGUAGES.map((c) => [c, lang(c).nameZh]), (v) => void set({ remote: v, out: { ...s.out, voice: '' } }))),
+    h('div', { class: 'label', style: 'margin-top:14px' }, '方案'),
+    h('div', { class: 'seg', style: 'max-width:420px' },
+      h('button', { class: s.providers === 'free' ? 'on' : '', onclick: () => void set({ providers: 'free' }) }, '免费'),
+      h('button', { class: s.providers === 'dashscope' ? 'on' : '', onclick: () => void set({ providers: 'dashscope' }) }, '高级 · 最准'),
+      ...(s.providers !== 'free' && s.providers !== 'dashscope' ? [h('button', { class: 'on' }, MORE_SETS.find((x) => x.id === s.providers)?.name.split('（')[0] ?? '其他')] : []),
+    ),
+    h('div', { class: 'muted small' },
+      s.providers === 'free' ? '免费：电脑上打开桌面客户端 + 一个免费的智谱 Key。'
+        : s.providers === 'dashscope' ? '高级：一个阿里云百炼 Key。新用户有免费额度，之后约 2–4 元/小时。'
+          : ''),
+  );
+  if (s.providers === 'free' || uses('llm')) {
+    if (s.llm.preset === 'zhipu-free' || s.providers === 'free') main.append(secretInput(secrets, 'llm', s.llm.preset === 'zhipu-free' ? KEY_LINKS.llm.label : '大模型 Key', s.llm.preset === 'zhipu-free' ? KEY_LINKS.llm.url : undefined));
   }
-  if (uses('azure')) {
-    keys.append(
-      secretInput(secrets, 'azure', 'Azure 语音服务 Key', '在 Azure 门户创建“语音服务”。'),
-      h('label', { class: 'field' }, h('span', {}, 'Azure 语音区域'), h('input', { type: 'text', value: s.azureRegion, onchange: (e: Event) => void set({ azureRegion: (e.target as HTMLInputElement).value.trim() }) })),
-    );
+  if (uses('dashscope') || uses('qwen-mt') || (uses('llm') && s.llm.preset === 'qwen')) main.append(secretInput(secrets, 'dashscope', KEY_LINKS.dashscope.label, KEY_LINKS.dashscope.url));
+  if (uses('azure')) main.append(secretInput(secrets, 'azure', 'Azure 语音 Key', 'https://portal.azure.com/#create/Microsoft.CognitiveServicesSpeechServices'));
+  if (uses('azure-translator')) main.append(secretInput(secrets, 'azureTranslator', 'Azure 翻译 Key', 'https://portal.azure.com/#create/Microsoft.CognitiveServicesTextTranslation'));
+  if (uses('deepl')) main.append(secretInput(secrets, 'deepl', 'DeepL Key', 'https://www.deepl.com/pro-api'));
+  if (usesDesktop(s)) {
+    const st = h('div', { class: 'muted small' }, '正在检查桌面客户端…');
+    main.append(st);
+    void pingDesktop(ctx()).then((p) => {
+      if (p) st.replaceChildren(`✅ 桌面客户端已连接（${p.version}）`);
+      else {
+        st.className = 'callout warn';
+        st.replaceChildren('没检测到桌面客户端：请在电脑上打开它 ', h('a', { href: DESKTOP_DOWNLOAD, target: '_blank' }, '下载 ↗'));
+      }
+    });
   }
-  if (uses('azure-translator')) {
-    keys.append(
-      secretInput(secrets, 'azureTranslator', 'Azure 翻译 Key', '在 Azure 门户创建“翻译”资源，F0 每月 200 万字符免费。'),
-      h('label', { class: 'field' }, h('span', {}, 'Azure 翻译区域（全局资源留空）'), h('input', { type: 'text', value: s.azureTranslatorRegion, onchange: (e: Event) => void set({ azureTranslatorRegion: (e.target as HTMLInputElement).value.trim() }) })),
-    );
-  }
-  if (usesLlm) {
-    keys.append(
-      h('label', { class: 'field' }, h('span', {}, '翻译大模型'), select(s.llm.preset, LLM_PRESETS.map((p) => [p.id, p.name]), (v) => void set({ llm: { ...s.llm, preset: v, baseUrl: '', model: '' } }))),
-      secretInput(secrets, 'llm', '大模型 API Key', s.llm.preset === 'zhipu-free' ? '在 bigmodel.cn 注册，“API Keys”里创建；GLM-4.7-Flash 免费。' : undefined),
-    );
+  if (problem && !missingKey(s, secrets)) main.append(h('div', { class: 'callout warn' }, problem));
+
+  const results = h('div', { class: 'stack' });
+  main.append(
+    h('button', {
+      id: 'test',
+      class: 'big',
+      style: 'margin-top:8px',
+      disabled: !!problem,
+      onclick: async (e: Event) => {
+        const btn = e.target as HTMLButtonElement;
+        btn.disabled = true;
+        btn.textContent = '测试中…';
+        results.replaceChildren();
+        try {
+          const d = await loadAll();
+          const settings = toAppSettings(d.settings);
+          const p = buildProviders(d.settings, d.secrets, ctx(), () => d.glossary);
+          const steps = [
+            ...(await testDirection(p, 'out', 'zh-CN', settings.languages.remote)),
+            ...(await testDirection(p, 'in', settings.languages.remote, 'zh-CN')),
+          ];
+          const ok = steps.every((x) => x.ok);
+          results.append(
+            h('div', { class: `callout ${ok ? 'info' : 'err'}` }, ok ? '✅ 一切正常，可以开会了' : '有步骤没通过，看下面的原因'),
+            ...steps.map((x) => h('div', { class: 'small' }, `${x.ok ? '✅' : '❌'} ${x.name}`, h('span', { class: 'muted' }, ` ${x.detail}`))),
+          );
+        } catch (err) {
+          results.append(h('div', { class: 'callout err' }, err instanceof Error ? err.message : String(err)));
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '测试一下';
+        }
+      },
+    }, '测试一下'),
+    results,
+  );
+  body.append(main);
+
+  // ---- everything else, folded away
+  const more = h('details', { class: 'card', style: 'margin-top:14px' }, h('summary', {}, '更多设置'));
+  const moreBody = h('div', { class: 'stack', style: 'margin-top:10px' });
+  more.append(moreBody);
+  moreBody.append(
+    h('div', { class: 'label' }, '其他方案'),
+    ...MORE_SETS.map((x) =>
+      h('label', { class: 'row', style: 'cursor:pointer;font-size:14px' },
+        h('input', { type: 'radio', name: 'more', checked: s.providers === x.id, onchange: () => void set({ providers: x.id }) }), x.name),
+    ),
+  );
+  if (uses('llm')) {
+    moreBody.append(field('翻译用的大模型', select(s.llm.preset, LLM_PRESETS.map((p) => [p.id, p.name]), (v) => void set({ llm: { ...s.llm, preset: v, baseUrl: '', model: '' } }))));
+    if (s.llm.preset !== 'zhipu-free' && s.providers !== 'free') moreBody.append(secretInput(secrets, 'llm', '大模型 Key'));
     if (s.llm.preset === 'custom') {
-      keys.append(
-        h('label', { class: 'field' }, h('span', {}, '接口地址（OpenAI 兼容）'), h('input', { type: 'text', value: s.llm.baseUrl, onchange: (e: Event) => void set({ llm: { ...s.llm, baseUrl: (e.target as HTMLInputElement).value.trim() } }) })),
+      moreBody.append(
+        field('接口地址（OpenAI 兼容）', h('input', { type: 'text', value: s.llm.baseUrl, onchange: (e: Event) => void set({ llm: { ...s.llm, baseUrl: (e.target as HTMLInputElement).value.trim() } }) })),
+        field('模型名', h('input', { type: 'text', value: s.llm.model, onchange: (e: Event) => void set({ llm: { ...s.llm, model: (e.target as HTMLInputElement).value.trim() } }) })),
         s.llm.baseUrl
           ? h('button', {
               class: 'btn',
@@ -179,108 +225,45 @@ async function renderSettings(body: HTMLElement) {
               },
             }, '允许插件访问这个地址')
           : '',
-        h('label', { class: 'field' }, h('span', {}, '模型名'), h('input', { type: 'text', value: s.llm.model, onchange: (e: Event) => void set({ llm: { ...s.llm, model: (e.target as HTMLInputElement).value.trim() } }) })),
       );
     }
   }
-  if (uses('deepl')) keys.append(secretInput(secrets, 'deepl', 'DeepL API Key'));
-  if (usesDesktop(s)) {
-    const st = h('div', { class: 'callout info' }, '正在检查桌面客户端…');
-    keys.append(st);
-    void pingDesktop(ctx()).then((p) => {
-      if (p) {
-        st.className = 'callout info';
-        st.textContent = `✅ 已连接桌面客户端 ${p.version}${p.models.zh ? '' : '（首次使用会自动下载离线识别模型，约 500MB）'}`;
-      } else {
-        st.className = 'callout warn';
-        st.replaceChildren('没有检测到桌面客户端：免费版需要在电脑上安装并打开“会议同传助手”（设置 › 翻译服务 里允许 Chrome 插件使用）。', ' ', h('a', { href: 'https://github.com/Crhis-CP/meeting-interpreter/releases/latest', target: '_blank' }, '下载桌面客户端'));
-      }
-    });
-  }
-  if (keys.childElementCount === 1) keys.append(h('div', { class: 'muted' }, '当前方案不需要 Key。'));
-  if (problem) keys.append(h('div', { class: 'callout warn' }, problem));
-  body.append(keys);
-
+  if (uses('dashscope') || uses('qwen-mt')) moreBody.append(field('百炼地域', select(s.dashscopeRegion, [['cn', '中国（北京）'], ['intl', '国际（新加坡）']], (v) => void set({ dashscopeRegion: v as 'cn' | 'intl' }))));
+  if (uses('azure')) moreBody.append(field('Azure 语音区域', h('input', { type: 'text', value: s.azureRegion, onchange: (e: Event) => void set({ azureRegion: (e.target as HTMLInputElement).value.trim() }) })));
+  if (uses('azure-translator')) moreBody.append(field('Azure 翻译区域（全局资源留空）', h('input', { type: 'text', value: s.azureTranslatorRegion, onchange: (e: Event) => void set({ azureTranslatorRegion: (e.target as HTMLInputElement).value.trim() }) })));
   if (s.providers === 'custom') {
-    const dirCard = h('div', { class: 'card stack', style: 'margin-top:14px' }, h('h2', { style: 'margin-top:0' }, '每个方向的服务'));
     for (const d of ['out', 'in'] as const) {
       const c = s[d];
       const upd = (patch: Partial<ExtSettings['out']>) => void set({ [d]: { ...c, ...patch } } as Partial<ExtSettings>);
-      dirCard.append(
-        h('b', {}, d === 'out' ? '我说中文 → 对方听' : '对方说话 → 我看中文'),
+      moreBody.append(
+        h('b', {}, d === 'out' ? '我说话' : '对方说话'),
         h('div', { class: 'grid2' },
-          h('label', { class: 'field' }, h('span', {}, '语音识别'), select(c.asr, [['local', '本机离线（桌面客户端，免费）'], ['dashscope', '阿里云百炼'], ['azure', 'Azure'], ['demo', '演示']], (v) => upd({ asr: v }))),
-          h('label', { class: 'field' }, h('span', {}, '翻译'), select(c.mt, [['qwen-mt', '百炼 翻译模型'], ['llm', '大模型（可选免费的智谱）'], ['deepl', 'DeepL'], ['azure-translator', 'Azure 翻译'], ['demo', '演示']], (v) => upd({ mt: v }))),
-          h('label', { class: 'field' }, h('span', {}, '发音'), select(c.tts, [['system', '电脑自带声音（桌面客户端，免费）'], ['dashscope', '阿里云百炼'], ['azure', 'Azure'], ['none', '不发音'], ['demo', '演示']], (v) => upd({ tts: v }))),
+          field('识别', select(c.asr, [['local', '本机（桌面客户端，免费）'], ['dashscope', '阿里云百炼'], ['azure', 'Azure'], ['demo', '演示']], (v) => upd({ asr: v }))),
+          field('翻译', select(c.mt, [['llm', '大模型'], ['qwen-mt', '百炼翻译'], ['deepl', 'DeepL'], ['azure-translator', 'Azure 翻译'], ['demo', '演示']], (v) => upd({ mt: v }))),
+          field('发音', select(c.tts, [['system', '电脑自带声音（免费）'], ['dashscope', '阿里云百炼'], ['azure', 'Azure'], ['none', '不发音'], ['demo', '演示']], (v) => upd({ tts: v }))),
         ),
       );
     }
-    body.append(dirCard);
   }
-
-  body.append(
-    h('div', { class: 'card stack', style: 'margin-top:14px' },
-      h('h2', { style: 'margin-top:0' }, '④ 声音和字幕'),
-      s.out.tts === 'dashscope' || s.out.tts === 'azure'
-        ? h('label', { class: 'field' }, h('span', {}, `对方听到的声音（${lang(s.remote).nameZh}）`), select(s.out.voice, voiceOptions(s.out.tts, s.remote), (v) => void set({ out: { ...s.out, voice: v } })))
-        : s.out.tts === 'system'
-          ? systemVoiceSelect(s, set)
-          : null,
-      toggle(s.playOriginal, '听对方的原声', (v) => set({ playOriginal: v })),
-      toggle(s.speakIn, '同时用中文读出对方的话（默认只看字幕）', (v) => set({ speakIn: v })),
-      toggle(s.showMine, '字幕里也显示我说的话和译文（方便确认翻得对不对）', (v) => set({ showMine: v })),
-      toggle(s.pinyinFuzzy, '术语近音纠错（把识别错的同音词改成术语表里的写法）', (v) => set({ pinyinFuzzy: v })),
-      h('label', { class: 'field' }, h('span', {}, `字幕字号：${s.subtitleSize}`), h('input', { type: 'range', min: 14, max: 40, value: s.subtitleSize, onchange: (e: Event) => void set({ subtitleSize: Number((e.target as HTMLInputElement).value) }) })),
-    ),
+  moreBody.append(
+    s.out.tts === 'dashscope' || s.out.tts === 'azure'
+      ? field('对方听到的声音', select(s.out.voice, voiceOptions(s.out.tts, s.remote), (v) => void set({ out: { ...s.out, voice: v } })))
+      : s.out.tts === 'system'
+        ? systemVoiceSelect(s, set)
+        : '',
+    toggle(s.playOriginal, '听对方的原声', (v) => set({ playOriginal: v })),
+    toggle(s.speakIn, '用中文读出对方的话', (v) => set({ speakIn: v })),
+    toggle(s.showMine, '字幕里显示我说的话', (v) => set({ showMine: v })),
+    toggle(s.pinyinFuzzy, '术语近音纠错', (v) => set({ pinyinFuzzy: v })),
+    field(`字幕字号 ${s.subtitleSize}`, h('input', { type: 'range', min: 14, max: 40, value: s.subtitleSize, onchange: (e: Event) => void set({ subtitleSize: Number((e.target as HTMLInputElement).value) }) })),
   );
-
-  const out = h('div', { class: 'stack' });
-  body.append(
-    h('div', { class: 'card stack', style: 'margin-top:14px' },
-      h('h2', { style: 'margin-top:0' }, '⑤ 测试'),
-      h('div', { class: 'muted small' }, '用真实服务测一遍：合成一句话 → 识别 → 翻译 → 发音。'),
-      h('button', {
-        class: 'btn primary',
-        disabled: !!problem,
-        onclick: async (e: Event) => {
-          const btn = e.target as HTMLButtonElement;
-          btn.disabled = true;
-          out.replaceChildren(h('div', { class: 'muted' }, '测试中…'));
-          try {
-            const data = await loadAll();
-            const settings = toAppSettings(data.settings);
-            const p = buildProviders(data.settings, data.secrets, ctx(), () => data.glossary);
-            const steps = [
-              ...(await testDirection(p, 'out', 'zh-CN', settings.languages.remote)),
-              ...(await testDirection(p, 'in', settings.languages.remote, 'zh-CN')),
-              ...(data.settings.out.mt === 'llm' || data.settings.in.mt === 'llm' ? await testLlm(makeLlm(settings, data.secrets, ctx())) : []),
-            ];
-            out.replaceChildren(...steps.map((st) => h('div', {}, `${st.ok ? '✅' : '❌'} ${st.name}（${st.ms} ms）`, h('div', { class: 'muted small' }, st.detail))));
-          } catch (err) {
-            out.replaceChildren(h('div', { class: 'callout err' }, err instanceof Error ? err.message : String(err)));
-          } finally {
-            btn.disabled = false;
-          }
-        },
-      }, '开始测试'),
-      out,
-    ),
-    h('div', { class: 'card stack', style: 'margin-top:14px' },
-      h('h2', { style: 'margin-top:0' }, '怎么用'),
-      h('ol', { class: 'muted', style: 'line-height:1.8;margin:0;padding-left:20px' },
-        h('li', {}, '在 Chrome 里打开网页版会议（Teams、Google Meet、飞书、腾讯会议、Zoom），入会。'),
-        h('li', {}, '点浏览器右上角的插件图标 → “开始同传”。'),
-        h('li', {}, '你说中文，对方在会议里听到翻译后的声音（你的原声不会传过去）；对方说话时，页面下方出现中文字幕。'),
-        h('li', {}, '建议戴耳机。结束后可在“会议记录”里下载双语记录、生成会议纪要。'),
-      ),
-      h('div', { class: 'muted small' }, '如果插件装好前就已经进了会议，请刷新会议页面重新入会。'),
-    ),
-  );
+  body.append(more);
+  if (location.hash === '#test') document.getElementById('test')?.scrollIntoView();
 }
 
 /** Voices installed on the computer, listed by the desktop app. */
 function systemVoiceSelect(s: ExtSettings, set: (p: Partial<ExtSettings>) => Promise<void>) {
-  const wrap = h('label', { class: 'field' }, h('span', {}, `对方听到的声音（电脑自带，${lang(s.remote).nameZh}）`));
+  const wrap = h('label', { class: 'field' }, h('span', {}, '对方听到的声音'));
   const sel = select(s.out.voice, [['', '默认']], (v) => void set({ out: { ...s.out, voice: v } }));
   wrap.append(sel);
   void (async () => {
@@ -349,7 +332,7 @@ async function renderGlossary(body: HTMLElement) {
   const msg = h('span', { class: 'muted small' });
   body.append(
     h('p', { class: 'muted', style: 'line-height:1.6' },
-      '公司名、产品名、人名和行业词的固定译法。识别时优先听成这些词，识别错的“别名”会自动改正，翻译时强制使用你填的译法。例：中文“西瓜尔纳一号”，中文别名“西瓜那一号；西瓜尔那一号”，外文填双方约定的叫法。',
+      '公司名、产品名、人名的固定译法。“别名”填常被听错的写法，会自动改正。',
     ),
     h('div', { class: 'row', style: 'margin-bottom:10px' },
       h('button', { class: 'btn primary', onclick: () => (entries.push({ id: newEntryId(), zh: '', es: '', en: '', aliasesZh: [], aliasesEs: [], aliasesEn: [], note: '', enabled: true }), fill()) }, '+ 添加术语'),
@@ -362,7 +345,6 @@ async function renderGlossary(body: HTMLElement) {
       h('thead', {}, h('tr', {}, h('th', {}, '中文'), h('th', {}, foreign === 'en' ? 'English' : 'Español'), h('th', {}, '中文别名（常被识别成）'), h('th', {}, foreign === 'en' ? '英语别名' : '西语别名'), h('th', {}, '备注'), h('th', {}))),
       tbody,
     ),
-    h('p', { class: 'muted small' }, '表格显示当前对方语言那一列；导入的 CSV 可以同时含中文、Español、English 三列（桌面版导出的术语表可以直接导入）。'),
   );
 }
 

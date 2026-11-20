@@ -44,3 +44,13 @@ input[type='text'], input[type='password'], select, textarea { width: 100%; padd
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { border-bottom: 1px solid var(--line); padding: 6px; text-align: left; vertical-align: top; }
 td input[type='text'] { padding: 5px 7px; font-size: 13px; }
+.label { color: var(--muted); font-size: 13px; margin: 0 0 6px; }
+.seg { margin-bottom: 14px; }
+.callout { margin-bottom: 12px; }
+.keybox { border: 1px solid #c7d2fe; background: #eef2ff; border-radius: 12px; padding: 12px; margin-bottom: 14px; }
+.keybox > * + * { margin-top: 8px; }
+.btn.sm { padding: 4px 10px; font-size: 12px; }
+a.btn { display: inline-block; text-decoration: none; }
+details > summary { cursor: pointer; color: var(--muted); font-size: 14px; padding: 6px 0; }
+.row > .btn, .row > a.btn { flex: none; white-space: nowrap; }
+.hint-line { color: var(--muted); font-size: 12px; text-align: center; margin: 8px 0 0; }
