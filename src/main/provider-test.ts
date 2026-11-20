@@ -89,7 +89,7 @@ export async function testDirection(p: Providers, dir: Direction, srcLang: strin
 export async function testLlm(llm: Llm | null): Promise<ProviderTestStep[]> {
   const steps: ProviderTestStep[] = [];
   await step(steps, '大模型（翻译 / 纪要）', async () => {
-    if (!llm) throw new Error('未配置大模型 Key');
+    if (!llm) throw new Error('还没有保存大模型 Key：在“翻译服务”里粘贴后点“保存”（离开输入框也会自动保存）');
     const out = await llm.complete({ system: 'Reply with the single word OK.', user: 'ping', maxTokens: 10 });
     return { value: null, detail: out.slice(0, 40) };
   });

@@ -1,6 +1,6 @@
 // Builds the phone app's web part into out/mobile and copies it into the Android project.
 import { build } from 'esbuild';
-import { cpSync, mkdirSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = new URL('..', import.meta.url).pathname;
@@ -17,7 +17,7 @@ await build({
   minify: true,
   legalComments: 'none',
   tsconfig: join(root, 'mobile/tsconfig.json'),
-  define: { 'process.env.NODE_ENV': '"production"' },
+  define: { 'process.env.NODE_ENV': '"production"', __APP_VERSION__: JSON.stringify(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version) },
   logLevel: 'warning',
 });
 for (const f of ['index.html', 'app.css']) cpSync(join(root, 'mobile/src', f), join(out, f));

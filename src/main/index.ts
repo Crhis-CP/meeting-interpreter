@@ -568,7 +568,7 @@ app.whenReady().then(() => {
   // A quiet check for a newer release on GitHub (no auto-install: unsigned builds).
   setTimeout(() => {
     void checkForUpdate(app.getVersion(), log, proxiedFetch).then((u) => {
-      if (u) broadcast('toast', { level: 'info', message: `有新版本 ${u.version} 可以下载：设置 › 关于 › GitHub Releases` });
+      if (u) broadcast('toast', { level: 'info', message: `有新版本 ${u.version}：到 crhis-cp.github.io/meeting-interpreter 下载安装（覆盖旧版即可，设置和记录都会保留）` });
     });
   }, 8000);
 });

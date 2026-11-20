@@ -1,4 +1,5 @@
 import { pingDesktop } from '@core/bridge/desktop';
+import { checkForUpdate } from '../../src/main/update-check';
 import { consoleLogger, createBrowserContext } from './browser-context';
 import { h, settingsProblem } from './dom';
 import { usesDesktop } from './engine-providers';
@@ -47,6 +48,7 @@ async function render() {
     ),
   );
 
+  void showUpdate();
   if (!running) {
     const isEn = s.remote.startsWith('en');
     const save = async (patch: Partial<typeof s>) => {
@@ -178,6 +180,19 @@ async function render() {
       '结束同传',
     ),
   );
+}
+
+/** A quiet note when a newer version is on the download site (checked at most twice a day). */
+async function showUpdate() {
+  const { updateCheck } = (await chrome.storage.local.get('updateCheck')) as { updateCheck?: { at: number; version: string | null } };
+  let latest = updateCheck?.version ?? null;
+  if (!updateCheck || Date.now() - updateCheck.at > 12 * 3600_000) {
+    const u = await checkForUpdate(chrome.runtime.getManifest().version, consoleLogger('update'));
+    latest = u?.version ?? null;
+    await chrome.storage.local.set({ updateCheck: { at: Date.now(), version: latest } });
+  }
+  if (!latest || document.getElementById('update')) return;
+  app.prepend(h('div', { id: 'update', class: 'callout info' }, `有新版本 ${latest} `, h('a', { href: 'https://crhis-cp.github.io/meeting-interpreter/', target: '_blank' }, '去下载 ↗'), '（解压后替换原来的文件夹，再在扩展页点刷新）'));
 }
 
 chrome.storage.session.onChanged.addListener(() => void render());

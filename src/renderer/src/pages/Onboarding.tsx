@@ -34,8 +34,11 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     await api.settings.applyPreset(choice);
     setStep(p.needs.length ? 1 : 2);
   };
-  const saveKeys = async () => {
+  const storeKeys = async () => {
     for (const [k, v] of Object.entries(keys)) if (v?.trim()) await api.secrets.set(k as SecretName, v.trim());
+  };
+  const saveKeys = async () => {
+    await storeKeys();
     setStep(2);
   };
   const finish = async () => {
@@ -134,8 +137,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           </div>
           {Object.values(keys).some(Boolean) && (
             <div style={{ marginTop: 14 }}>
-              <span className="muted small">保存后可以测试：</span>
-              <TestPanel scope="llm" label="测试大模型" />
+              <TestPanel scope="llm" label="测试一下（会先保存 Key）" beforeRun={storeKeys} />
             </div>
           )}
         </div>

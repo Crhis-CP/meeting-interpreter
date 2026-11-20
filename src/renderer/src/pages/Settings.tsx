@@ -60,14 +60,15 @@ type TabProps = { s: AppSettings; update: (patch: object) => Promise<AppSettings
 function SecretInput({ name, label, placeholder, status, onSaved }: { name: SecretName; label: string; placeholder?: string; status: Record<string, boolean>; onSaved: () => void }) {
   const [v, setV] = useState('');
   const save = async () => {
-    await api.secrets.set(name, v);
+    if (!v.trim()) return;
+    await api.secrets.set(name, v.trim());
     setV('');
     onSaved();
   };
   return (
     <Field label={<span>{label} {status[name] ? <span className="badge ok">已保存</span> : <span className="badge">未填写</span>}</span>}>
       <div className="row">
-        <input type="password" style={{ flex: 1 }} placeholder={status[name] ? '已保存（输入新值可替换）' : placeholder} value={v} onChange={(e) => setV(e.target.value)} />
+        <input type="password" style={{ flex: 1 }} placeholder={status[name] ? '已保存（输入新值可替换）' : placeholder} value={v} onChange={(e) => setV(e.target.value)} onBlur={() => void save()} onKeyDown={(e) => e.key === 'Enter' && void save()} />
         <button className="btn" onClick={save} disabled={!v}>
           保存
         </button>
@@ -81,13 +82,15 @@ function SecretInput({ name, label, placeholder, status, onSaved }: { name: Secr
   );
 }
 
-export function TestPanel({ scope, label }: { scope: 'out' | 'in' | 'llm'; label: string }) {
+/** `beforeRun` saves what was typed (e.g. a key not saved yet) so the test uses it. */
+export function TestPanel({ scope, label, beforeRun }: { scope: 'out' | 'in' | 'llm'; label: string; beforeRun?: () => Promise<void> }) {
   const [steps, setSteps] = useState<ProviderTestStep[] | null>(null);
   const [busy, setBusy] = useState(false);
   const run = async () => {
     setBusy(true);
     setSteps(null);
     try {
+      await beforeRun?.();
       setSteps(await api.providers.test(scope));
     } catch (err) {
       setSteps([{ name: '测试', ok: false, ms: 0, detail: errMsg(err) }]);

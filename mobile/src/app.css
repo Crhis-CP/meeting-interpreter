@@ -72,3 +72,4 @@ body[data-state='listening'] .mic .ring { border-color: #ff3b30; }
 .foot { color: var(--muted); font-size: 13px; text-align: center; line-height: 1.7; }
 .banner { background: #fff3cd; color: #8a5a00; border-radius: 12px; padding: 10px 14px; font-size: 14px; line-height: 1.5; }
 @media (prefers-color-scheme: dark) { .banner { background: #3a2f12; color: #ffd27a; } }
+.banner.update { display: block; width: calc(100% - 28px); margin: calc(env(safe-area-inset-top) + 8px) 14px 0; text-align: left; }

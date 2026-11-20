@@ -66,6 +66,7 @@ Chinese (Simplified)
 | `*://*.speech.microsoft.com/*`, `https://api.cognitive.microsofttranslator.com/*`, `https://*.cognitiveservices.azure.com/*`, `*://*.azure.cn/*` | host_permissions | 用户选择微软 Azure 时：语音识别、语音合成和翻译（含 Azure 中国区）。 |
 | `https://open.bigmodel.cn/*`, `https://api.deepseek.com/*`, `https://ark.cn-beijing.volces.com/*`, `https://api.openai.com/*`, `https://openrouter.ai/*` | host_permissions | 用户选择对应的大模型做翻译和会议纪要时调用。 |
 | `https://api.deepl.com/*`, `https://api-free.deepl.com/*` | host_permissions | 用户选择 DeepL 翻译时调用。 |
+| `https://api.github.com/*` | host_permissions | 每天最多两次查看 GitHub 上是否有新版本，有就在弹窗里提示用户去下载。 |
 | `http://localhost/*`, `http://127.0.0.1/*` | host_permissions | 免费版：连接用户电脑上的“会议同传助手”桌面客户端（离线识别、系统语音），或用户自己的本机大模型（Ollama）。 |
 | `https://*/*` | optional_host_permissions | 仅当用户在设置里填写自定义的 OpenAI 兼容翻译接口时，才请求该接口所在网站的权限。 |
 | content scripts on Teams / Meet / 飞书 / 腾讯会议 / Zoom / Webex | content_scripts | 在会议页面里：把会议使用的麦克风换成翻译后的声音（对方只听到译音），并显示中文悬浮字幕。只在这些会议网站上运行。 |

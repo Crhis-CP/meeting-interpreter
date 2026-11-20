@@ -17,6 +17,9 @@ import { LLM_PRESETS } from '@core/providers/openai-compatible';
 import { createProviders } from '@core/providers/registry';
 import type { TranscriptSegment } from '@core/types';
 import { createMobileContext, keepAwake, native, openExternal } from './native';
+import { checkForUpdate } from '../../src/main/update-check';
+
+declare const __APP_VERSION__: string;
 import { createClonedVoice, deleteClonedVoice, waitForVoice } from '@core/providers/dashscope/voice-clone';
 import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../src/browser/voice-sample';
 
@@ -113,6 +116,15 @@ async function start() {
   if (why) return openSettings(why);
   status = 'starting';
   render();
+
+// A quiet note when a newer app is on the download site.
+if (!webOnly) {
+  void checkForUpdate(__APP_VERSION__, log, createMobileContext(log).fetch).then((u) => {
+    if (!u) return;
+    const note = h('button', { class: 'banner update', onclick: () => openExternal('https://crhis-cp.github.io/meeting-interpreter/') }, `有新版本 ${u.version}，点这里下载安装`);
+    document.body.prepend(note);
+  });
+}
   try {
     const ctx = new AudioContext({ latencyHint: 'interactive' });
     await ctx.resume();
@@ -148,6 +160,15 @@ async function start() {
         segs.set(seg.id, seg);
         partial = '';
         render();
+
+// A quiet note when a newer app is on the download site.
+if (!webOnly) {
+  void checkForUpdate(__APP_VERSION__, log, createMobileContext(log).fetch).then((u) => {
+    if (!u) return;
+    const note = h('button', { class: 'banner update', onclick: () => openExternal('https://crhis-cp.github.io/meeting-interpreter/') }, `有新版本 ${u.version}，点这里下载安装`);
+    document.body.prepend(note);
+  });
+}
       });
       p.on('partial', ({ text }) => {
         partial = text;
@@ -158,6 +179,15 @@ async function start() {
           status = 'error';
           statusText = message ?? '出错了';
           render();
+
+// A quiet note when a newer app is on the download site.
+if (!webOnly) {
+  void checkForUpdate(__APP_VERSION__, log, createMobileContext(log).fetch).then((u) => {
+    if (!u) return;
+    const note = h('button', { class: 'banner update', onclick: () => openExternal('https://crhis-cp.github.io/meeting-interpreter/') }, `有新版本 ${u.version}，点这里下载安装`);
+    document.body.prepend(note);
+  });
+}
         }
       });
       p.on('audio', ({ samples, sampleRate }) => play(e, samples, sampleRate));
@@ -187,6 +217,15 @@ async function start() {
     if (/Permission|NotAllowed/i.test(statusText)) statusText = '需要麦克风权限：请在系统设置里允许本应用使用麦克风';
   }
   render();
+
+// A quiet note when a newer app is on the download site.
+if (!webOnly) {
+  void checkForUpdate(__APP_VERSION__, log, createMobileContext(log).fetch).then((u) => {
+    if (!u) return;
+    const note = h('button', { class: 'banner update', onclick: () => openExternal('https://crhis-cp.github.io/meeting-interpreter/') }, `有新版本 ${u.version}，点这里下载安装`);
+    document.body.prepend(note);
+  });
+}
 }
 
 async function stop() {
@@ -197,6 +236,15 @@ async function stop() {
   if (!e) {
     status = 'idle';
     return render();
+
+// A quiet note when a newer app is on the download site.
+if (!webOnly) {
+  void checkForUpdate(__APP_VERSION__, log, createMobileContext(log).fetch).then((u) => {
+    if (!u) return;
+    const note = h('button', { class: 'banner update', onclick: () => openExternal('https://crhis-cp.github.io/meeting-interpreter/') }, `有新版本 ${u.version}，点这里下载安装`);
+    document.body.prepend(note);
+  });
+}
   }
   for (const s of e.sources) {
     try {
@@ -211,6 +259,15 @@ async function stop() {
   await e.ctx.close().catch(() => undefined);
   status = 'idle';
   render();
+
+// A quiet note when a newer app is on the download site.
+if (!webOnly) {
+  void checkForUpdate(__APP_VERSION__, log, createMobileContext(log).fetch).then((u) => {
+    if (!u) return;
+    const note = h('button', { class: 'banner update', onclick: () => openExternal('https://crhis-cp.github.io/meeting-interpreter/') }, `有新版本 ${u.version}，点这里下载安装`);
+    document.body.prepend(note);
+  });
+}
 }
 
 function play(e: Engine, samples: Int16Array, rate: number) {
@@ -303,6 +360,15 @@ function render() {
     settings.remote = isEn() ? 'es-MX' : 'en-US';
     save();
     render();
+
+// A quiet note when a newer app is on the download site.
+if (!webOnly) {
+  void checkForUpdate(__APP_VERSION__, log, createMobileContext(log).fetch).then((u) => {
+    if (!u) return;
+    const note = h('button', { class: 'banner update', onclick: () => openExternal('https://crhis-cp.github.io/meeting-interpreter/') }, `有新版本 ${u.version}，点这里下载安装`);
+    document.body.prepend(note);
+  });
+}
   };
   list = h('div', { class: 'list' });
   const turns = [...segs.values()].sort((a, b) => a.start - b.start);
@@ -362,6 +428,15 @@ function setMode(m: MobileSettings['mode']) {
   held = false;
   engine?.out.setGate(m === 'hands-free');
   render();
+
+// A quiet note when a newer app is on the download site.
+if (!webOnly) {
+  void checkForUpdate(__APP_VERSION__, log, createMobileContext(log).fetch).then((u) => {
+    if (!u) return;
+    const note = h('button', { class: 'banner update', onclick: () => openExternal('https://crhis-cp.github.io/meeting-interpreter/') }, `有新版本 ${u.version}，点这里下载安装`);
+    document.body.prepend(note);
+  });
+}
 }
 
 const svg = (d: string, size = 30) => {
@@ -421,6 +496,15 @@ function openSettings(hint?: string) {
     save();
     sheet.remove();
     render();
+
+// A quiet note when a newer app is on the download site.
+if (!webOnly) {
+  void checkForUpdate(__APP_VERSION__, log, createMobileContext(log).fetch).then((u) => {
+    if (!u) return;
+    const note = h('button', { class: 'banner update', onclick: () => openExternal('https://crhis-cp.github.io/meeting-interpreter/') }, `有新版本 ${u.version}，点这里下载安装`);
+    document.body.prepend(note);
+  });
+}
   };
   const row = (label: string, control: Node, note?: string) => h('label', { class: 'row' }, h('span', {}, label), control, note ? h('small', {}, note) : null);
   const select = (value: string, opts: [string, string][], on: (v: string) => void) =>
@@ -463,3 +547,12 @@ function openSettings(hint?: string) {
 }
 
 render();
+
+// A quiet note when a newer app is on the download site.
+if (!webOnly) {
+  void checkForUpdate(__APP_VERSION__, log, createMobileContext(log).fetch).then((u) => {
+    if (!u) return;
+    const note = h('button', { class: 'banner update', onclick: () => openExternal('https://crhis-cp.github.io/meeting-interpreter/') }, `有新版本 ${u.version}，点这里下载安装`);
+    document.body.prepend(note);
+  });
+}
