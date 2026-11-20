@@ -3,75 +3,157 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>会议同传助手 · 免费下载</title>
-<meta name="description" content="中文 ⇄ 西班牙语 / 英语 实时同声传译。免费开源，支持 Teams、飞书、腾讯会议、Zoom 等。">
+<title>会议同传助手 · 免费的实时同声传译</title>
+<meta name="description" content="你说中文，对方在会议里听到西班牙语或英语；对方说话，你看到中文。支持 Teams、Zoom、腾讯会议、飞书，免费开源。">
 <link rel="icon" href="favicon.png">
 <style>
-  :root { --blue:#007aff; --text:#1d1d1f; --muted:#86868b; --line:rgba(0,0,0,.1); font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
+  :root { --blue:#0a84ff; --teal:#5eead4; --text:#1d1d1f; --muted:#6e6e73; font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
   * { box-sizing: border-box; }
   body { margin: 0; background: #f5f5f7; }
-  main { max-width: 760px; margin: 0 auto; padding: 48px 20px 64px; }
-  header { text-align: center; }
-  header img { width: 112px; height: 112px; filter: drop-shadow(0 8px 20px rgba(0,0,0,.25)); }
-  h1 { font-size: 40px; letter-spacing: -0.02em; margin: 16px 0 8px; }
-  .sub { color: var(--muted); font-size: 16px; margin: 0; }
-  .primary { display: block; margin: 32px auto 8px; max-width: 360px; text-align: center; background: var(--blue); color: #fff; text-decoration: none; font-size: 18px; font-weight: 600; padding: 14px; border-radius: 980px; }
-  .primary small { display: block; font-weight: 400; font-size: 13px; opacity: .85; margin-top: 2px; }
-  .ver { text-align: center; color: var(--muted); font-size: 13px; }
-  h2 { font-size: 17px; margin: 40px 0 12px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(220px,1fr)); gap: 12px; }
-  .item { border: 0; border-radius: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.06); padding: 14px 16px; text-decoration: none; color: inherit; background: #fff; display: block; }
-  .item:hover { border-color: var(--blue); }
-  .item b { display: block; font-size: 15px; }
-  .item span { color: var(--muted); font-size: 13px; }
-  .phone { border: 0; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); border-radius: 18px; padding: 16px; line-height: 1.7; font-size: 15px; }
-  .tip { color: var(--muted); font-size: 13px; line-height: 1.7; }
-  footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 48px; }
   a { color: var(--blue); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+  .hero { background: radial-gradient(1200px 600px at 50% -10%, #1b3a3a 0%, #0b1416 45%, #05080a 100%); color: #f5f5f7; text-align: center; padding: 72px 0 64px; overflow: hidden; }
+  .hero img.logo { width: 120px; height: 120px; filter: drop-shadow(0 10px 40px rgba(94,234,212,.35)); }
+  .hero h1 { font-size: clamp(34px, 6vw, 56px); letter-spacing: -0.03em; margin: 18px 0 10px; }
+  .hero .tag { font-size: clamp(17px, 2.4vw, 22px); color: #d2d2d7; margin: 0 auto; max-width: 720px; line-height: 1.5; }
+  .hero .tag b { color: #fff; }
+  .glow { background: linear-gradient(90deg, var(--teal), #f8fafc); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .cta { display: inline-block; margin: 30px 0 8px; background: #f5f5f7; color: #0b1416; text-decoration: none; font-size: 18px; font-weight: 600; padding: 14px 30px; border-radius: 980px; }
+  .cta small { display: block; font-weight: 400; font-size: 12.5px; color: #555; margin-top: 2px; }
+  .ver { color: #a1a1a6; font-size: 13px; min-height: 18px; }
+  .hero .links { margin-top: 10px; font-size: 15px; }
+  .hero .links a { color: var(--teal); margin: 0 10px; text-decoration: none; }
+  .badges { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 26px; }
+  .badges span { border: 1px solid rgba(255,255,255,.18); border-radius: 999px; padding: 6px 14px; font-size: 13.5px; color: #e5e5ea; }
+  h2.title { text-align: center; font-size: clamp(26px, 4vw, 38px); letter-spacing: -0.02em; margin: 64px 0 8px; }
+  p.lead { text-align: center; color: var(--muted); font-size: 17px; margin: 0 0 34px; }
+  .scene { display: grid; grid-template-columns: 1.1fr 1fr; gap: 36px; align-items: center; background: #fff; border-radius: 24px; padding: 32px; margin-bottom: 22px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .scene.flip { grid-template-columns: 1fr 1.1fr; }
+  .scene.flip .shot { order: -1; }
+  .scene h3 { font-size: 24px; margin: 6px 0 10px; letter-spacing: -0.01em; }
+  .scene .kicker { color: var(--blue); font-weight: 600; font-size: 14px; }
+  .scene p { color: #424245; line-height: 1.7; font-size: 16px; margin: 0 0 10px; }
+  .scene ul { margin: 0; padding-left: 20px; color: #424245; line-height: 1.8; }
+  .shot { text-align: center; }
+  .shot img { max-width: 100%; border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.12); }
+  .shot.phone img { max-height: 460px; border-radius: 26px; border: 6px solid #1d1d1f; }
+  .shot.pair { display: flex; gap: 14px; justify-content: center; }
+  .shot.pair img { max-height: 420px; max-width: 48%; border-radius: 22px; border: 5px solid #1d1d1f; }
+  .trust { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .trust div { background: #fff; border-radius: 18px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .trust b { display: block; font-size: 17px; margin: 6px 0; }
+  .trust span { color: var(--muted); font-size: 14.5px; line-height: 1.6; }
+  .trust i { font-style: normal; font-size: 26px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .item { background: #fff; border-radius: 18px; padding: 16px 18px; text-decoration: none; color: inherit; display: block; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .item:hover { box-shadow: 0 0 0 2px var(--blue); }
+  .item b { display: block; font-size: 15.5px; }
+  .item span { color: var(--muted); font-size: 13px; }
+  .phone-note { background: #fff; border-radius: 18px; padding: 16px 18px; margin-top: 12px; line-height: 1.7; font-size: 15px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .tip { color: var(--muted); font-size: 13.5px; line-height: 1.8; margin-top: 18px; }
+  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 48px 0 56px; }
+  @media (max-width: 760px) {
+    .scene, .scene.flip { grid-template-columns: 1fr; padding: 22px; }
+    .scene.flip .shot { order: 0; }
+    .shot.pair img { max-height: 300px; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <img src="icon.png" alt="">
+<header class="hero">
+  <div class="wrap">
+    <img class="logo" src="icon.png" alt="会议同传助手">
     <h1>会议同传助手</h1>
-    <p class="sub">你说中文，对方听到西班牙语或英语；对方说话，你看到中文。免费开源。</p>
-  </header>
+    <p class="tag">你说中文，对方在会议里直接听到<b>西班牙语</b>或<b>英语</b>；<br>对方说话，你立刻看到<span class="glow"><b>中文字幕</b></span>。</p>
+    <a id="primary" class="cta" href="https://github.com/Crhis-CP/meeting-interpreter/releases/latest">免费下载<small>正在识别你的设备…</small></a>
+    <div class="ver" id="ver"></div>
+    <div class="links"><a href="guide.html">新手上手 →</a><a href="#download">全部下载 →</a></div>
+    <div class="badges"><span>免费开源</span><span>对方不用装任何东西</span><span>Teams · Zoom · 腾讯会议 · 飞书</span><span>Mac · Windows · 安卓 · 网页</span></div>
+  </div>
+</header>
 
-  <a id="primary" class="primary" href="https://github.com/Crhis-CP/meeting-interpreter/releases/latest">下载<small>正在识别你的设备…</small></a>
-  <p class="ver" id="ver"></p>
-  <p style="text-align:center;margin:6px 0 0"><a href="guide.html" style="font-size:16px">第一次用？看新手上手（3 分钟）→</a></p>
+<main class="wrap">
+  <h2 class="title">一个工具，线上线下都能用</h2>
+  <p class="lead">按你开会的方式选一种，三四步就能上手。</p>
 
-  <div id="phone" class="phone" hidden>
-    <b>苹果手机：</b>不用下载。在电脑上的会议同传助手里打开 <b>“现场房间”</b>，手机扫二维码，就能在浏览器里用（选中文或外语，戴耳机听同传）。<br>
-    <a href="app/">先看看手机版界面（演示）→</a>
+  <section class="scene">
+    <div>
+      <div class="kicker">线上开会 · 浏览器</div>
+      <h3>装上插件就能用</h3>
+      <p>用浏览器加入 Teams、Zoom、腾讯会议、飞书。你说中文，对方在会议里听到的是翻译后的声音，你的原声不会传过去。</p>
+      <ul><li>对方说话，页面上浮出中文字幕</li><li>不用装虚拟声卡，不用改会议设置</li></ul>
+    </div>
+    <div class="shot"><img src="img/subtitles.jpg" alt="会议页面上的中文悬浮字幕"></div>
+  </section>
+
+  <section class="scene flip">
+    <div>
+      <div class="kicker">线上开会 · 电脑客户端</div>
+      <h3>任何会议软件都支持</h3>
+      <p>Mac 和 Windows 桌面版，一键安装虚拟麦克风，在会议软件里选一下就行。双语逐句记录、录音录屏、会后一键生成中外文纪要。</p>
+      <ul><li>术语表：公司名、产品名按你定的译法翻</li><li>可选“用我的声音”：对方听到的是你自己的音色</li></ul>
+    </div>
+    <div class="shot"><img src="img/desktop.jpg" alt="桌面版同传界面"></div>
+  </section>
+
+  <section class="scene">
+    <div>
+      <div class="kicker">面对面 · 一部手机</div>
+      <h3>放在中间，直接说</h3>
+      <p>安卓 App 自动听出谁在说什么语言：说中文就念外语，说外语就念中文。手机念的时候自动不收音，不会重复翻译。</p>
+      <ul><li>免按键，或按住说话</li><li>苹果手机：用电脑开“现场房间”扫码</li></ul>
+    </div>
+    <div class="shot phone"><img src="img/phone.jpg" alt="手机面对面对话"></div>
+  </section>
+
+  <section class="scene flip">
+    <div>
+      <div class="kicker">多人现场 · 扫码</div>
+      <h3>现场房间，每人一部手机</h3>
+      <p>电脑开一个房间，大家用手机扫码加入，选自己的语言，戴上耳机。谁说话，其他语言的人就在耳机里听到译音、看到字幕。</p>
+      <ul><li>手机不用装 App，苹果安卓都行</li><li>不在现场的人也能用公网链接加入</li></ul>
+    </div>
+    <div class="shot pair"><img src="img/room.jpg" alt="手机加入现场房间"><img src="img/popup.jpg" alt="插件弹窗"></div>
+  </section>
+
+  <h2 class="title">放心用</h2>
+  <p class="lead">我们不收任何钱，也没有任何服务器。</p>
+  <div class="trust">
+    <div><i>🔑</i><b>Key 只在你的设备上</b><span>用你自己的服务账号，保存在本机，不会上传，别人看不到。</span></div>
+    <div><i>🔇</i><b>原声不外传</b><span>同传时会议里只有翻译后的声音。想自己说外语，打开“原声直通”。</span></div>
+    <div><i>🎯</i><b>为准确而做</b><span>术语表、近音纠错、带上下文翻译、自动检查漏翻。</span></div>
+    <div><i>💸</i><b>可以完全免费</b><span>本机离线识别 + 免费翻译模型；想要最准，用阿里云百炼一个 Key。</span></div>
   </div>
 
-  <h2>全部下载</h2>
+  <h2 class="title" id="download">下载</h2>
+  <p class="lead">第一次用？先看 <a href="guide.html">新手上手</a>。</p>
   <div class="grid">
     <a class="item" data-asset="mac-arm64.dmg"><b>Mac（Apple 芯片）</b><span>M1 / M2 / M3 / M4</span></a>
     <a class="item" data-asset="mac-x64.dmg"><b>Mac（Intel 芯片）</b><span>2020 年及更早的 Mac</span></a>
     <a class="item" data-asset="windows-x64-setup.exe"><b>Windows</b><span>Windows 10 / 11</span></a>
-    <a class="item" data-asset="android"><b>安卓手机</b><span>面对面对话，免按键或按住说话</span></a>
-    <a class="item" data-asset="chrome-"><b>Chrome / Edge 插件</b><span>网页版会议用，装上就能用</span></a>
+    <a class="item" data-asset="chrome-"><b>Chrome / Edge 插件</b><span>网页版会议，装上就能用</span></a>
+    <a class="item" data-asset="android"><b>安卓手机</b><span>面对面对话</span></a>
     <a class="item" data-asset="linux-x86_64.AppImage"><b>Linux</b><span>AppImage</span></a>
   </div>
-
-  <h2>第一次打开</h2>
+  <div id="phone" class="phone-note" hidden>
+    <b>苹果手机：</b>不用下载。在电脑上的会议同传助手里打开 <b>“现场房间”</b>，手机扫二维码，就能在浏览器里用。<a href="app/">先看看手机版界面（演示）→</a>
+  </div>
   <p class="tip">
-    <b>Mac：</b>出现“无法验证开发者”时，打开 系统设置 › 隐私与安全性，点“仍要打开”。<br>
-    <b>Windows：</b>出现蓝色提示时，点“更多信息” › “仍要运行”。<br>
-    <b>安卓：</b>下载完点“安装”。如果提示“禁止安装未知应用”，按提示允许浏览器安装即可。<br>
-    <b>插件：</b>解压 zip → Chrome 打开 <code>chrome://extensions</code> → 打开“开发者模式” → “加载已解压的扩展程序”，选解压出来的文件夹。
+    <b>Mac 第一次打开：</b>提示“无法验证开发者”时，打开 系统设置 › 隐私与安全性，点“仍要打开”。
+    <b>Windows：</b>出现蓝色提示时，点“更多信息” › “仍要运行”。
+    <b>安卓：</b>提示“禁止安装未知应用”时，按提示允许即可。
+    <b>插件：</b>解压 zip → Chrome 打开 <code>chrome://extensions</code> → 打开“开发者模式” → “加载已解压的扩展程序”。
   </p>
-
-  <footer>
-    <a href="guide.html">新手上手</a> ·
-    <a href="https://github.com/Crhis-CP/meeting-interpreter#readme">使用说明</a> ·
-    <a href="https://github.com/Crhis-CP/meeting-interpreter/releases">历史版本</a> ·
-    <a href="https://github.com/Crhis-CP/meeting-interpreter/blob/main/docs/privacy.md">隐私</a>
-  </footer>
 </main>
+
+<footer>
+  <a href="guide.html">新手上手</a> ·
+  <a href="https://github.com/Crhis-CP/meeting-interpreter">源代码</a> ·
+  <a href="https://github.com/Crhis-CP/meeting-interpreter/releases">历史版本</a> ·
+  <a href="https://github.com/Crhis-CP/meeting-interpreter/blob/main/docs/privacy.md">隐私</a>
+  <div style="margin-top:8px">会议同传助手 · 免费开源（MIT）</div>
+</footer>
+
 <script>
 (async () => {
   const RELEASES = 'https://github.com/Crhis-CP/meeting-interpreter/releases/latest';
@@ -105,12 +187,12 @@
     primary.querySelector('small').textContent = small;
     primary.href = href;
   };
-  if (isAndroid) set('下载安卓版', '下载后点“安装”，如有提示请允许安装', url('android'));
+  if (isAndroid) set('下载安卓版', '下载后点“安装”', url('android'));
   else if (isPhone) {
     document.getElementById('phone').hidden = false;
-    set('苹果手机怎么用', '扫码就能用，见下方说明', '#phone');
-  } else if (isWin) set('下载 Windows 版', '适用于 Windows 10 / 11', url('windows-x64-setup.exe'));
-  else if (isMac) set('下载 Mac 版', appleSilicon ? 'Apple 芯片（M1–M4）· Intel 芯片请看下方' : 'Intel 芯片 · Apple 芯片请看下方', url(appleSilicon ? 'mac-arm64.dmg' : 'mac-x64.dmg'));
+    set('苹果手机怎么用', '扫码就能用，不用下载', '#download');
+  } else if (isWin) set('下载 Windows 版', 'Windows 10 / 11', url('windows-x64-setup.exe'));
+  else if (isMac) set('下载 Mac 版', appleSilicon ? 'Apple 芯片（M1–M4）· Intel 芯片见下方' : 'Intel 芯片 · Apple 芯片见下方', url(appleSilicon ? 'mac-arm64.dmg' : 'mac-x64.dmg'));
   else set('下载 Linux 版', 'AppImage', url('linux-x86_64.AppImage'));
 })();
 </script>

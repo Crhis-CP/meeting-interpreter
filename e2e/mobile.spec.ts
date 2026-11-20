@@ -38,6 +38,7 @@ test('phone app: hands-free conversation translates what is said and speaks it',
   await expect(page.locator('.turn.me .main').first()).toHaveText('Hola a todos, bienvenidos a la reunión de hoy.', { timeout: 30_000 });
   await expect(page.locator('.turn.me .src').first()).toHaveText('大家好，欢迎参加今天的会议。');
   await expect.poll(() => page.evaluate(() => document.body.dataset.state), { timeout: 15_000 }).toBe('speaking');
+  await page.evaluate(() => document.querySelector('.banner')?.remove()); // the browser-only notice, not part of the app
   await page.screenshot({ path: 'test-results/mobile-talking.png' });
   await page.getByRole('button', { name: '暂停' }).click();
   await expect(page.getByRole('button', { name: '开始' })).toBeVisible();
