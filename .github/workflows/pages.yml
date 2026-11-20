@@ -5,7 +5,7 @@ name: Website
 on:
   push:
     branches: [main]
-    paths: ['site/**', '.github/workflows/pages.yml']
+    paths: ['site/**', 'mobile/**', 'src/core/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -20,6 +20,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Phone app demo at /app/
+        run: mkdir -p android/app/src/main/assets && node scripts/build-mobile.mjs && cp -r out/mobile site/app
       - name: Push site/ to gh-pages
         run: |
           cd site

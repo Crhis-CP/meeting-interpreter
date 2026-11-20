@@ -16,7 +16,7 @@ import { DASHSCOPE_VOICES } from '@core/providers/dashscope/tts';
 import { LLM_PRESETS } from '@core/providers/openai-compatible';
 import { createProviders } from '@core/providers/registry';
 import type { TranscriptSegment } from '@core/types';
-import { createMobileContext, keepAwake, openExternal } from './native';
+import { createMobileContext, keepAwake, native, openExternal } from './native';
 import { createClonedVoice, deleteClonedVoice, waitForVoice } from '@core/providers/dashscope/voice-clone';
 import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../src/browser/voice-sample';
 
@@ -45,6 +45,9 @@ const load = <T>(k: string, d: T): T => {
   }
 };
 let settings: MobileSettings = load('mi-settings', DEFAULTS);
+/** Opened in a plain browser (the website), not in the Android app: only the demo can run. */
+const webOnly = !native();
+if (webOnly) settings.provider = 'demo';
 let secrets: Secrets = load<Secrets>('mi-secrets', {});
 const save = () => {
   localStorage.setItem('mi-settings', JSON.stringify(settings));
@@ -303,6 +306,7 @@ function render() {
   };
   list = h('div', { class: 'list' });
   const turns = [...segs.values()].sort((a, b) => a.start - b.start);
+  if (webOnly) list.append(h('div', { class: 'banner' }, '网页版只能演示：说什么都会出现固定的示范句子。真实翻译请用安卓 App，或在电脑上开“现场房间”扫码。'));
   if (!turns.length) list.append(h('div', { class: 'empty' }, h('div', { class: 'hello' }, '你好 · ', isEn() ? 'Hello' : 'Hola'), h('div', {}, '把手机放在你们中间，直接说话。'), h('div', {}, '中文会翻成', isEn() ? '英语' : '西班牙语', '，对方的话会翻成中文。')));
   for (const s of turns) list.append(bubble(s));
   partialEl = h('div', { class: 'partial' });
@@ -450,7 +454,7 @@ function openSettings(hint?: string) {
     ),
     myVoiceGroup(close),
     h('div', { class: 'group' },
-      row('演示模式', h('input', { type: 'checkbox', class: 'switch', checked: settings.provider === 'demo', onchange: (e: Event) => (settings.provider = (e.target as HTMLInputElement).checked ? 'demo' : 'dashscope') }), '不用 Key，只看效果'),
+      row('演示模式', h('input', { type: 'checkbox', class: 'switch', checked: settings.provider === 'demo', disabled: webOnly, onchange: (e: Event) => (settings.provider = (e.target as HTMLInputElement).checked ? 'demo' : 'dashscope') }), '不用 Key，只看效果'),
     ),
     h('p', { class: 'foot' }, '多人现场开会：在电脑上打开“现场房间”，大家用手机扫码加入。', h('br'), '免费开源 · Key 只保存在这部手机上'),
     ].filter(Boolean) as Node[]),

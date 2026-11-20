@@ -70,3 +70,5 @@ body[data-state='listening'] .mic .ring { border-color: #ff3b30; }
 .switch:checked { background: #34c759; }
 .switch:checked::after { left: 22px; }
 .foot { color: var(--muted); font-size: 13px; text-align: center; line-height: 1.7; }
+.banner { background: #fff3cd; color: #8a5a00; border-radius: 12px; padding: 10px 14px; font-size: 14px; line-height: 1.5; }
+@media (prefers-color-scheme: dark) { .banner { background: #3a2f12; color: #ffd27a; } }
