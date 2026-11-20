@@ -324,7 +324,8 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
         </div>
         <div ref={listRef} className="segments" style={{ maxHeight: 460, overflow: 'auto', paddingRight: 4 }}>
           {segs.length === 0 && <div className="empty">{active ? '开始说话吧，双语记录会出现在这里。' : '开始同传后，双语逐句记录会出现在这里。'}</div>}
-          {segs.map((s) => (
+          {/* The live view keeps the latest 200 sentences; the full record is in 会议记录. */}
+          {segs.slice(-200).map((s) => (
             <SegmentView key={s.id} seg={s} />
           ))}
         </div>

@@ -176,7 +176,7 @@ describe('DirectionPipeline', () => {
   it('uses the backlog to raise the speech rate', async () => {
     const { p, asr, tts, ends } = make();
     await p.start();
-    p.setBacklog(15);
+    p.setBacklog(12); // the most that is still spoken (more is skipped)
     asr.last.final('快一点。');
     await waitFor(() => ends.length === 1);
     expect(tts.calls[0]!.rate).toBe(1.35);
@@ -268,6 +268,38 @@ describe('the personal voice profile in the pipeline', () => {
     expect(done.srcText).toBe('我们下周把合同发给你们。');
     expect(done.edits).toEqual([{ from: '河同', to: '合同' }]);
     expect(translator.requests[0]!.text).toBe('我们下周把合同发给你们。');
+    await p.stop();
+  });
+});
+
+describe('speech never falls far behind', () => {
+  it('skips speaking a sentence that would start too late (its subtitle stays)', async () => {
+    let now = 10;
+    const { p, asr, translator, tts, segments } = make({ clock: () => now, maxSpeechLagS: 8 });
+    translator.delays['第一句。'] = 50;
+    await p.start();
+    asr.last.final('第一句。');
+    now = 25; // the translation arrives long after the sentence ended
+    await waitFor(() => segments.some((s) => s.srcText === '第一句。' && s.status !== 'translating'));
+    await waitFor(() => segments.some((s) => s.srcText === '第一句。' && s.status === 'skipped'));
+    expect(tts.calls).toHaveLength(0);
+    expect(segments.filter((s) => s.srcText === '第一句。').pop()!.dstText).toBeTruthy();
+    now = 30;
+    asr.last.final('第二句。');
+    await waitFor(() => tts.calls.length === 1);
+    await p.stop();
+  });
+
+  it('also skips when too much speech is already waiting to be played', async () => {
+    const { p, asr, tts, segments } = make({ maxBacklogS: 10 });
+    await p.start();
+    p.setBacklog(14);
+    asr.last.final('积压的一句。');
+    await waitFor(() => segments.some((s) => s.status === 'skipped'));
+    expect(tts.calls).toHaveLength(0);
+    p.setBacklog(0);
+    asr.last.final('正常的一句。');
+    await waitFor(() => tts.calls.length === 1);
     await p.stop();
   });
 });

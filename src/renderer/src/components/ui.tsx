@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import type { TranscriptSegment } from '@core/types';
 
 export function Toggle(props: { checked: boolean; onChange: (v: boolean) => void; label?: ReactNode; disabled?: boolean }) {
@@ -51,7 +51,8 @@ export function speakerName(seg: TranscriptSegment): string {
   return seg.speaker;
 }
 
-export function SegmentView({ seg, onClick }: { seg: TranscriptSegment; onClick?: () => void }) {
+/** One sentence (memoised: the meeting page re-renders often for levels and partial text). */
+export const SegmentView = memo(function SegmentView({ seg, onClick }: { seg: TranscriptSegment; onClick?: () => void }) {
   const mine = seg.speaker === 'me' || seg.srcLang.startsWith('zh');
   const name = speakerName(seg);
   return (
@@ -60,7 +61,7 @@ export function SegmentView({ seg, onClick }: { seg: TranscriptSegment; onClick?
       <div className="bubble">
         <div className="src">{seg.srcText}</div>
         <div className={seg.draft ? 'dst draft' : 'dst'}>
-          {seg.status === 'translating' && <span className="muted">翻译中…</span>}
+          {seg.status === 'translating' && (seg.draft && seg.dstText ? seg.dstText : <span className="muted">翻译中…</span>)}
           {seg.status === 'failed' && <span>翻译失败{seg.error ? `：${seg.error}` : ''}</span>}
           {(seg.status === 'done' || seg.status === 'skipped') && seg.dstText}
         </div>
@@ -72,7 +73,7 @@ export function SegmentView({ seg, onClick }: { seg: TranscriptSegment; onClick?
       </div>
     </div>
   );
-}
+});
 
 export function Field(props: { label: ReactNode; children: ReactNode; hint?: ReactNode }) {
   return (

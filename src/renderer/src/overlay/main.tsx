@@ -66,8 +66,8 @@ function Overlay() {
         return (
           <div key={s.id} style={{ lineHeight: 1.35 }}>
             {o.showOriginal && <div style={{ fontSize: Math.round(o.fontSize * 0.62), opacity: 0.7 }}>{remote ? '🗣 ' : '🎙 '}{s.srcText}</div>}
-            <div style={{ fontSize: o.fontSize, fontWeight: 600, color: remote ? '#fff' : '#9ec5ff' }}>
-              {s.status === 'translating' ? '…' : s.status === 'failed' ? '（翻译失败）' : s.dstText}
+            <div style={{ fontSize: o.fontSize, fontWeight: 600, color: remote ? '#fff' : '#9ec5ff', ...(s.draft ? { opacity: 0.6, fontStyle: 'italic' } : {}) }}>
+              {s.status === 'translating' ? (s.draft && s.dstText ? s.dstText : '…') : s.status === 'failed' ? '（翻译失败）' : s.dstText}
             </div>
           </div>
         );

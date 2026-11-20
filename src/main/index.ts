@@ -33,6 +33,7 @@ import { SystemTts } from './providers/system-tts';
 import { RoomHost } from './room/room-host';
 import { AudioWindowMt } from './offline-mt';
 import { OfflineTranslator } from '../core/providers/offline-translator';
+import { hyMtPrompt } from '../core/providers/local-ai-translator';
 import manifest from '../browser/offline-mt/manifest.json';
 
 const OFFLINE_MT_TOTAL = manifest.files.reduce((n, f) => n + f.size, 0);
@@ -298,6 +299,7 @@ const handlers: Record<string, Handler> = {
       broadcast('toast', { level: 'info', message: '正在后台下载本机 AI 翻译模型（约 1.1 GB）：这场先用离线翻译，下载好以后会更准。' });
     }
     const state = await sessionManager.start(opts ?? {});
+    warmUpTranslation();
     updateTray();
     if (settings.get().ui.overlay.enabled && opts?.mode !== 'room') showOverlay();
     return state;
@@ -597,6 +599,14 @@ async function editSegment(id: string, segId: string, srcText: string): Promise<
   }
   if (learned.length) profileStore.update((p) => addCorrections(p, learned, base, 'edit'));
   return { segment, learned };
+}
+
+/** Loads the translation models in the background as a meeting starts, so the first sentence is not slow. */
+function warmUpTranslation(): void {
+  const s = settings.get();
+  const mts = [s.out.mt, s.in.mt];
+  if (mts.includes('offline') || mts.includes('local-ai')) void offlineMt.translate('你好', 'zh', 'es').catch(() => undefined);
+  if (mts.includes('local-ai')) void localAi()?.complete(hyMtPrompt('你好', 'zh', 'es', [])).catch(() => undefined);
 }
 
 function profileView(): ProfileView {

@@ -50,6 +50,15 @@ export interface PipelineOptions {
   /** Whether translated speech should be synthesised right now (can change mid-meeting). */
   speak?: () => boolean;
   maxRate?: number;
+  /**
+   * Speech that would start more than this many seconds after the sentence ended is not spoken
+   * (the subtitle stays), so the other side never falls far behind. Default 10.
+   */
+  maxSpeechLagS?: number;
+  /** Likewise when more than this many seconds of speech are already waiting to play. Default 12. */
+  maxBacklogS?: number;
+  /** Seconds of speech waiting to play, asked from the player each time (instead of `setBacklog`). */
+  backlog?: () => number;
   log?: Logger;
   /** Backoff for reconnects in ms (tests shorten it). */
   reconnectDelays?: number[];
@@ -343,7 +352,7 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         // With a draft to fall back on, do not wait long for a slow service.
-        const timeout = this.o.draft ? Math.min(this.o.translateTimeoutMs ?? 20000, 8000) : (this.o.translateTimeoutMs ?? 20000);
+        const timeout = this.o.draft ? Math.min(this.o.translateTimeoutMs ?? 20000, 8000) : (this.o.translateTimeoutMs ?? 12000);
         const raw = await this.withTimeout(timeout, (signal) => this.o.translator.translate({ ...req, signal }));
         const out = cleanTranslation(raw);
         if (!isValidTranslation(out, this.o.dstLang, job.seg.srcText)) {
@@ -379,7 +388,16 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
       const text = await job.translation;
       if (!text || job.skipped || !this.o.tts || this.stopping) return;
       if (this.o.speak && !this.o.speak()) return;
-      const rate = rateForBacklog(this.backlog, this.o.maxRate ?? 1.35);
+      const lag = this.o.clock() - job.seg.end;
+      const backlog = Math.max(0, this.o.backlog?.() ?? this.backlog);
+      if (lag > (this.o.maxSpeechLagS ?? 10) || backlog > (this.o.maxBacklogS ?? 12)) {
+        this.log.info(`not speaking a late sentence (${lag.toFixed(1)} s after it ended, ${backlog.toFixed(1)} s queued)`);
+        job.skipped = true;
+        job.seg = { ...job.seg, status: 'skipped' };
+        this.emit('segment', job.seg);
+        return;
+      }
+      const rate = rateForBacklog(backlog, this.o.maxRate ?? 1.35);
       const ac = this.linkedAbort();
       const timer = setTimeout(() => ac.abort(), this.o.ttsTimeoutMs ?? 30000);
       try {

@@ -154,6 +154,7 @@ async function start() {
         asr: shared.view(side),
         translator: providers.mt(side === 'zh' ? 'out' : 'in'),
         draft,
+        backlog: () => (engine ? Math.max(0, engine.playingUntil - engine.ctx.currentTime) : 0),
         tts: providers.tts(side === 'zh' ? 'out' : 'in'),
         voice: (side === 'zh' ? settings.voiceForeign : settings.voiceChinese) || undefined,
         glossary: () => [],
@@ -258,9 +259,6 @@ function play(e: Engine, samples: Int16Array, rate: number) {
       renderStatus();
     }
   };
-  const backlog = Math.max(0, e.playingUntil - e.ctx.currentTime);
-  e.out.setBacklog(backlog);
-  e.inn.setBacklog(backlog);
 }
 
 function setHeld(on: boolean) {

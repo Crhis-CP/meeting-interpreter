@@ -168,6 +168,8 @@ async function start(msg: Extract<ToOffscreen, { type: 'start' }>) {
       const cfg = dir === 'out' ? settings.out : settings.in;
       const p = new DirectionPipeline({
         dir,
+        // What is still waiting to play, asked each time (it counts down while it plays).
+        backlog: () => (!session ? 0 : dir === 'out' ? Math.max(0, (session.outPlayedUntil - Date.now()) / 1000) : Math.max(0, session.inNext - session.ctx.currentTime)),
         speaker: dir === 'out' ? 'me' : 'them',
         idPrefix: dir,
         srcLang: src,
@@ -226,7 +228,6 @@ function onSegment(s: Session, seg: TranscriptSegment) {
 function sendOutAudio(s: Session, samples: Int16Array, rate: number) {
   const n = Date.now();
   s.outPlayedUntil = Math.max(s.outPlayedUntil, n) + (samples.length / rate) * 1000;
-  s.pipelines.out?.setBacklog((s.outPlayedUntil - n) / 1000);
   // ~0.5 s per message keeps messages small.
   const step = Math.max(1, Math.floor(rate / 2));
   for (let i = 0; i < samples.length; i += step) {
@@ -246,7 +247,6 @@ function playIn(s: Session, samples: Int16Array, rate: number) {
   const at = Math.max(s.ctx.currentTime + 0.02, s.inNext);
   src.start(at);
   s.inNext = at + buf.duration;
-  s.pipelines.in?.setBacklog(Math.max(0, s.inNext - s.ctx.currentTime));
   s.inPlaying.add(src);
   if (s.tab) s.tab.original.gain.setTargetAtTime(0.25 * originalVolume(s), at, 0.05);
   src.onended = () => {

@@ -50,9 +50,14 @@ export interface RoomLimits {
   badJoins: number;
   /** Audio a phone may send, bytes per second (16 kHz 16-bit speech is 32 000). */
   audioBytesPerSecond: number;
+  /**
+   * A participant who has not talked for this long gives back their pipeline (a local recogniser
+   * holds a few hundred MB); it is created again when they talk.
+   */
+  idlePipelineMs: number;
 }
 
-const DEFAULT_LIMITS: RoomLimits = { participants: 30, talkers: 3, pending: 20, badJoins: 10, audioBytesPerSecond: 48_000 };
+const DEFAULT_LIMITS: RoomLimits = { participants: 30, talkers: 3, pending: 20, badJoins: 10, audioBytesPerSecond: 48_000, idlePipelineMs: 60_000 };
 
 interface Participant {
   id: string;
@@ -62,6 +67,8 @@ interface Participant {
   lang: string;
   talking: boolean;
   pipeline: DirectionPipeline | null;
+  /** Releases the pipeline (and its recogniser) after a quiet minute. */
+  idleTimer?: ReturnType<typeof setTimeout>;
 }
 
 const MIME: Record<string, string> = {
@@ -420,6 +427,16 @@ export class RoomHost {
           return;
         }
         me.talking = msg.on === true;
+        if (me.idleTimer) clearTimeout(me.idleTimer);
+        if (!me.talking && me.pipeline) {
+          const p = me;
+          p.idleTimer = setTimeout(() => {
+            if (p.talking || !p.pipeline) return;
+            const old = p.pipeline;
+            p.pipeline = null;
+            void old.stop(4000);
+          }, this.limits.idlePipelineMs);
+        }
         if (me.talking && !me.pipeline) {
           try {
             me.pipeline = this.makePipeline(me);
@@ -439,6 +456,7 @@ export class RoomHost {
       settle();
       if (!me) return;
       const p = me;
+      if (p.idleTimer) clearTimeout(p.idleTimer);
       this.participants.delete(p.id);
       void p.pipeline?.stop(4000);
       this.send('*', { t: 'peers', peers: this.peers() });

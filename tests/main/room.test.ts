@@ -212,3 +212,31 @@ describe('room limits', () => {
     await session.stop();
   });
 });
+
+describe('room resources', () => {
+  it('gives back a quiet participant’s pipeline and makes a new one when they talk again', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mi-room-idle-'));
+    const staticDir = mkdtempSync(join(tmpdir(), 'mi-static-'));
+    writeFileSync(join(staticDir, 'room.html'), 'ok');
+    const settings = applyPreset(defaultSettings(), 'demo');
+    settings.room.port = 0;
+    const providers = { asr: () => new MockAsr('self'), mt: () => new MockTranslator(), tts: () => new MockTts(), llm: () => null, describe: () => ({}) } as ProviderSet;
+    const log = createLogger('test');
+    const session = new SessionManager({ settings: () => settings, glossary: () => [], providers: () => providers, recordsDir: () => dir, toAudio: () => {}, broadcast: () => {}, log });
+    const room = new RoomHost({ settings: () => settings, session, providers: () => providers as never, glossary: () => [], toAudio: () => {}, broadcast: () => {}, log, dataDir: dir, staticDir: () => staticDir, devUrl: () => undefined, insecure: true, limits: { idlePipelineMs: 50 } });
+    const st = await room.start();
+    const url = new URL(st.urls[0]!);
+    const c = new Client(`ws://127.0.0.1:${url.port}/ws`);
+    await c.opened();
+    c.send({ t: 'join', name: 'a', lang: 'zh-CN', token: url.searchParams.get('t'), v: ROOM_PROTOCOL_VERSION });
+    await waitFor(() => c.msgs.some((m) => m.t === 'welcome'));
+    const me = () => [...((room as any).participants as Map<string, { pipeline: unknown }>).values()][0]!;
+    c.send({ t: 'talk', on: true });
+    await waitFor(() => !!me().pipeline);
+    c.send({ t: 'talk', on: false });
+    await waitFor(() => me().pipeline === null);
+    c.send({ t: 'talk', on: true });
+    await waitFor(() => !!me().pipeline);
+    await room.stop();
+  });
+});
