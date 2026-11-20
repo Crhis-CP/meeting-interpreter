@@ -60,5 +60,8 @@
     "vite": "^8.3.8",
     "vitest": "^5.1.1"
   },
-  "desktopName": "meeting-interpreter.desktop"
+  "desktopName": "meeting-interpreter.desktop",
+  "overrides": {
+    "minimatch@>=9.0.0 <11.0.1": "^11.0.9"
+  }
 }

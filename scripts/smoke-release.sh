@@ -22,6 +22,10 @@ MI_EXTENSION_DIR="$DIR/ext" npx playwright test e2e/extension.spec.ts --trace of
 echo "== desktop app (AppImage) $VER"
 chmod +x "$DIR"/*.AppImage
 (cd "$DIR" && ./*.AppImage --appimage-extract >/dev/null)
+# Released builds refuse debugger arguments (Electron fuse); Playwright drives the app through
+# one, so allow it on this extracted test copy only. Every other fuse stays as shipped.
+npx @electron/fuses read --app "$DIR/squashfs-root/meeting-interpreter"
+npx @electron/fuses write --app "$DIR/squashfs-root/meeting-interpreter" EnableNodeCliInspectArguments=on >/dev/null
 MI_APP_EXECUTABLE="$DIR/squashfs-root/meeting-interpreter" npx playwright test e2e/app.spec.ts e2e/room.spec.ts --trace off
 
 echo "== android $VER"

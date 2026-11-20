@@ -1,8 +1,9 @@
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, protocol, safeStorage, session, shell, systemPreferences, Tray, utilityProcess } from 'electron';
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { release } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import type { PresetId } from '../core/config/presets';
 import type { AppSettings, SecretName } from '../core/config/schema';
 import { glossaryToCsv, parseGlossaryCsv } from '../core/glossary/csv';
@@ -38,13 +39,19 @@ import { SettingsStore } from './stores/settings-store';
 import { createAudioWindow, createMainWindow, createOverlayWindow } from './windows';
 import { checkForUpdate } from './update-check';
 import { TRAY_IDLE, TRAY_LIVE, TRAY_TEMPLATE } from './assets/tray-icons';
+import { APP_SCHEME, appFilePath, contentTypeOf, isAppUrl } from './app-protocol';
 
 // Chromium mixes audio of *other* windows back into "exclude own audio" loopback captures unless
 // this is disabled; we never want our own speech in the meeting capture.
 app.commandLine.appendSwitch('disable-features', 'RestrictOwnAudioAddChromiumBack');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
-protocol.registerSchemesAsPrivileged([{ scheme: 'mi-media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } }]);
+protocol.registerSchemesAsPrivileged([
+  // The app's own pages (instead of file://, whose extra privileges are switched off in packaged builds).
+  { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, codeCache: true } },
+  { scheme: 'mi-media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } },
+]);
+const rendererDir = join(__dirname, '../renderer');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -450,8 +457,16 @@ async function requireLocalModels(mode: 'meeting' | 'room'): Promise<void> {
   throw new Error(`正在下载本机离线识别模型（约 ${mb} MB），下载完成后即可开始${mode === 'room' ? '房间' : '同传'}。可在 设置 › 翻译服务 查看进度，或改用其他方案。`);
 }
 
-ipcMain.handle(IPC.invoke, async (_e, method: string, ...args: unknown[]) => {
-  const h = handlers[method];
+/** IPC is answered only for our own pages (mi-app://, or the dev server while developing). */
+function fromOurPage(e: { senderFrame?: { url: string } | null }): boolean {
+  const url = e.senderFrame?.url ?? '';
+  const dev = process.env['ELECTRON_RENDERER_URL'];
+  return isAppUrl(url) || (!!dev && url.startsWith(`${dev}/`));
+}
+
+ipcMain.handle(IPC.invoke, async (e, method: string, ...args: unknown[]) => {
+  if (!fromOurPage(e)) throw new Error('not allowed');
+  const h = typeof method === 'string' && Object.hasOwn(handlers, method) ? handlers[method as keyof typeof handlers] : undefined;
   if (!h) throw new Error(`unknown method ${method}`);
   try {
     return await (h as (...a: unknown[]) => unknown)(...args);
@@ -463,12 +478,12 @@ ipcMain.handle(IPC.invoke, async (_e, method: string, ...args: unknown[]) => {
 
 /** Bundled engine files and translation-model downloads for the audio window (no CORS here). */
 const MT_HOSTS = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'storage.googleapis.com']);
-ipcMain.handle('mi:fetch-bytes', async (_e, url: string) => {
+ipcMain.handle('mi:fetch-bytes', async (e, url: string) => {
+  if (!fromOurPage(e)) throw new Error('not allowed');
   const u = new URL(url);
-  if (u.protocol === 'file:') {
-    const path = fileURLToPath(u);
-    const root = join(__dirname, '../renderer');
-    if (!path.startsWith(root)) throw new Error('not allowed');
+  if (isAppUrl(url)) {
+    const path = appFilePath(rendererDir, url);
+    if (!path) throw new Error('not allowed');
     const b = readFileSync(path);
     return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
   }
@@ -481,7 +496,8 @@ ipcMain.handle('mi:fetch-bytes', async (_e, url: string) => {
   return res.arrayBuffer();
 });
 
-ipcMain.on(IPC.fromAudio, (_e, msg: FromAudio) => {
+ipcMain.on(IPC.fromAudio, (e, msg: FromAudio) => {
+  if (!fromOurPage(e)) return;
   if (msg.type === 'mtReply' || msg.type === 'mtProgress') return offlineMt.handle(msg);
   sessionManager.handleAudio(msg);
   room.handleAudio(msg);
@@ -604,6 +620,15 @@ app.on('second-instance', () => showMain());
 
 app.whenReady().then(() => {
   buildAppMenu();
+  protocol.handle(APP_SCHEME, async (req) => {
+    const file = appFilePath(rendererDir, req.url);
+    if (!file) return new Response('Not found', { status: 404 });
+    try {
+      return new Response(await readFile(file), { headers: { 'Content-Type': contentTypeOf(file), 'X-Content-Type-Options': 'nosniff' } });
+    } catch {
+      return new Response('Not found', { status: 404 });
+    }
+  });
   protocol.handle('mi-media', (req) => {
     // mi-media://file/<meeting id>/<relative path>
     const url = new URL(req.url);

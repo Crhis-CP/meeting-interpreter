@@ -1,12 +1,13 @@
 import { BrowserWindow, screen, shell } from 'electron';
 import { join } from 'node:path';
+import { appPageUrl, isAppUrl, type AppPage } from './app-protocol';
 
 const preload = (name: string) => join(__dirname, '../preload', `${name}.js`);
 
-function load(win: BrowserWindow, page: 'index' | 'overlay' | 'audio' | 'room'): void {
+function load(win: BrowserWindow, page: AppPage): void {
   const dev = process.env['ELECTRON_RENDERER_URL'];
-  if (dev) void win.loadURL(`${dev}/${page}.html`);
-  else void win.loadFile(join(__dirname, '../renderer', `${page}.html`));
+  // Packaged / built app: our own mi-app:// scheme (see app-protocol.ts), never file://.
+  void win.loadURL(dev ? `${dev}/${page}.html` : appPageUrl(page));
 }
 
 function harden(win: BrowserWindow): void {
@@ -17,7 +18,7 @@ function harden(win: BrowserWindow): void {
   });
   win.webContents.on('will-navigate', (e, url) => {
     const dev = process.env['ELECTRON_RENDERER_URL'];
-    if (!(dev && url.startsWith(dev)) && !url.startsWith('file://')) {
+    if (!(dev && url.startsWith(dev)) && !isAppUrl(url)) {
       e.preventDefault();
       if (/^https?:\/\//.test(url)) void shell.openExternal(url);
     }
