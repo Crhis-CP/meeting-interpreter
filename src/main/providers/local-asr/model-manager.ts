@@ -1,4 +1,5 @@
-import { statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createReadStream, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { mkdir, open, rename, rm, type FileHandle } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { abortError, isAbortError } from '@core/events';
@@ -57,6 +58,27 @@ function describe(err: unknown): string {
   return String(err);
 }
 
+/** SHA-256 of a file, streamed (models are hundreds of MB). */
+export function sha256File(path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const h = createHash('sha256');
+    createReadStream(path)
+      .on('data', (c) => h.update(c))
+      .on('error', reject)
+      .on('end', () => resolve(h.digest('hex')));
+  });
+}
+
+/** `<file>.sha256` records that a file was checked against the manifest. */
+const markerOf = (path: string) => `${path}.sha256`;
+function marked(path: string, sha256: string): boolean {
+  try {
+    return readFileSync(markerOf(path), 'utf8').trim() === sha256;
+  } catch {
+    return false;
+  }
+}
+
 async function writeAll(fh: FileHandle, data: Uint8Array): Promise<void> {
   let off = 0;
   while (off < data.byteLength) {
@@ -98,9 +120,30 @@ export class ModelManager {
     return join(this.dir, id, file);
   }
 
+  /** Whole, and (when the manifest has a hash) checked against it. */
+  private fileReady(id: string, f: { name: string; size: number; sha256?: string }): boolean {
+    const path = this.pathOf(id, f.name);
+    return plausible(fileSize(path), f.size) && (!f.sha256 || marked(path, f.sha256));
+  }
+
   status(id: string): ModelStatus {
     const spec = this.spec(id);
-    return spec.files.every((f) => plausible(fileSize(this.pathOf(id, f.name)), f.size)) ? 'ready' : 'missing';
+    return spec.files.every((f) => this.fileReady(id, f)) ? 'ready' : 'missing';
+  }
+
+  /**
+   * Checks files downloaded before hashes were recorded (once; no download): a match is marked as
+   * checked, anything else is deleted so it is downloaded again.
+   */
+  async verifyExisting(ids: readonly string[]): Promise<void> {
+    for (const id of new Set(ids)) {
+      for (const f of this.spec(id).files) {
+        const path = this.pathOf(id, f.name);
+        if (!f.sha256 || this.fileReady(id, f) || !plausible(fileSize(path), f.size)) continue;
+        if ((await sha256File(path)) === f.sha256) writeFileSync(markerOf(path), f.sha256);
+        else await rm(path, { force: true });
+      }
+    }
   }
 
   /** Approximate bytes still to download for these models (for "需要下载约 240 MB"). */
@@ -137,11 +180,15 @@ export class ModelManager {
         const dest = this.pathOf(id, f.name);
         for (;;) {
           if (signal?.aborted) throw abortError();
-          if (plausible(fileSize(dest), f.size)) break;
+          if (this.fileReady(id, f)) break;
+          if (f.sha256 && plausible(fileSize(dest), f.size)) {
+            await this.verifyExisting([id]);
+            if (this.fileReady(id, f)) break;
+          }
           let job = this.inflight.get(dest);
           const mine = !job;
           if (!job) {
-            job = this.download(id, f.name, f.url, f.size, dest, onProgress, signal).finally(() => this.inflight.delete(dest));
+            job = this.download(id, f.name, f.url, f.size, dest, onProgress, signal, f.sha256).finally(() => this.inflight.delete(dest));
             this.inflight.set(dest, job);
           }
           try {
@@ -165,6 +212,7 @@ export class ModelManager {
     dest: string,
     onProgress: ((p: DownloadProgress) => void) | undefined,
     signal: AbortSignal | undefined,
+    sha256?: string,
   ): Promise<void> {
     await mkdir(dirname(dest), { recursive: true });
     const part = `${dest}.part`;
@@ -178,7 +226,12 @@ export class ModelManager {
           await rm(part, { force: true });
           throw new Error(`文件大小不对（${size} 字节，应约为 ${expected} 字节）`);
         }
+        if (sha256 && (await sha256File(part)) !== sha256) {
+          await rm(part, { force: true });
+          throw new Error('文件校验不通过（内容和官方发布的不一致），已丢弃');
+        }
         await rename(part, dest);
+        if (sha256) writeFileSync(markerOf(dest), sha256);
         return;
       } catch (err) {
         if (signal?.aborted) throw abortError();

@@ -638,7 +638,12 @@ async function requireLocalModels(mode: 'meeting' | 'room'): Promise<void> {
   if (s.out.asr === 'local') modelsForLang(s.languages.self, s.local.esModel).forEach((id) => needed.add(id));
   if (s.in.asr === 'local' && mode === 'meeting') modelsForLang(s.languages.remote, s.local.esModel).forEach((id) => needed.add(id));
   if (mode === 'room' && s.in.asr === 'local') modelsForLang(s.languages.remote, s.local.esModel).forEach((id) => needed.add(id));
-  const missing = [...needed].filter((id) => models.status(id) !== 'ready');
+  let missing = [...needed].filter((id) => models.status(id) !== 'ready');
+  // Files from before hashes were recorded only need a one-time check, not a download.
+  if (missing.length && models.missingBytes(missing) === 0) {
+    await models.verifyExisting(missing);
+    missing = missing.filter((id) => models.status(id) !== 'ready');
+  }
   if (!missing.length) return;
   if (!prefetching) void prefetchModels();
   const mb = Math.round(modelsSize(missing) / 1_000_000);

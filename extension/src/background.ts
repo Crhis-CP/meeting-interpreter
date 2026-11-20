@@ -122,6 +122,10 @@ function ruleId(url: string): number {
   return h + 1;
 }
 
+// Keys live in chrome.storage.local: only the extension's own pages may read it, never the
+// content scripts running inside meeting websites (they do not need it).
+void chrome.storage.local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(() => undefined);
+
 /** Messages from the extension's own pages (popup, options, offscreen) — never from a web page's content script. */
 const fromExtensionPage = (sender: chrome.runtime.MessageSender) => sender.id === chrome.runtime.id && (sender.url ?? '').startsWith(`chrome-extension://${chrome.runtime.id}/`);
 

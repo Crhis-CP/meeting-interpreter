@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -8,18 +9,23 @@ import { MODEL_BASE_URLS, MODELS, modelsForLang, modelsSize, type ModelId, type 
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'mi-models-test-'));
 const HF = 'https://huggingface.co';
+const REV: Record<string, string> = Object.fromEntries(Object.values(MODELS).map((m) => [m.repo, m.files[0]!.url.split('/')[3]!]));
+const at = (repo: string, name: string) => `${repo}/resolve/${REV[repo]}/${name}`;
 const MIRROR = 'https://hf-mirror.com';
-
-/** The real manifest (real URL paths) with small sizes so fake downloads stay tiny. */
-const SMALL: Record<ModelId, ModelSpec> = Object.fromEntries(
-  Object.entries(MODELS).map(([id, spec]) => [id, { ...spec, files: spec.files.map((f, i) => ({ ...f, size: 1000 + 100 * i })) }]),
-) as Record<ModelId, ModelSpec>;
 
 function content(size: number, seed = 7): Uint8Array {
   const b = new Uint8Array(size);
   for (let i = 0; i < size; i++) b[i] = (i * 31 + seed) & 0xff;
   return b;
 }
+
+/** The real manifest (real URL paths) with small sizes so fake downloads stay tiny, hashed like the real one. */
+const SMALL: Record<ModelId, ModelSpec> = Object.fromEntries(
+  Object.entries(MODELS).map(([id, spec]) => [
+    id,
+    { ...spec, files: spec.files.map((f, i) => ({ ...f, size: 1000 + 100 * i, sha256: createHash('sha256').update(content(1000 + 100 * i, f.name.length)).digest('hex') })) },
+  ]),
+) as Record<ModelId, ModelSpec>;
 
 /** The body for a URL of the small manifest. */
 function bodyFor(url: string): Uint8Array {
@@ -67,15 +73,16 @@ function fakeFetch(route: (url: string, headers: Record<string, string>) => Resp
 }
 
 describe('model manifest', () => {
-  it('lists Hugging Face then hf-mirror, with repo paths for every file', () => {
+  it('lists Hugging Face then hf-mirror, every file pinned to a commit and a SHA-256', () => {
     expect(MODEL_BASE_URLS).toEqual([HF, MIRROR]);
     for (const spec of Object.values(MODELS)) {
       for (const f of spec.files) {
-        expect(f.url).toBe(`${spec.repo}/resolve/main/${f.name}`);
+        expect(f.url).toMatch(new RegExp(`^${spec.repo}/resolve/[0-9a-f]{40}/${f.name.replace(/\./g, '\\.')}$`));
+        expect(f.sha256).toMatch(/^[0-9a-f]{64}$/);
         expect(f.size).toBeGreaterThan(100_000);
       }
     }
-    expect(MODELS['silero-vad'].files.map((f) => f.url)).toEqual(['csukuangfj/vad/resolve/main/silero_vad.onnx']);
+    expect(MODELS['silero-vad'].files.map((f) => f.url)).toEqual(['csukuangfj/vad/resolve/fba88cd2e921609e7675c3aaf51e0b9b295da4bc/silero_vad.onnx']);
     expect(MODELS.sensevoice.files.map((f) => f.name)).toEqual(['model.int8.onnx', 'tokens.txt']);
     expect(MODELS['whisper-small'].files.map((f) => f.name)).toEqual(['small-encoder.int8.onnx', 'small-decoder.int8.onnx', 'small-tokens.txt']);
     expect(MODELS['whisper-base'].files.map((f) => f.name)).toEqual(['base-encoder.int8.onnx', 'base-decoder.int8.onnx', 'base-tokens.txt']);
@@ -100,9 +107,9 @@ describe('ModelManager', () => {
     await mm.ensureFor('zh', 'whisper-small');
 
     expect(calls.map((c) => c.url)).toEqual([
-      `${HF}/csukuangfj/vad/resolve/main/silero_vad.onnx`,
-      `${HF}/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.int8.onnx`,
-      `${HF}/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt`,
+      `${HF}/${at('csukuangfj/vad', 'silero_vad.onnx')}`,
+      `${HF}/${at('csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17', 'model.int8.onnx')}`,
+      `${HF}/${at('csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17', 'tokens.txt')}`,
     ]);
     const model = mm.pathOf('sensevoice', 'model.int8.onnx');
     expect(model).toBe(join(dir, 'sensevoice', 'model.int8.onnx'));
@@ -141,22 +148,22 @@ describe('ModelManager', () => {
     const { fn, calls } = fakeFetch((url) => (url.startsWith(HF) ? new Response('oops', { status: 500 }) : streamed(bodyFor(url))));
     const mm = new ModelManager(tmp(), fn, { models: SMALL });
     await mm.ensure(['silero-vad']);
-    expect(calls.map((c) => c.url)).toEqual([`${HF}/csukuangfj/vad/resolve/main/silero_vad.onnx`, `${MIRROR}/csukuangfj/vad/resolve/main/silero_vad.onnx`]);
+    expect(calls.map((c) => c.url)).toEqual([`${HF}/${at('csukuangfj/vad', 'silero_vad.onnx')}`, `${MIRROR}/${at('csukuangfj/vad', 'silero_vad.onnx')}`]);
     expect(mm.status('silero-vad')).toBe('ready');
   });
 
-  it('skips files already present with a plausible size and replaces implausible ones', async () => {
+  it('skips files already present (and genuine) and replaces implausible ones', async () => {
     const dir = tmp();
     const { fn, calls } = fakeFetch((url) => streamed(bodyFor(url)));
     const mm = new ModelManager(dir, fn, { models: SMALL });
-    const write = (id: string, name: string, size: number) => {
+    const write = (id: string, name: string, size: number, genuine = true) => {
       const p = mm.pathOf(id, name);
       mkdirSync(dirname(p), { recursive: true });
-      writeFileSync(p, content(size));
+      writeFileSync(p, genuine ? content(size, name.length) : content(size));
     };
-    write('silero-vad', 'silero_vad.onnx', 1010);
+    write('silero-vad', 'silero_vad.onnx', 1000);
     write('sensevoice', 'model.int8.onnx', 1000);
-    write('sensevoice', 'tokens.txt', 20); // e.g. an error page saved under the final name
+    write('sensevoice', 'tokens.txt', 20, false); // e.g. an error page saved under the final name
     await mm.ensure(['silero-vad', 'sensevoice']);
     expect(calls.map((c) => c.url.split('/').pop())).toEqual(['tokens.txt']);
     expect(readFileSync(mm.pathOf('sensevoice', 'tokens.txt')).length).toBe(1100);
@@ -257,5 +264,35 @@ describe('ModelManager', () => {
     const mm = new ModelManager(tmp(), fn, { models: SMALL });
     await Promise.all([mm.ensure(['silero-vad']), mm.ensure(['silero-vad'])]);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe('model integrity', () => {
+  it('throws away a download whose content is not the published file, and tries the mirror', async () => {
+    const dir = tmp();
+    const { fn, calls } = fakeFetch((url) => streamed(url.startsWith(HF) ? content(bodyFor(url).length, 99) : bodyFor(url)));
+    const m = new ModelManager(dir, fn, { models: SMALL });
+    await m.ensure(['silero-vad']);
+    expect(calls.map((c) => new URL(c.url).host)).toEqual(['huggingface.co', 'hf-mirror.com']);
+    expect(m.status('silero-vad')).toBe('ready');
+  });
+
+  it('checks files downloaded before hashes existed once, without downloading them again', async () => {
+    const dir = tmp();
+    const f = SMALL['silero-vad'].files[0]!;
+    mkdirSync(join(dir, 'silero-vad'), { recursive: true });
+    writeFileSync(join(dir, 'silero-vad', f.name), content(f.size, f.name.length));
+    const { fn, calls } = fakeFetch((url) => streamed(bodyFor(url)));
+    const m = new ModelManager(dir, fn, { models: SMALL });
+    expect(m.status('silero-vad')).toBe('missing');
+    await m.verifyExisting(['silero-vad']);
+    expect(m.status('silero-vad')).toBe('ready');
+    expect(calls).toHaveLength(0);
+    // A swapped file on disk is not accepted: it is deleted and downloaded again.
+    writeFileSync(join(dir, 'silero-vad', f.name), content(f.size, 1));
+    writeFileSync(join(dir, 'silero-vad', `${f.name}.sha256`), 'x');
+    await m.ensure(['silero-vad']);
+    expect(calls).toHaveLength(1);
+    expect(readFileSync(join(dir, 'silero-vad', f.name))).toEqual(Buffer.from(content(f.size, f.name.length)));
   });
 });
