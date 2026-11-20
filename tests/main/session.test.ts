@@ -128,4 +128,27 @@ describe('SessionManager', () => {
     expect(detail.summary!.todos.length).toBe(1);
     expect(() => new MeetingsStore(() => dir).get('../etc')).toThrow();
   });
+
+  it('switches the Chinese voice off when system loopback would capture it', async () => {
+    const dir = tmp();
+    const settings = applyPreset(defaultSettings(), 'demo');
+    settings.devices.meetingSource = 'loopback';
+    const sent: ToAudio[] = [];
+    const providers: ProviderSet = {
+      asr: (d) => new MockAsr(d === 'out' ? 'self' : 'remote'),
+      mt: () => new MockTranslator(),
+      tts: () => new MockTts(),
+      llm: () => null,
+      describe: () => ({}),
+    };
+    const sm = new SessionManager({ settings: () => settings, glossary: () => [], providers: () => providers, recordsDir: () => dir, toAudio: (m) => sent.push(m), broadcast: () => {}, log: createLogger('test') });
+    await sm.start({});
+    expect(sm.state.in.speak).toBe(true);
+    sm.handleAudio({ type: 'started', loopbackExcludesSelf: false, warnings: [] });
+    expect(sm.state.in.speak).toBe(false);
+    expect(sm.state.warnings.join()).toMatch(/自动关闭/);
+    expect(sent.some((m) => m.type === 'flush' && m.dir === 'in')).toBe(true);
+    await sm.stop();
+  });
 });
+
