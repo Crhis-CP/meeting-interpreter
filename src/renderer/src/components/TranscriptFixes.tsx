@@ -34,9 +34,9 @@ export function EditableSegment({ meetingId, seg, onSaved }: { meetingId: string
           <button className="btn ghost sm" onClick={() => { setEditing(false); setText(seg.srcText); }}>取消</button>
         </div>
       ) : (
-        <button className="btn ghost sm fix-btn" title="识别错了？点这里改正，软件会记住" onClick={() => { setText(seg.srcText); setEditing(true); }}>✎ 改正</button>
+        <button className="btn ghost sm fix-btn" onClick={() => { setText(seg.srcText); setEditing(true); }}>✎ 改正</button>
       )}
-      {note && <div className="muted small" style={{ margin: '0 0 8px 44px' }}>{note}</div>}
+      {note && <div className="muted small" role="status" style={{ margin: '0 0 8px 44px' }}>{note}</div>}
     </div>
   );
 }
@@ -63,23 +63,24 @@ export function ReviewPanel({ d, onChange }: { d: MeetingDetail; onChange: (d: M
   const fixes = d.review?.suggestions.filter((s) => s.decision === 'accepted' || s.decision === 'undone' || !s.decision) ?? [];
   const terms = d.review?.terms ?? [];
   const jump = (segId: string) => document.getElementById(`seg-${segId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (!d.review)
+    return (
+      <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 8 }} data-testid="review-panel">
+        <button className="btn sm" disabled={busy} onClick={() => void run(async () => (await api.meetings.review(d.meta.id), api.meetings.get(d.meta.id)))}>
+          {busy ? '学习中…' : 'AI 自动学习'}
+        </button>
+        {error && <div className="callout err" role="alert">{error}</div>}
+      </div>
+    );
   return (
-    <div className="callout info" style={{ marginBottom: 12 }} data-testid="review-panel">
-      {!d.review ? (
-        <div className="row between">
-          <span>让 AI 读一遍这场会议：自动改正我说的话里听错的词，并学会会议里的人名、产品、行业术语。以后自动用上，学错了可以撤销。</span>
-          <button className="btn sm" disabled={busy} onClick={() => void run(async () => (await api.meetings.review(d.meta.id), api.meetings.get(d.meta.id)))}>
-            {busy ? '学习中…' : 'AI 自动学习'}
-          </button>
-        </div>
-      ) : (
+    <section className="callout info" style={{ marginBottom: 12 }} aria-label="会后自动学习" data-testid="review-panel">
+      {(
         <div className="stack">
           <b>会后自动学习：{fixes.length || terms.length ? `改正 ${fixes.filter((f) => f.decision !== 'undone').length} 处听错的词，学会 ${terms.length} 个新术语` : '没有发现听错的词，也没有新术语'}</b>
           {fixes.map((s) => (
             <div key={`${s.segId}:${s.heard}`} className="row between">
               <span>
                 {s.decision === 'undone' ? <s>“{s.heard}” → “{s.meant}”</s> : <>“{s.heard}” → “<b>{s.meant}</b>”</>}
-                {s.reason ? <span className="muted small">（{s.reason}）</span> : null}
                 <a href={`#seg-${s.segId}`} className="small" style={{ marginLeft: 6 }} onClick={(e) => (e.preventDefault(), jump(s.segId))}>看原句</a>
               </span>
               {s.decision === 'undone' ? (
@@ -96,14 +97,13 @@ export function ReviewPanel({ d, onChange }: { d: MeetingDetail; onChange: (d: M
           ))}
           {terms.map((t) => (
             <div key={t.zh} className="row between">
-              <span>新术语：{t.zh} = <b>{t.foreign}</b></span>
+              <span>{t.zh} = <b>{t.foreign}</b> <span className="badge">新术语</span></span>
               <button className="btn ghost sm" disabled={busy} onClick={() => void run(() => api.meetings.forgetTerm(d.meta.id, t.zh))}>移除</button>
             </div>
           ))}
-          {terms.length > 0 && <span className="muted small">新术语在 术语表 › 自动术语（会后学到的） 里，可以随时修改或删除。</span>}
         </div>
       )}
-      {error && <div className="callout err" style={{ marginTop: 8 }}>{error}</div>}
-    </div>
+      {error && <div className="callout err" role="alert" style={{ marginTop: 8 }}>{error}</div>}
+    </section>
   );
 }

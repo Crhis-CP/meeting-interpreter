@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppSettings } from '@core/config/schema';
 import { lang } from '@core/lang/languages';
+import type { Page } from '../App';
 import type { MeetingState, RoomState } from '@shared/ipc';
 import { api, errMsg, useEvent } from '../api';
 import { Level, SegmentView, StateBadge, Toggle } from '../components/ui';
 import { useLiveSegments } from './Meeting';
 
-export function RoomPage({ settings, state }: { settings: AppSettings; state: MeetingState | null }) {
+export function RoomPage({ settings, state, go }: { settings: AppSettings; state: MeetingState | null; go: (p: Page) => void }) {
   const [room, setRoom] = useState<RoomState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -53,52 +54,38 @@ export function RoomPage({ settings, state }: { settings: AppSettings; state: Me
 
   return (
     <div>
-      <div className="row between" style={{ marginBottom: 16 }}>
-        <div>
-          <h1 className="page-title">现场房间</h1>
-          <p className="page-sub" style={{ margin: 0 }}>
-            面对面开会或出差拜访时用：大家用手机扫码加入，各自选“中文”或“{remote.nameNative}”，戴上耳机，就能听到对方说话的同声传译。手机不用装任何 App。
-          </p>
-        </div>
+      <header className="row between" style={{ marginBottom: 16 }}>
+        <h1 className="page-title">现场房间</h1>
         {room?.active ? (
           <button className="btn danger big" onClick={stop} disabled={busy}>
             关闭房间
           </button>
+        ) : meetingActive ? (
+          <button className="btn big" onClick={() => go('meeting')}>
+            去会议同传
+          </button>
         ) : (
-          <button className="btn primary big" onClick={start} disabled={busy || meetingActive}>
+          <button className="btn primary big" onClick={start} disabled={busy}>
             {busy ? '正在开启…' : '开启房间'}
           </button>
         )}
-      </div>
-      {meetingActive && <div className="callout info" style={{ marginBottom: 16 }}>会议同传正在进行中，请先结束后再开房间。</div>}
-      {error && <div className="callout err" style={{ marginBottom: 16 }}>{error}</div>}
+      </header>
+      {error && <div className="callout err" role="alert" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {!room?.active && (
-        <div className="card">
-          <h3>怎么用</h3>
-          <ol className="steps">
-            <li>电脑和大家的手机连同一个 Wi-Fi（或用手机热点）。如果有人不在现场（例如在视频会议里），打开“公网链接”。</li>
-            <li>点“开启房间”，屏幕上会出现二维码。</li>
-            <li>每个人用手机相机扫码，在网页里填名字、选语言，戴上耳机。</li>
-            <li>说话时按住手机上的大按钮（或切到“持续说话”），其他语言的人就会在耳机里听到翻译，同时看到双语字幕。</li>
-            <li>电脑这边也可以直接说话（用电脑麦克风，算“主持人”），说中文时外语（西语/英语）手机会听到译音，外语的发言也会在电脑上播放中文译音。</li>
-            <li>关闭房间后，双语记录、纪要和录音和普通会议一样保存在“会议记录”里。</li>
-          </ol>
-          <div className="callout info" style={{ marginBottom: 10 }}>
-            第一次开启房间时，系统可能询问是否允许本应用“接受传入的网络连接”，请选择允许（Windows 勾选“专用网络”）。酒店、公司访客 Wi-Fi 常常禁止设备互连，手机扫码打不开时，改用手机热点或“公网链接”。
-          </div>
-          <div className="callout">
-            手机第一次打开局域网链接时会提示“连接不安全/证书无效”：这是因为房间运行在你自己的电脑上。iPhone 点“显示详细信息 → 访问此网站”；安卓 Chrome 点“高级 → 继续前往”。使用“公网链接”不会有这个提示。
-          </div>
+      {room && !room.active && !meetingActive && (
+        <div className="card qr-placeholder" aria-hidden="true">
+          <span className="qr-box">▦</span>
+          <span>手机扫码加入</span>
         </div>
       )}
 
       {room?.active && (
         <div className="grid2">
           <div className="card" style={{ textAlign: 'center' }}>
-            <h3>扫码加入 · Escanea para unirte</h3>
-            {shown && room.qr[shown] && <img className="qr" src={room.qr[shown]} style={{ width: 240, height: 240 }} />}
+            <h3>扫码加入 · {remote.base === 'en' ? 'Scan to join' : 'Escanea para unirte'}</h3>
+            {shown && room.qr[shown] && <img className="qr" src={room.qr[shown]} alt={`加入房间的二维码：${shown}`} style={{ width: 240, height: 240 }} />}
             <div className="url" style={{ marginTop: 10 }}>{shown}</div>
+            {shown && shown !== room.publicUrl && <p className="muted small">手机提示“连接不安全”时，点“继续访问”</p>}
             {urls.length > 1 && (
               <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}>
                 {urls.map((u) => (
@@ -109,14 +96,10 @@ export function RoomPage({ settings, state }: { settings: AppSettings; state: Me
               </div>
             )}
             <div className="row" style={{ justifyContent: 'center', marginTop: 14 }}>
-              <Toggle
-                checked={room.publicStatus === 'on' || room.publicStatus === 'starting'}
-                onChange={(v) => void api.room.setPublic(v).then(setRoom)}
-                label="公网链接（让不在同一 Wi-Fi 的人也能加入）"
-              />
+              <Toggle checked={room.publicStatus === 'on' || room.publicStatus === 'starting'} onChange={(v) => void api.room.setPublic(v).then(setRoom)} label="公网链接" />
             </div>
-            {room.publicStatus === 'starting' && <p className="muted small">正在创建公网链接（首次需要下载约 30MB 的 cloudflared）…</p>}
-            {room.publicStatus === 'error' && <div className="callout err">{room.publicError}</div>}
+            {room.publicStatus === 'starting' && <p className="muted small" role="status">正在创建…</p>}
+            {room.publicStatus === 'error' && <div className="callout err" role="alert">{room.publicError}</div>}
           </div>
           <div className="card">
             <h3>参会者（{(room.participants.length ?? 0) + 1}）</h3>
@@ -125,7 +108,7 @@ export function RoomPage({ settings, state }: { settings: AppSettings; state: Me
                 <span>🖥️ 主持人（本机）</span>
                 <span className="badge">{lang(settings.languages.self).nameNative}</span>
                 {state && <StateBadge state={state.out.state} message={state.out.message} />}
-                <Level db={levels.mic} />
+                <Level db={levels.mic} label="主持人麦克风音量" />
               </div>
               {room.participants.map((p) => (
                 <div key={p.id} className="row">
@@ -134,11 +117,11 @@ export function RoomPage({ settings, state }: { settings: AppSettings; state: Me
                   {p.talking && <span className="badge live">正在说</span>}
                 </div>
               ))}
-              {room.participants.length === 0 && <p className="muted">等待手机加入…</p>}
+              {room.participants.length === 0 && <p className="muted" role="status">等待加入…</p>}
             </div>
             {state && (
               <div className="row" style={{ marginTop: 14 }}>
-                <Toggle checked={state.out.enabled} onChange={(v) => void api.meeting.setOut(v)} label="主持人麦克风参与翻译" />
+                <Toggle checked={state.out.enabled} onChange={(v) => void api.meeting.setOut(v)} label="主持人麦克风" />
               </div>
             )}
           </div>
@@ -146,15 +129,14 @@ export function RoomPage({ settings, state }: { settings: AppSettings; state: Me
       )}
 
       {(room?.active || segs.length > 0) && (
-        <div className="card">
-          <h3>实时双语记录</h3>
+        <section className="card" aria-labelledby="room-live">
+          <h3 id="room-live">双语记录</h3>
           <div ref={listRef} className="segments" style={{ maxHeight: 420, overflow: 'auto' }}>
-            {segs.length === 0 && <div className="empty">还没有人说话。</div>}
             {segs.map((s) => (
               <SegmentView key={s.id} seg={s} />
             ))}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );

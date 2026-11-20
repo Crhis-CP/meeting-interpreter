@@ -129,12 +129,6 @@ textarea {
   margin: 0 0 12px;
   font-size: 15px;
 }
-.card .hint {
-  color: var(--ink-3);
-  font-size: 12.5px;
-  margin: 4px 0 0;
-  line-height: 1.6;
-}
 .grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -221,6 +215,7 @@ label.field {
 input[type='text'],
 input[type='password'],
 input[type='number'],
+input[type='search'],
 select,
 textarea {
   border: 1px solid var(--line);
@@ -341,6 +336,8 @@ input[type='range'] {
   opacity: 0.6;
 }
 .dir-card .title {
+  font-size: 15px;
+  margin: 0;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -434,6 +431,7 @@ table.table {
   font-size: 12px;
   color: var(--ink-3);
   font-weight: 500;
+  white-space: nowrap;
 }
 .table td input[type='text'] {
   width: 100%;
@@ -759,6 +757,7 @@ html.mac .sidebar button {
 input[type='text'],
 input[type='password'],
 input[type='number'],
+input[type='search'],
 select,
 textarea {
   background: var(--control);
@@ -843,3 +842,98 @@ textarea:focus {
 .editable-seg { position: relative; }
 .editable-seg .fix-btn { position: absolute; right: 0; top: 4px; opacity: 0; transition: opacity 0.15s; }
 .editable-seg:hover .fix-btn, .editable-seg .fix-btn:focus { opacity: 1; }
+
+/* Model download progress (top of the main area) */
+.download-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; font-size: 13px; color: var(--muted, #6b7280); }
+.download-bar progress { flex: 1; max-width: 320px; height: 6px; }
+button.toast { font: inherit; text-align: left; cursor: pointer; border: 0; }
+
+.callout.warn { background: #fff7e6; border-color: #f5c46b; color: #7a4b00; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+
+/* Onboarding progress: where you are is shown, not explained. */
+.stepper {
+  display: flex;
+  gap: 18px;
+  list-style: none;
+  padding: 0;
+  margin: 18px 0;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.stepper li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.stepper .num {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  font-size: 11.5px;
+}
+.stepper li.current {
+  color: var(--ink);
+  font-weight: 600;
+}
+.stepper li.current .num {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.stepper li.done .num {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Label → value pairs (About, onboarding). */
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+.facts dt {
+  color: var(--ink-2);
+}
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.meeting-app-setup {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-2, rgba(0, 0, 0, 0.03));
+}
+.meeting-app-setup h4 {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+/* Room before it starts: the shape of what will appear (a QR code for phones). */
+.qr-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px;
+  color: var(--ink-2);
+}
+.qr-placeholder .qr-box {
+  display: grid;
+  place-items: center;
+  width: 200px;
+  height: 200px;
+  border: 2px dashed var(--line);
+  border-radius: 14px;
+  font-size: 72px;
+  color: var(--ink-3);
+}

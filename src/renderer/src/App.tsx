@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import logoUrl from './assets/logo.png';
 import { Icon } from './components/icons';
-import { lang } from '@core/lang/languages';
-import { api, useEvent, useMeetingState, useSettings } from './api';
+import { useEvent, useMeetingState, useSettings } from './api';
 import { GlossaryPage } from './pages/Glossary';
 import { HistoryPage } from './pages/History';
 import { MeetingPage } from './pages/Meeting';
@@ -36,13 +35,9 @@ export function App() {
   const [page, setPage] = useState<Page>('meeting');
   const [openMeeting, setOpenMeeting] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [version, setVersion] = useState('');
   const [skipOnboarding, setSkipOnboarding] = useState(false);
   const [download, setDownload] = useState<{ file: string; pct: number } | null>(null);
 
-  useEffect(() => {
-    void api.app.info().then((i) => setVersion(i.version));
-  }, []);
 
   useEvent('toast', (t) => {
     const id = Date.now() + Math.random();
@@ -71,56 +66,57 @@ export function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar">
+      <nav className="sidebar" aria-label="主菜单">
         <div className="brand">
           <img className="logo" src={logoUrl} alt="" />
-          <div>
-            会议同传助手
-            <small>{lang(settings.languages.remote).base === 'en' ? '中文 ⇄ English' : '中文 ⇄ Español'}</small>
-          </div>
+          会议同传助手
         </div>
-        {NAV.map((n) => (
-          <button key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => go(n.id)}>
-            <span className="nav-icon"><Icon name={n.icon} /></span>
-            {n.label}
-            {n.id === 'meeting' && meeting?.active && meeting.mode === 'meeting' && <span className="dot" />}
-            {n.id === 'room' && meeting?.active && meeting.mode === 'room' && <span className="dot" />}
-          </button>
-        ))}
-        <div className="spacer" />
-        <div className="muted small" style={{ padding: '0 12px' }}>
-          v{version} · 免费开源
-        </div>
-      </aside>
+        {NAV.map((n) => {
+          const live = meeting?.active && ((n.id === 'meeting' && meeting.mode === 'meeting') || (n.id === 'room' && meeting.mode === 'room'));
+          return (
+            <button key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} aria-current={page === n.id ? 'page' : undefined} onClick={() => go(n.id)}>
+              <span className="nav-icon" aria-hidden="true"><Icon name={n.icon} /></span>
+              {n.label}
+              {live && <span className="dot" aria-label="进行中" />}
+            </button>
+          );
+        })}
+      </nav>
       <main className="main">
         {download && (
-          <div className="callout info" style={{ marginBottom: 14 }}>
-            正在下载本机离线识别模型（只需一次）：{download.file} {download.pct}%
+          <div className="download-bar" role="status">
+            <span>下载模型</span>
+            <progress max={100} value={download.pct} aria-label="下载模型" />
+            <span>{download.pct}%</span>
           </div>
         )}
         {page === 'meeting' && <MeetingPage settings={settings} state={meeting} go={go} />}
-        {page === 'room' && <RoomPage settings={settings} state={meeting} />}
+        {page === 'room' && <RoomPage settings={settings} state={meeting} go={go} />}
         {page === 'history' && <HistoryPage openId={openMeeting} setOpenId={setOpenMeeting} />}
         {page === 'glossary' && <GlossaryPage />}
         {page === 'settings' && <SettingsPage />}
         {page === 'guide' && <GuidePage />}
       </main>
-      <div className="toasts">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={`toast ${t.level}`}
-            style={t.meetingId ? { cursor: 'pointer' } : undefined}
-            onClick={() => {
-              if (!t.meetingId) return;
-              setPage('history');
-              setOpenMeeting(t.meetingId);
-              setToasts((x) => x.filter((y) => y.id !== t.id));
-            }}
-          >
-            {t.message}
-          </div>
-        ))}
+      <div className="toasts" role="status" aria-live="polite">
+        {toasts.map((t) =>
+          t.meetingId ? (
+            <button
+              key={t.id}
+              className={`toast ${t.level}`}
+              onClick={() => {
+                setPage('history');
+                setOpenMeeting(t.meetingId!);
+                setToasts((x) => x.filter((y) => y.id !== t.id));
+              }}
+            >
+              {t.message}
+            </button>
+          ) : (
+            <div key={t.id} className={`toast ${t.level}`} role={t.level === 'error' ? 'alert' : undefined}>
+              {t.message}
+            </div>
+          ),
+        )}
       </div>
     </div>
   );

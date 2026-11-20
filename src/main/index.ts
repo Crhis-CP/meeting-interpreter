@@ -591,6 +591,10 @@ const handlers: Record<string, Handler> = {
     settings.set({ recording: { dir: res.filePaths[0] } });
     return res.filePaths[0];
   },
+  'app.openRecordsDir': async () => {
+    mkdirSync(recordsDir(), { recursive: true });
+    await shell.openPath(recordsDir());
+  },
   'app.showWindow': (name: 'main' | 'overlay') => (name === 'main' ? showMain() : showOverlay(true)),
   'app.setOverlayClickThrough': (on: boolean) => {
     settings.set({ ui: { overlay: { clickThrough: on } } });

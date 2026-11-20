@@ -13,11 +13,12 @@ export function GuidePage() {
   const g = MEETING_APPS.find((x) => x.id === app)!;
   return (
     <div>
-      <h1 className="page-title">使用指南</h1>
-      <div className="callout info" style={{ marginBottom: 16 }}>
-        第一次用？按你的开会方式看 <a href="#" onClick={(e) => { e.preventDefault(); void api.app.openExternal('https://crhis-cp.github.io/meeting-interpreter/guide.html'); }}>新手上手</a>（三四步就能用）。
-      </div>
-      <p className="page-sub">原理：本应用把外语（西语/英语）译音送进一个“虚拟麦克风”，会议软件把它当成你的麦克风；同时听会议声音，把中文译音播到你的耳机。所以支持任何会议软件。</p>
+      <header className="row between" style={{ marginBottom: 16 }}>
+        <h1 className="page-title">使用指南</h1>
+        <button className="btn sm" onClick={() => void api.app.openExternal('https://crhis-cp.github.io/meeting-interpreter/guide.html')}>
+          网页版新手上手
+        </button>
+      </header>
 
       <div className="card">
         <h3>声音怎么走</h3>
@@ -71,6 +72,20 @@ export function GuidePage() {
         ))}
       </div>
 
+      <section className="card" aria-labelledby="g-room">
+        <h3 id="g-room">现场房间</h3>
+        <ol className="steps">
+          <li>电脑和手机连同一个 Wi-Fi（或手机热点）；不在现场的人用“公网链接”。</li>
+          <li>点“开启房间”，大家用手机相机扫二维码，填名字、选语言、戴耳机。</li>
+          <li>按住手机上的大按钮说话（或切到持续说话），其他语言的人会听到译音、看到双语字幕。</li>
+          <li>电脑也可以直接说话（主持人）。关闭房间后，记录和录音保存在“会议记录”里。</li>
+        </ol>
+        <ul className="steps">
+          <li><b>手机提示“连接不安全/证书无效”？</b>房间运行在你自己的电脑上：iPhone 点“显示详细信息 → 访问此网站”，安卓点“高级 → 继续前往”。公网链接没有这个提示。</li>
+          <li><b>手机扫码打不开？</b>酒店、公司访客 Wi-Fi 常禁止设备互连：改用手机热点或公网链接。第一次开房间时系统询问是否允许网络连接，请允许（Windows 勾选“专用网络”）。</li>
+        </ul>
+      </section>
+
       <div className="card">
         <h3>手机怎么用</h3>
         <ol className="steps">
@@ -88,8 +103,8 @@ export function GuidePage() {
           <li><b>翻译了自己的译音 / 重复翻译？</b>请戴耳机；Mac 需 14.2 以上才能在“系统声音”模式下排除自己的声音，否则改用“虚拟扬声器”模式。</li>
           <li><b>原声和中文译音叠在一起听不清？</b>“系统声音”模式下原声由会议软件直接播放，本软件无法自动压低：把会议软件的音量调小一些，或改用“虚拟扬声器”模式（会在播放中文时自动压低原声）。</li>
           <li><b>延迟多少？</b>通常说完一句后 1.5–3 秒开始播放译音。长句会按分句提前翻译。</li>
-          <li><b>费用？</b>软件免费。免费方案不花钱；阿里云百炼约每小时几元，新用户有免费额度。</li>
-          <li><b>隐私？</b>记录和录音只保存在你的电脑。使用云服务时，语音/文字会发给你选择的服务商；免费方案的识别在本机完成。</li>
+          <li><b>费用？</b>软件免费。免费方案（本机识别 + 本机 AI 翻译）不花钱；阿里云百炼约每小时几元，新用户有免费额度。</li>
+          <li><b>隐私？</b>记录和录音只保存在你的电脑。使用云服务时，语音/文字会发给你选择的服务商；免费方案的识别和翻译都在本机完成。</li>
         </ul>
       </div>
     </div>

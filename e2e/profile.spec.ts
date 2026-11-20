@@ -10,7 +10,7 @@ test('accent calibration, then correcting a sentence teaches the profile', async
 
   // 1. Calibration: read each sentence (the fake microphone supplies the voice).
   await win.locator('.nav-item', { hasText: '设置' }).click();
-  await win.getByRole('button', { name: '同传与语言' }).click();
+  await win.getByRole('tab', { name: '同传与语言' }).click();
   await win.getByRole('button', { name: '开始校准' }).click();
   // The first sentence starts with a button; each next one starts recording by itself.
   await win.getByRole('button', { name: '开始录音' }).click();
@@ -68,7 +68,7 @@ test('accent calibration, then correcting a sentence teaches the profile', async
 
   // 4. The correction list shows it, and it can be removed.
   await win.locator('.nav-item', { hasText: '设置' }).click();
-  await win.getByRole('button', { name: '同传与语言' }).click();
+  await win.getByRole('tab', { name: '同传与语言' }).click();
   const row = win.locator('tr', { hasText: '会意' });
   await expect(row).toBeVisible();
   await row.getByRole('button', { name: '删除' }).click();

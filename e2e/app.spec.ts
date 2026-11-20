@@ -36,11 +36,11 @@ test('demo meeting: microphone audio becomes bilingual segments and a saved reco
 
   // Open the meeting and check the recording plays through the mi-media:// protocol.
   await win.locator('.list-item').first().click();
-  await win.getByRole('button', { name: '录音录屏' }).click();
+  await win.getByRole('tab', { name: '录音录屏' }).click();
   const audio = win.locator('audio').first();
   await expect(audio).toBeVisible();
   await expect.poll(async () => audio.evaluate((el) => { const a = el as unknown as { error: unknown; readyState: number }; return a.error ? -1 : a.readyState; }), { timeout: 15_000 }).toBeGreaterThan(0);
-  await win.getByRole('button', { name: '中文纪要' }).click();
+  await win.getByRole('tab', { name: '中文纪要' }).click();
   await win.getByRole('button', { name: '生成纪要' }).click();
   await expect(win.getByText('新产品交货与价格洽谈').first()).toBeVisible({ timeout: 20_000 });
   await win.screenshot({ path: 'test-results/summary.png' });
@@ -51,7 +51,7 @@ test('English meeting: Chinese becomes English, files are named for English', as
   const { app, recordsDir } = await launchApp({ languages: { remote: 'en-US' } });
   const win = await mainWindow(app);
   await win.waitForLoadState('domcontentloaded');
-  await expect(win.getByText('中文 ⇄ English')).toBeVisible();
+  await expect(win.getByLabel('对方说')).toHaveValue('en');
 
   await win.getByRole('button', { name: '开始同传' }).click();
   await expect(win.getByText('大家好，欢迎参加今天的会议。')).toBeVisible({ timeout: 30_000 });
@@ -67,6 +67,6 @@ test('English meeting: Chinese becomes English, files are named for English', as
 
   await win.getByRole('button', { name: '查看会议记录' }).click();
   await win.locator('.list-item').first().click();
-  await expect(win.getByRole('button', { name: 'English minutes' })).toBeVisible();
+  await expect(win.getByRole('tab', { name: 'English minutes' })).toBeVisible();
   await app.close();
 });

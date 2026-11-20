@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppSettings } from '@core/config/schema';
-import { preset } from '@core/config/presets';
-import { lang } from '@core/lang/languages';
+import { lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import type { TranscriptSegment } from '@core/types';
 import type { MeetingState, ScreenSource } from '@shared/ipc';
 import { api, errMsg, useEvent } from '../api';
-import { Level, SegmentView, StateBadge, Toggle } from '../components/ui';
+import { Field, Level, SegmentView, StateBadge, Toggle } from '../components/ui';
 import { MEETING_APPS } from '../content/guides';
 import type { Page } from '../App';
 
@@ -67,28 +66,17 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
 
   const active = !!state?.active && state.mode === 'meeting';
   const roomActive = !!state?.active && state.mode === 'room';
-  const p = preset(settings.preset);
   const ptt = settings.interpretation.outMode === 'push-to-talk';
   const short = (code: string) => ({ zh: '中文', es: '西语', en: '英语' })[lang(code).base];
   const selfName = short(settings.languages.self);
   const remoteName = short(settings.languages.remote);
 
-  const checks: { ok: boolean; text: string; fix?: () => void }[] = [
-    { ok: !!settings.devices.virtualMic, text: settings.devices.virtualMic ? `已选择虚拟麦克风（对方能听到${remoteName}译音）` : '未选择虚拟麦克风：对方将听不到译音', fix: () => go('settings') },
-    {
-      ok: settings.devices.meetingSource !== 'none' && (settings.devices.meetingSource === 'loopback' || !!settings.devices.meetingDevice),
-      text:
-        settings.devices.meetingSource === 'loopback'
-          ? '会议声音：系统声音（无需额外驱动）'
-          : settings.devices.meetingSource === 'device'
-            ? settings.devices.meetingDevice
-              ? '会议声音：虚拟扬声器'
-              : '会议声音：未选择设备'
-            : '不翻译会议声音',
-      fix: () => go('settings'),
-    },
-    { ok: true, text: `服务：${p?.name ?? settings.preset}` },
+  // Only what needs attention, each with its fix.
+  const problems: { text: string; fix: () => void }[] = [
+    ...(!settings.devices.virtualMic ? [{ text: `对方听不到${remoteName}译音：没选虚拟麦克风`, fix: () => go('settings') }] : []),
+    ...(settings.devices.meetingSource === 'device' && !settings.devices.meetingDevice ? [{ text: '听不到对方：没选会议声音', fix: () => go('settings') }] : []),
   ];
+  const app = MEETING_APPS.find((a) => a.id === platform);
 
   const start = async () => {
     setBusy(true);
@@ -115,47 +103,37 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
 
   return (
     <div>
-      <div className="row between" style={{ marginBottom: 16 }}>
-        <div>
-          <h1 className="page-title">会议同传</h1>
-          <p className="page-sub" style={{ margin: 0 }}>
-            在 Teams、飞书、腾讯会议等任何会议软件里：你说{selfName}，对方听到{remoteName}；对方说{remoteName}，你听到{selfName}。
-          </p>
-        </div>
+      <header className="row between" style={{ marginBottom: 16 }}>
+        <h1 className="page-title">会议同传</h1>
         {active ? (
           <div className="row">
-            <span className="badge live">进行中 {elapsed(state?.startedAtMs ?? null)}</span>
+            <span className="badge live" role="status">进行中 {elapsed(state?.startedAtMs ?? null)}</span>
             <button className="btn danger big" onClick={stop} disabled={busy}>
               结束会议
             </button>
           </div>
+        ) : roomActive ? (
+          <button className="btn big" onClick={() => go('room')}>
+            去现场房间
+          </button>
         ) : (
-          <button className="btn primary big" onClick={start} disabled={busy || roomActive}>
+          <button className="btn primary big" onClick={start} disabled={busy}>
             {busy ? '正在开始…' : '开始同传'}
           </button>
         )}
-      </div>
+      </header>
 
-      {roomActive && <div className="callout info" style={{ marginBottom: 16 }}>现场房间正在进行中，请先在“现场房间”页结束。</div>}
-      {error && <div className="callout err" style={{ marginBottom: 16 }}>{error}</div>}
+      {error && <div className="callout err" role="alert" style={{ marginBottom: 16 }}>{error}</div>}
       {state?.warnings?.map((w) => (
-        <div key={w} className="callout" style={{ marginBottom: 10 }}>
+        <div key={w} className="callout" role="alert" style={{ marginBottom: 10 }}>
           {w}
           {window.platform === 'darwin' && /系统声音|录屏/.test(w) && (
-            <button
-              className="btn sm"
-              style={{ marginLeft: 8 }}
-              onClick={() => void api.app.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture')}
-            >
+            <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => void api.app.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture')}>
               打开“录屏与系统录音”设置
             </button>
           )}
           {window.platform === 'darwin' && /麦克风/.test(w) && (
-            <button
-              className="btn sm"
-              style={{ marginLeft: 8 }}
-              onClick={() => void api.app.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone')}
-            >
+            <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => void api.app.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone')}>
               打开“麦克风”权限设置
             </button>
           )}
@@ -163,54 +141,48 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
       ))}
 
       {!active && (
-        <div className="grid2">
-          <div className="card">
-            <h3>会议信息</h3>
-            <div className="stack">
-              <input type="text" placeholder="会议名称（可选，例如：与墨西哥客户的价格谈判）" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <section className="card" aria-label="会议准备">
+          {problems.map((p) => (
+            <div key={p.text} className="callout warn row between" role="alert" style={{ marginBottom: 10 }}>
+              <span>{p.text}</span>
+              <button className="btn sm" onClick={p.fix}>去设置</button>
+            </div>
+          ))}
+          <div className="grid3">
+            <Field label="对方说">
+              <select value={lang(settings.languages.remote).base} onChange={(e) => void api.settings.set({ languages: { remote: withRemoteBase(settings.languages.remote, e.target.value as 'es' | 'en') }, out: { voice: '' }, in: { voice: '' } })}>
+                {REMOTE_CHOICES.map((c) => (
+                  <option key={c.base} value={c.base}>{c.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="会议名称">
+              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
+            </Field>
+            <Field label="会议软件">
               <select value={platform} onChange={(e) => setPlatform(e.target.value)}>
-                <option value="">会议软件（可选）</option>
+                <option value="">—</option>
                 {MEETING_APPS.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
-                    {running.includes(a.id) ? '（正在运行）' : ''}
+                    {running.includes(a.id) ? ' ●' : ''}
                   </option>
                 ))}
               </select>
-              {platform && (
-                <div className="callout info">
-                  <b>{MEETING_APPS.find((a) => a.id === platform)?.name}</b>：{MEETING_APPS.find((a) => a.id === platform)?.steps[1]}
-                </div>
-              )}
-            </div>
+            </Field>
           </div>
-          <div className="card">
-            <h3>开始前检查</h3>
-            <div className="stack">
-              {checks.map((c) => (
-                <div key={c.text} className="row">
-                  <span>{c.ok ? '✅' : '⚠️'}</span>
-                  <span style={{ flex: 1 }}>{c.text}</span>
-                  {!c.ok && c.fix && (
-                    <button className="btn sm" onClick={c.fix}>
-                      去设置
-                    </button>
-                  )}
-                </div>
-              ))}
-              <Toggle checked={settings.recording.audio} onChange={(v) => void api.meeting.setRecording({ audio: v })} label="录音（保存全程混音）" />
-              <div className="row">
-                <Toggle checked={settings.recording.screen} onChange={(v) => void api.meeting.setRecording({ screen: v })} label="录屏" />
-                {settings.recording.screen && (
-                  <button className="btn sm" onClick={pickScreen}>
-                    {settings.recording.screenSourceId ? '更换录制画面' : '选择录制画面'}
-                  </button>
-                )}
-              </div>
-              {(settings.recording.audio || settings.recording.screen) && <span className="muted small">录音录屏前请征得参会者同意。</span>}
-            </div>
+          {app && <p style={{ margin: '10px 0 0' }}>{app.steps[1]}</p>}
+          <div className="row" style={{ marginTop: 12 }}>
+            <Toggle checked={settings.recording.audio} onChange={(v) => void api.meeting.setRecording({ audio: v })} label="录音" />
+            <Toggle checked={settings.recording.screen} onChange={(v) => void api.meeting.setRecording({ screen: v })} label="录屏" />
+            {settings.recording.screen && (
+              <button className="btn sm" onClick={pickScreen}>
+                {settings.recording.screenSourceId ? '更换画面' : '选择画面'}
+              </button>
+            )}
+            {(settings.recording.audio || settings.recording.screen) && <span className="muted small">请先征得参会者同意</span>}
           </div>
-        </div>
+        </section>
       )}
 
       {sources && (
@@ -243,14 +215,13 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
         <div className="grid2">
           <div className={`dir-card ${state.out.enabled ? '' : 'off'}`}>
             <div className="row between" style={{ flexWrap: 'nowrap' }}>
-              <div className="title">
+              <h2 className="title" id="dir-out">
                 我说{selfName} → 对方听{remoteName} <StateBadge state={state.out.state} message={state.out.message} />
-              </div>
-              <Toggle checked={state.out.enabled} onChange={(v) => void api.meeting.setOut(v)} />
+              </h2>
+              <Toggle checked={state.out.enabled} onChange={(v) => void api.meeting.setOut(v)} ariaLabel={`翻译我说的${selfName}`} />
             </div>
             <div className="row" style={{ marginTop: 10 }}>
-              <span className="muted small">麦克风</span>
-              <Level db={levels.mic} />
+              <Level db={levels.mic} label="麦克风音量" />
               {state.out.backlog > 1 && <span className="badge warn">译音排队 {state.out.backlog.toFixed(0)} 秒</span>}
               {state.out.backlog > 8 && (
                 <button className="btn sm" onClick={() => void api.meeting.skip('out')}>
@@ -258,7 +229,7 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
                 </button>
               )}
             </div>
-            <div className="partial">{partials.out}</div>
+            <div className="partial" aria-live="polite">{partials.out}</div>
             <div className="row" style={{ marginTop: 8 }}>
               {ptt && (
                 <button
@@ -270,20 +241,19 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
                   {state.out.gate ? '正在说…松开结束' : '按住说话'}
                 </button>
               )}
-              <Toggle checked={state.out.passthrough} onChange={(v) => void api.meeting.setPassthrough(v)} label={`原声直通（我直接说${remoteName}时打开）`} />
+              <Toggle checked={state.out.passthrough} onChange={(v) => void api.meeting.setPassthrough(v)} label={`我自己说${remoteName}`} />
             </div>
-            {state.out.message && state.out.state === 'error' && <div className="callout err" style={{ marginTop: 8 }}>{state.out.message}</div>}
+            {state.out.message && state.out.state === 'error' && <div className="callout err" role="alert" style={{ marginTop: 8 }}>{state.out.message}</div>}
           </div>
           <div className={`dir-card ${state.in.enabled ? '' : 'off'}`}>
             <div className="row between" style={{ flexWrap: 'nowrap' }}>
-              <div className="title">
+              <h2 className="title" id="dir-in">
                 对方说{remoteName} → 我听{selfName} <StateBadge state={state.in.state} message={state.in.message} />
-              </div>
-              <Toggle checked={state.in.enabled} onChange={(v) => void api.meeting.setIn(v)} />
+              </h2>
+              <Toggle checked={state.in.enabled} onChange={(v) => void api.meeting.setIn(v)} ariaLabel={`翻译对方说的${remoteName}`} />
             </div>
             <div className="row" style={{ marginTop: 10 }}>
-              <span className="muted small">会议声音</span>
-              <Level db={levels.meeting} />
+              <Level db={levels.meeting} label="会议声音音量" />
               {state.in.backlog > 1 && <span className="badge warn">译音排队 {state.in.backlog.toFixed(0)} 秒</span>}
               {state.in.backlog > 8 && (
                 <button className="btn sm" onClick={() => void api.meeting.skip('in')}>
@@ -291,30 +261,31 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
                 </button>
               )}
             </div>
-            <div className="partial">{partials.in}</div>
+            <div className="partial" aria-live="polite">{partials.in}</div>
             <div className="row" style={{ marginTop: 8 }}>
-              <Toggle checked={state.in.speak} onChange={(v) => void api.meeting.setInSpeak(v)} label="播放中文译音（关掉则只看字幕）" />
+              <Toggle checked={state.in.speak} onChange={(v) => void api.meeting.setInSpeak(v)} label={`朗读${selfName}译音`} />
               <button className="btn sm" onClick={() => void api.app.showWindow('overlay')}>
-                显示字幕窗
+                字幕窗
               </button>
             </div>
-            {state.in.message && state.in.state === 'error' && <div className="callout err" style={{ marginTop: 8 }}>{state.in.message}</div>}
+            {state.in.message && state.in.state === 'error' && <div className="callout err" role="alert" style={{ marginTop: 8 }}>{state.in.message}</div>}
           </div>
         </div>
       )}
 
       {lastMeeting && !active && (
-        <div className="callout info" style={{ margin: '12px 0' }}>
-          会议已结束，记录已保存。{settings.summary.autoAtEnd ? '纪要正在后台生成。' : ''}
-          <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => go('history')}>
+        <div className="callout info row between" role="status" style={{ margin: '12px 0' }}>
+          <span>会议已结束</span>
+          <button className="btn sm" onClick={() => go('history')}>
             查看会议记录
           </button>
         </div>
       )}
 
-      <div className="card" style={{ marginTop: 16 }}>
+      {(active || segs.length > 0) && (
+      <section className="card" style={{ marginTop: 16 }} aria-labelledby="live-title">
         <div className="row between">
-          <h3>实时双语记录</h3>
+          <h3 id="live-title">双语记录</h3>
           {active && state?.recording && (
             <div className="row">
               {state.recording.audio && <span className="badge live">录音</span>}
@@ -323,13 +294,13 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
           )}
         </div>
         <div ref={listRef} className="segments" style={{ maxHeight: 460, overflow: 'auto', paddingRight: 4 }}>
-          {segs.length === 0 && <div className="empty">{active ? '开始说话吧，双语记录会出现在这里。' : '开始同传后，双语逐句记录会出现在这里。'}</div>}
           {/* The live view keeps the latest 200 sentences; the full record is in 会议记录. */}
           {segs.slice(-200).map((s) => (
             <SegmentView key={s.id} seg={s} />
           ))}
         </div>
-      </div>
+      </section>
+      )}
     </div>
   );
 }

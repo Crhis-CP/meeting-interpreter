@@ -36,17 +36,16 @@ export function SettingsPage() {
   return (
     <div>
       <h1 className="page-title">设置</h1>
-      <p className="page-sub">修改后自动保存。</p>
-      <div className="tabs">
+      <div className="tabs" role="tablist" aria-label="设置">
         {TABS.map(([k, label]) => (
-          <button key={k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>
+          <button key={k} role="tab" aria-selected={tab === k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>
             {label}
           </button>
         ))}
       </div>
       {tab === 'providers' && <ProvidersTab s={s} update={update} />}
       {tab === 'devices' && <DevicesTab s={s} update={update} />}
-      {tab === 'interp' && <InterpTab s={s} update={update} />}
+      {tab === 'interp' && <InterpTab s={s} update={update} go={setTab} />}
       {tab === 'record' && <RecordTab s={s} update={update} />}
       {tab === 'overlay' && <OverlayTab s={s} update={update} />}
       {tab === 'shortcuts' && <ShortcutsTab s={s} update={update} />}
@@ -55,11 +54,11 @@ export function SettingsPage() {
   );
 }
 
-type TabProps = { s: AppSettings; update: (patch: object) => Promise<AppSettings> };
+type TabProps = { s: AppSettings; update: (patch: object) => Promise<AppSettings>; go?: (tab: Tab) => void };
 
 // ------------------------------------------------------------------ providers
 
-function SecretInput({ name, label, placeholder, status, onSaved }: { name: SecretName; label: string; placeholder?: string; status: Record<string, boolean>; onSaved: () => void }) {
+function SecretInput({ name, label, placeholder, status, onSaved, getUrl }: { name: SecretName; label: string; placeholder?: string; status: Record<string, boolean>; onSaved: () => void; getUrl?: string }) {
   const [v, setV] = useState('');
   const save = async () => {
     if (!v.trim()) return;
@@ -68,9 +67,9 @@ function SecretInput({ name, label, placeholder, status, onSaved }: { name: Secr
     onSaved();
   };
   return (
-    <Field label={<span>{label} {status[name] ? <span className="badge ok">已保存</span> : <span className="badge">未填写</span>}</span>}>
+    <Field label={<span>{label} {status[name] ? <span className="badge ok">已保存</span> : getUrl ? <ExternalLink href={getUrl}>获取 ↗</ExternalLink> : null}</span>}>
       <div className="row">
-        <input type="password" style={{ flex: 1 }} placeholder={status[name] ? '已保存（输入新值可替换）' : placeholder} value={v} onChange={(e) => setV(e.target.value)} onBlur={() => void save()} onKeyDown={(e) => e.key === 'Enter' && void save()} />
+        <input type="password" style={{ flex: 1 }} placeholder={status[name] ? '••••••' : placeholder} value={v} onChange={(e) => setV(e.target.value)} onBlur={() => void save()} onKeyDown={(e) => e.key === 'Enter' && void save()} />
         <button className="btn" onClick={save} disabled={!v}>
           保存
         </button>
@@ -175,7 +174,6 @@ function LocalModels({ foreign }: { foreign: 'es' | 'en' }) {
         </button>
       </div>
       {progress && <span className="muted small">{progress}</span>}
-      <span className="muted small">模型只需下载一次，之后识别完全在本机进行，不联网、不花钱。首次开会时也会自动下载。</span>
     </div>
   );
 }
@@ -205,18 +203,16 @@ function OfflineMtCard() {
   const mb = (n: number) => Math.round(n / 1_000_000);
   return (
     <div className="card">
-      <h3>离线翻译（免费）</h3>
-      <p className="hint" style={{ marginTop: 0 }}>Mozilla 的离线翻译模型（Firefox 用的就是它），翻一句不到 0.1 秒，不联网、不用 Key。</p>
-      {st && !st.missingBytes ? (
-        <div className="callout info">✅ 已下载，可以离线翻译</div>
-      ) : (
-        <div className="row">
-          <button className="btn primary" disabled={!!busy} onClick={() => void download()}>
-            {busy || `下载离线翻译（约 ${mb(st?.missingBytes ?? st?.totalBytes ?? 140_000_000)} MB）`}
+      <div className="row between">
+        <h3 style={{ margin: 0 }}>离线翻译（草稿）</h3>
+        {st && !st.missingBytes ? (
+          <span className="badge ok">已下载</span>
+        ) : (
+          <button className="btn sm" disabled={!!busy} onClick={() => void download()}>
+            {busy || `下载 · ${mb(st?.missingBytes ?? st?.totalBytes ?? 140_000_000)} MB`}
           </button>
-          <span className="muted small">只需下载一次</span>
-        </div>
-      )}
+        )}
+      </div>
       {error && <div className="callout err" style={{ marginTop: 8 }}>{error}</div>}
     </div>
   );
@@ -301,7 +297,6 @@ function MyVoiceCard({ s, update }: TabProps) {
   return (
     <div className="card">
       <h3>用我的声音</h3>
-      <p className="hint" style={{ marginTop: 0 }}>开启后，对方听到的翻译是你自己的音色在说西语 / 英语。录一段 16 秒的声音即可，生成音色免费，合成按百炼正常价格计费。</p>
       {has ? (
         <div className="stack">
           <Toggle checked={s.dashscope.useMyVoice} onChange={(v) => void update({ dashscope: { useMyVoice: v } })} label="对方听到我的声音" />
@@ -351,10 +346,7 @@ function ProvidersTab({ s, update }: TabProps) {
               <h4>
                 {p.name} {s.preset === p.id && <span className="badge ok">当前</span>}
               </h4>
-              <p>{p.description}</p>
-              <p className="muted small" style={{ marginTop: 6 }}>
-                费用：{p.cost}
-              </p>
+              <p>{p.cost}</p>
             </button>
           ))}
         </div>
@@ -364,19 +356,13 @@ function ProvidersTab({ s, update }: TabProps) {
         <div className="card">
           <h3>阿里云百炼（DashScope）</h3>
           <div className="stack">
-            <SecretInput name="dashscope" label="API Key" placeholder="sk-…" status={status} onSaved={refresh} />
-            <p className="hint">
-              在 <ExternalLink href="https://bailian.console.aliyun.com/?tab=model#/api-key">百炼控制台 › API Key</ExternalLink> 创建。新用户有免费额度。
-            </p>
+            <SecretInput name="dashscope" label="API Key" placeholder="sk-…" status={status} onSaved={refresh} getUrl="https://bailian.console.aliyun.com/?tab=model#/api-key" />
             <div className="grid2">
               <Field label="地域">
                 <select value={s.dashscope.region} onChange={(e) => void update({ dashscope: { region: e.target.value } })}>
                   <option value="cn">中国（北京）</option>
                   <option value="intl">国际（新加坡）</option>
                 </select>
-              </Field>
-              <Field label="业务空间主机（可选）" hint="如 llm-xxx.cn-beijing.maas.aliyuncs.com；留空用默认域名">
-                <input type="text" value={s.dashscope.host} onChange={(e) => void update({ dashscope: { host: e.target.value.trim() } })} />
               </Field>
               <Field label="识别模型">
                 <select value={s.dashscope.asrModel} onChange={(e) => void update({ dashscope: { asrModel: e.target.value } })}>
@@ -393,6 +379,12 @@ function ProvidersTab({ s, update }: TabProps) {
                 </select>
               </Field>
             </div>
+            <details>
+              <summary>高级</summary>
+              <Field label="业务空间主机">
+                <input type="text" placeholder="llm-xxx.cn-beijing.maas.aliyuncs.com" value={s.dashscope.host} onChange={(e) => void update({ dashscope: { host: e.target.value.trim() } })} />
+              </Field>
+            </details>
           </div>
         </div>
       )}
@@ -401,32 +393,29 @@ function ProvidersTab({ s, update }: TabProps) {
         <div className="card">
           <h3>Azure 语音 / 翻译</h3>
           <div className="stack">
-            <SecretInput name="azure" label="语音服务 Key" status={status} onSaved={refresh} />
+            <SecretInput name="azure" label="语音服务 Key" status={status} onSaved={refresh} getUrl="https://portal.azure.com/#create/Microsoft.CognitiveServicesSpeechServices" />
             <div className="grid2">
-              <Field label="区域" hint="例如 eastasia、southeastasia；Azure 中国用 chinaeast2、chinanorth3">
-                <input type="text" value={s.azure.region} onChange={(e) => void update({ azure: { region: e.target.value.trim() } })} />
+              <Field label="区域">
+                <input type="text" placeholder="eastasia" value={s.azure.region} onChange={(e) => void update({ azure: { region: e.target.value.trim() } })} />
               </Field>
-              <Field label="资源终结点（可选）" hint="例如 https://xxx.cognitiveservices.azure.cn">
-                <input type="text" value={s.azure.endpoint} onChange={(e) => void update({ azure: { endpoint: e.target.value.trim() } })} />
+              <Field label="资源终结点">
+                <input type="text" placeholder="https://xxx.cognitiveservices.azure.cn" value={s.azure.endpoint} onChange={(e) => void update({ azure: { endpoint: e.target.value.trim() } })} />
               </Field>
             </div>
             {uses('azure-translator') && (
               <>
-                <SecretInput name="azureTranslator" label="翻译服务 Key（Translator 资源）" status={status} onSaved={refresh} />
-                <Field label="翻译资源区域（留空同上）">
+                <SecretInput name="azureTranslator" label="翻译服务 Key" status={status} onSaved={refresh} getUrl="https://portal.azure.com/#create/Microsoft.CognitiveServicesTextTranslation" />
+                <Field label="翻译资源区域">
                   <input type="text" value={s.azure.translatorRegion} onChange={(e) => void update({ azure: { translatorRegion: e.target.value.trim() } })} />
                 </Field>
               </>
             )}
-            <p className="hint">
-              在 <ExternalLink href="https://portal.azure.com">Azure 门户</ExternalLink> 创建“语音服务”和“翻译”资源，定价层选 F0 即为免费层。
-            </p>
           </div>
         </div>
       )}
 
       <div className="card">
-        <h3>大模型（用于翻译{uses('llm') ? '' : '（当前方案未用）'}和会议纪要）</h3>
+        <h3>大模型</h3>
         <div className="grid2">
           <Field label="服务">
             <select
@@ -449,20 +438,14 @@ function ProvidersTab({ s, update }: TabProps) {
           <Field label="接口地址（OpenAI 兼容）">
             <input type="text" value={s.llm.baseUrl} onChange={(e) => void update({ llm: { baseUrl: e.target.value.trim() } })} />
           </Field>
-          <Field label="纪要用模型（可选）" hint="留空与上面相同；可换成更强的模型">
-            <input type="text" value={s.llm.summaryModel} onChange={(e) => void update({ llm: { summaryModel: e.target.value.trim() } })} />
+          <Field label="纪要用模型">
+            <input type="text" placeholder={s.llm.model} value={s.llm.summaryModel} onChange={(e) => void update({ llm: { summaryModel: e.target.value.trim() } })} />
           </Field>
         </div>
         {!lp?.noKey && (
           <div style={{ marginTop: 10 }}>
-            <SecretInput name="llm" label={`${lp?.name ?? '大模型'} 的 Key`} status={status} onSaved={refresh} />
+            <SecretInput name="llm" label={`${lp?.name ?? '大模型'} 的 Key`} status={status} onSaved={refresh} getUrl={lp?.keyUrl} />
           </div>
-        )}
-        {lp?.note && <p className="hint">{lp.note}</p>}
-        {lp?.keyUrl && (
-          <p className="hint">
-            获取 Key：<ExternalLink href={lp.keyUrl}>{lp.keyUrl}</ExternalLink>
-          </p>
         )}
         <div style={{ marginTop: 10 }}>
           <TestPanel scope="llm" label="测试大模型" />
@@ -472,7 +455,7 @@ function ProvidersTab({ s, update }: TabProps) {
       {uses('deepl') && (
         <div className="card">
           <h3>DeepL</h3>
-          <SecretInput name="deepl" label="DeepL API Key" placeholder="以 :fx 结尾的是免费版" status={status} onSaved={refresh} />
+          <SecretInput name="deepl" label="DeepL API Key" status={status} onSaved={refresh} getUrl="https://www.deepl.com/pro-api" />
           <div style={{ marginTop: 8 }}>
             <Toggle checked={s.deepl.useGlossary} onChange={(v) => void update({ deepl: { useGlossary: v } })} label="同步术语表到 DeepL" />
           </div>
@@ -499,13 +482,12 @@ function ProvidersTab({ s, update }: TabProps) {
       {s.out.tts === 'dashscope' && <MyVoiceCard s={s} update={update} />}
 
       <div className="card">
-        <h3>Chrome 插件（免费版）</h3>
-        <Toggle checked={s.bridge.enabled} onChange={(v) => void update({ bridge: { enabled: v } })} label="允许 Chrome 插件使用本机离线识别和系统语音" />
-        <p className="hint">网页版会议用插件时，选“免费版”就会借用这里的识别和语音（只在本机 127.0.0.1 上，网页无法访问）。使用时请保持本软件打开。</p>
+        <h3>Chrome 插件</h3>
+        <Toggle checked={s.bridge.enabled} onChange={(v) => void update({ bridge: { enabled: v } })} label="让 Chrome 插件使用本机识别、AI 翻译和系统语音" />
       </div>
 
       <div className="card">
-        <h3>高级：每个方向分别选择</h3>
+        <h3>每个方向分别选择</h3>
         {(['out', 'in'] as const).map((d) => {
           const c = dir(d);
           const dst = d === 'out' ? s.languages.remote : s.languages.self;
@@ -580,11 +562,10 @@ function DevicesTab({ s, update }: TabProps) {
       {!hasVirtual && (
         <div className="card">
           <h3>还没有虚拟麦克风</h3>
-          <p className="hint" style={{ marginTop: 0 }}>用会议软件的电脑客户端开会时需要它，让对方听到译音。</p>
           <DriverInstaller onDone={refresh} />
           {guide && (
             <details style={{ marginTop: 10 }}>
-              <summary className="muted small">手动安装方法</summary>
+              <summary>手动安装</summary>
               <ol className="steps">
                 {guide.steps.map((x) => (
                   <li key={x}>{x}</li>
@@ -617,10 +598,7 @@ function DevicesTab({ s, update }: TabProps) {
               ))}
             </select>
           </Field>
-          <Field
-            label={`② 虚拟麦克风（${fz}译音送进会议）`}
-            hint={s.devices.virtualMic ? `会议软件的麦克风请选它的另一端（${/BlackHole/i.test(label(outputs, s.devices.virtualMic) ?? '') ? 'BlackHole 2ch' : 'CABLE Output'}）` : 'Mac 选 BlackHole 2ch；Windows 选 CABLE Input'}
-          >
+          <Field label={`② 虚拟麦克风（${fz}译音送进会议）`}>
             <div className="row">
               <select style={{ flex: 1 }} value={s.devices.virtualMic} onChange={(e) => void update({ devices: { virtualMic: e.target.value } })}>
                 <option value="">（未选择）</option>
@@ -638,13 +616,13 @@ function DevicesTab({ s, update }: TabProps) {
           </Field>
           <Field label={`③ 会议声音来自（对方说${fz}）`}>
             <select value={s.devices.meetingSource} onChange={(e) => void update({ devices: { meetingSource: e.target.value } })}>
-              <option value="loopback">系统声音（推荐：macOS 14.2+ / Windows 11，无需额外驱动）</option>
-              <option value="device">虚拟扬声器设备（可压低原声；Win10/Linux 用）</option>
+              <option value="loopback">系统声音</option>
+              <option value="device">虚拟扬声器</option>
               <option value="none">不翻译会议声音</option>
             </select>
           </Field>
           {s.devices.meetingSource === 'device' && (
-            <Field label="虚拟扬声器（会议软件的扬声器选它）" hint="Mac：BlackHole 16ch；Windows：CABLE-A Output / Hi-Fi Cable Output / Voicemeeter Out">
+            <Field label="虚拟扬声器">
               <select value={s.devices.meetingDevice} onChange={(e) => void update({ devices: { meetingDevice: e.target.value } })}>
                 <option value="">（未选择）</option>
                 {inputs.map((d) => (
@@ -672,12 +650,26 @@ function DevicesTab({ s, update }: TabProps) {
             </div>
           </Field>
         </div>
+        {s.devices.virtualMic && (
+          <section className="meeting-app-setup" aria-label="会议软件里这样选">
+            <h4>会议软件里这样选</h4>
+            <dl className="facts">
+              <dt>麦克风</dt>
+              <dd>{/BlackHole/i.test(label(outputs, s.devices.virtualMic) ?? '') ? 'BlackHole 2ch' : 'CABLE Output'}</dd>
+              {s.devices.meetingSource === 'device' && s.devices.meetingDevice && (
+                <>
+                  <dt>扬声器</dt>
+                  <dd>{label(inputs, s.devices.meetingDevice)}</dd>
+                </>
+              )}
+            </dl>
+          </section>
+        )}
         <div className="row" style={{ marginTop: 14 }}>
           <Toggle checked={s.devices.echoCancellation} onChange={(v) => void update({ devices: { echoCancellation: v } })} label="回声消除" />
           <Toggle checked={s.devices.noiseSuppression} onChange={(v) => void update({ devices: { noiseSuppression: v } })} label="降噪" />
           <Toggle checked={s.devices.autoGainControl} onChange={(v) => void update({ devices: { autoGainControl: v } })} label="自动增益" />
         </div>
-        <p className="hint">强烈建议戴耳机，避免对方的声音和译音被麦克风再次收进去。用 AirPods 时，麦克风建议选电脑自带麦克风，耳机音质更好。</p>
       </div>
     </div>
   );
@@ -685,19 +677,17 @@ function DevicesTab({ s, update }: TabProps) {
 
 // ------------------------------------------------------------------ interpretation
 
-function InterpTab({ s, update }: TabProps) {
+function InterpTab({ s, update, go }: TabProps) {
   const i = s.interpretation;
-  const fz = foreignOf(s) === 'en' ? '英语' : '西语';
+  const [keys, setKeys] = useState<Record<string, boolean>>({});
+  useEffect(() => void api.secrets.status().then(setKeys), []);
+  const lp = llmPreset(s.llm.preset);
+  const llmReady = !!(lp?.noKey || keys.llm || (lp?.usesDashscopeKey && keys.dashscope));
   return (
     <div>
       <div className="card">
         <h3>语言</h3>
         <div className="grid2">
-          <Field label="我方语言">
-            <select value={s.languages.self} disabled>
-              <option value="zh-CN">中文（普通话）</option>
-            </select>
-          </Field>
           <Field label="对方说">
             <select value={lang(s.languages.remote).base} onChange={(e) => void update({ languages: { remote: withRemoteBase(s.languages.remote, e.target.value as 'es' | 'en') }, out: { voice: '' }, in: { voice: '' } })}>
               {REMOTE_CHOICES.map((c) => (
@@ -707,7 +697,7 @@ function InterpTab({ s, update }: TabProps) {
               ))}
             </select>
           </Field>
-          <Field label="口音（一般不用改）">
+          <Field label="口音">
             <select value={s.languages.remote} onChange={(e) => void update({ languages: { remote: e.target.value }, out: { voice: '' }, in: { voice: '' } })}>
               {accentsOf(lang(s.languages.remote).base).map((a) => (
                 <option key={a.code} value={a.code}>
@@ -717,38 +707,39 @@ function InterpTab({ s, update }: TabProps) {
             </select>
           </Field>
         </div>
-        <p className="hint">支持中文 ⇄ 西班牙语、中文 ⇄ 英语。换语言后，术语表里要填对应语言那一列。</p>
       </div>
       <div className="card">
         <h3>我的发言</h3>
         <div className="stack">
           <Field label="翻译方式">
             <select value={i.outMode} onChange={(e) => void update({ interpretation: { outMode: e.target.value } })}>
-              <option value="continuous">持续同传（一直听，说完一句就翻）</option>
-              <option value="push-to-talk">按键说话（按住按钮或快捷键时才翻译，适合身边有人说话）</option>
+              <option value="continuous">一直听</option>
+              <option value="push-to-talk">按住才听</option>
             </select>
           </Field>
-          <Toggle checked={i.lowLatency} onChange={(v) => void update({ interpretation: { lowLatency: v } })} label="低延迟：长句子按分句提前翻译" />
-          <Toggle checked={i.pinyinFuzzy} onChange={(v) => void update({ interpretation: { pinyinFuzzy: v } })} label="按拼音纠正识别错的术语（例如“新云平台”→“星云平台”）" />
-          <Field label={`把我的原声混进${fz}译音：${Math.round(i.originalMixOut * 100)}%`} hint="0% = 对方只听到译音">
+          <Toggle checked={i.lowLatency} onChange={(v) => void update({ interpretation: { lowLatency: v } })} label="长句分句提前翻译" />
+          <Toggle checked={i.pinyinFuzzy} onChange={(v) => void update({ interpretation: { pinyinFuzzy: v } })} label="按拼音纠正术语" />
+          <Field label={`对方听到我的原声：${Math.round(i.originalMixOut * 100)}%`}>
             <input type="range" min={0} max={0.5} step={0.05} value={i.originalMixOut} onChange={(e) => void update({ interpretation: { originalMixOut: Number(e.target.value) } })} />
           </Field>
         </div>
       </div>
       <AccentCalibrationCard s={s} update={update} />
-      <MyCorrectionsCard s={s} update={update} />
-      <div className="card">
-        <h3>对方的发言</h3>
-        <div className="stack">
-          <Toggle checked={i.playOriginalIn} onChange={(v) => void update({ interpretation: { playOriginalIn: v } })} label="同时播放对方原声（仅“虚拟扬声器”模式）" />
-          <Field label={`原声音量：${Math.round(i.originalInVolume * 100)}%`}>
-            <input type="range" min={0} max={1} step={0.05} value={i.originalInVolume} onChange={(e) => void update({ interpretation: { originalInVolume: Number(e.target.value) } })} />
-          </Field>
-          <Field label={`播放中文译音时，原声压低到：${Math.round(i.duckLevel * 100)}%`}>
-            <input type="range" min={0} max={1} step={0.05} value={i.duckLevel} onChange={(e) => void update({ interpretation: { duckLevel: Number(e.target.value) } })} />
-          </Field>
+      <MyCorrectionsCard s={s} update={update} llmReady={llmReady} setTab={(t) => go?.(t as Tab)} />
+      {s.devices.meetingSource === 'device' && (
+        <div className="card">
+          <h3>对方的原声</h3>
+          <div className="stack">
+            <Toggle checked={i.playOriginalIn} onChange={(v) => void update({ interpretation: { playOriginalIn: v } })} label="播放原声" />
+            <Field label={`音量：${Math.round(i.originalInVolume * 100)}%`}>
+              <input type="range" min={0} max={1} step={0.05} value={i.originalInVolume} onChange={(e) => void update({ interpretation: { originalInVolume: Number(e.target.value) } })} />
+            </Field>
+            <Field label={`朗读中文时压低到：${Math.round(i.duckLevel * 100)}%`}>
+              <input type="range" min={0} max={1} step={0.05} value={i.duckLevel} onChange={(e) => void update({ interpretation: { duckLevel: Number(e.target.value) } })} />
+            </Field>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -756,8 +747,6 @@ function InterpTab({ s, update }: TabProps) {
 // ------------------------------------------------------------------ recording
 
 function RecordTab({ s, update }: TabProps) {
-  const foreign = foreignOf(s);
-  const fz = foreign === 'en' ? '英语' : '西语';
   const [info, setInfo] = useState<AppInfo | null>(null);
   useEffect(() => void api.app.info().then(setInfo), [s.recording.dir]);
   return (
@@ -774,15 +763,14 @@ function RecordTab({ s, update }: TabProps) {
       <div className="card">
         <h3>默认录制</h3>
         <div className="stack">
-          <Toggle checked={s.recording.audio} onChange={(v) => void update({ recording: { audio: v } })} label={`录音（全程混音：我方原声 + ${fz}译音 + 对方原声 + 中文译音）`} />
-          <Toggle checked={s.recording.screen} onChange={(v) => void update({ recording: { screen: v } })} label="录屏（在会议页选择屏幕或窗口）" />
-          <p className="hint">另外始终保存两路原声（16kHz WAV），可用于会后核对。录音录屏前请征得参会者同意。字幕窗默认不会出现在录屏和屏幕共享里。</p>
+          <Toggle checked={s.recording.audio} onChange={(v) => void update({ recording: { audio: v } })} label="录音" />
+          <Toggle checked={s.recording.screen} onChange={(v) => void update({ recording: { screen: v } })} label="录屏" />
         </div>
       </div>
       <div className="card">
         <h3>会议纪要</h3>
         <div className="stack">
-          <Toggle checked={s.summary.autoAtEnd} onChange={(v) => void update({ summary: { autoAtEnd: v } })} label="会议结束后自动生成中文 + 西文纪要" />
+          <Toggle checked={s.summary.autoAtEnd} onChange={(v) => void update({ summary: { autoAtEnd: v } })} label="会后自动生成纪要" />
           <Field label="默认模板">
             <select value={s.summary.template} onChange={(e) => void update({ summary: { template: e.target.value } })}>
               <option value="general">通用会议</option>
@@ -808,7 +796,7 @@ function OverlayTab({ s, update }: TabProps) {
         <Toggle checked={o.enabled} onChange={(v) => set({ enabled: v })} label="开始会议时自动显示字幕窗" />
         <Toggle checked={o.showOriginal} onChange={(v) => set({ showOriginal: v })} label="同时显示原文" />
         <Toggle checked={o.contentProtection} onChange={(v) => set({ contentProtection: v })} label="不出现在屏幕共享和录屏里" />
-        <Toggle checked={o.clickThrough} onChange={(v) => void api.app.setOverlayClickThrough(v)} label="鼠标穿透（字幕窗不挡点击）" />
+        <Toggle checked={o.clickThrough} onChange={(v) => void api.app.setOverlayClickThrough(v)} label="字幕窗不挡鼠标" />
         <Field label={`字号：${o.fontSize}px`}>
           <input type="range" min={14} max={40} value={o.fontSize} onChange={(e) => set({ fontSize: Number(e.target.value) })} />
         </Field>
@@ -834,13 +822,12 @@ function ShortcutsTab({ s, update }: TabProps) {
         <Field label="开关“翻译我的发言”">
           <input type="text" value={s.shortcuts.toggleOut} onChange={(e) => set('toggleOut', e.target.value)} />
         </Field>
-        <Field label="按键说话（按一下开始，再按一下结束）">
+        <Field label="按键说话">
           <input type="text" value={s.shortcuts.pushToTalk} onChange={(e) => set('pushToTalk', e.target.value)} />
         </Field>
         <Field label="显示/隐藏字幕窗">
           <input type="text" value={s.shortcuts.toggleOverlay} onChange={(e) => set('toggleOverlay', e.target.value)} />
         </Field>
-        <p className="hint">格式如 CommandOrControl+Shift+M（Mac 上 CommandOrControl 是 ⌘，Windows 上是 Ctrl）。</p>
       </div>
     </div>
   );
@@ -852,18 +839,18 @@ function AboutTab() {
   return (
     <div className="card">
       <h3>会议同传助手 v{info?.version}</h3>
-      <div className="stack">
-        <span>免费开源（MIT 协议）。</span>
-        <span>
-          项目主页：<ExternalLink href="https://github.com/Crhis-CP/meeting-interpreter">github.com/Crhis-CP/meeting-interpreter</ExternalLink>
-        </span>
-        <span>
-          新版本：<ExternalLink href="https://github.com/Crhis-CP/meeting-interpreter/releases">GitHub Releases</ExternalLink>
-        </span>
-        <span className="muted small">
-          系统：{info?.platform} {info?.arch} {info?.osVersion} · 数据目录：{info?.dataDir}（Key 加密保存在这里，日志为 app.log）
-        </span>
-      </div>
+      <dl className="facts">
+        <dt>协议</dt>
+        <dd>MIT</dd>
+        <dt>主页</dt>
+        <dd><ExternalLink href="https://github.com/Crhis-CP/meeting-interpreter">github.com/Crhis-CP/meeting-interpreter</ExternalLink></dd>
+        <dt>新版本</dt>
+        <dd><ExternalLink href="https://github.com/Crhis-CP/meeting-interpreter/releases">GitHub Releases</ExternalLink></dd>
+        <dt>系统</dt>
+        <dd>{info?.platform} {info?.arch} {info?.osVersion}</dd>
+        <dt>数据</dt>
+        <dd className="kbd">{info?.dataDir}</dd>
+      </dl>
     </div>
   );
 }

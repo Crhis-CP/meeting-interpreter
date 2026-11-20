@@ -35,13 +35,15 @@ export function HistoryPage({ openId, setOpenId }: { openId: string | null; setO
 
   return (
     <div>
-      <h1 className="page-title">会议记录</h1>
-      <p className="page-sub">
-        每场会议的双语记录、中西文纪要、录音和录屏都保存在本机：<span className="kbd">{dir}</span>
-      </p>
+      <header className="row between" style={{ marginBottom: 16 }}>
+        <h1 className="page-title">会议记录</h1>
+        <button className="btn" title={dir} onClick={() => void api.app.openRecordsDir()}>
+          打开文件夹
+        </button>
+      </header>
       <div className="card" style={{ padding: 0 }}>
         {items === null && <div className="empty">加载中…</div>}
-        {items?.length === 0 && <div className="empty">还没有会议记录。开始一场会议同传或现场房间后，这里会出现记录。</div>}
+        {items?.length === 0 && <div className="empty">还没有会议记录</div>}
         {items?.map((m) => (
           <div key={m.id} className="list-item" onClick={() => setOpenId(m.id)}>
             <div style={{ fontSize: 22 }}>{m.mode === 'room' ? '📱' : '🎧'}</div>
@@ -143,7 +145,7 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
       <p className="page-sub">
         {fmtDate(d.meta.startedAt)} {d.meta.endedAt ? `· ${duration(d.meta.startedAt, d.meta.endedAt)}` : ''} · {d.segments.length} 句
       </p>
-      <div className="tabs">
+      <div className="tabs" role="tablist" aria-label="会议内容">
         {(
           [
             ['transcript', '双语记录'],
@@ -152,8 +154,11 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
             ['media', '录音录屏'],
             ['files', '全部文件'],
           ] as const
-        ).map(([k, label]) => (
-          <button key={k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>
+        )
+          // Only tabs with something in them.
+          .filter(([k]) => k !== 'media' || urls.mix || urls.screen || urls.mic)
+          .map(([k, label]) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>
             {label}
           </button>
         ))}
@@ -163,7 +168,7 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
         <div className="card">
           <ReviewPanel d={d} onChange={setD} />
           <div className="segments">
-            {d.segments.length === 0 && <div className="empty">这场会议没有记录到发言。</div>}
+            {d.segments.length === 0 && <div className="empty">没有发言</div>}
             {d.segments.map((s) => (
               <EditableSegment key={s.id} meetingId={id} seg={s} onSaved={(seg) => setD({ ...d, segments: d.segments.map((x) => (x.id === seg.id ? seg : x)) })} />
             ))}
@@ -193,18 +198,16 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
             )}
           </div>
           {error && <div className="callout err">{error}</div>}
-          {d.summary ? <Markdown text={summaryToMarkdown(d.summary, tab === 'summary-zh' ? 'zh' : foreign, d.meta)} /> : <div className="empty">还没有纪要。选择模板后点“生成纪要”（需要配置大模型）。</div>}
+          {d.summary ? <Markdown text={summaryToMarkdown(d.summary, tab === 'summary-zh' ? 'zh' : foreign, d.meta)} /> : null}
         </div>
       )}
 
       {tab === 'media' && (
         <div className="card">
-          {!urls.mix && !urls.screen && !urls.mic && <div className="empty">这场会议没有录音或录屏。</div>}
           {urls.screen && (
             <div className="stack" style={{ marginBottom: 16 }}>
               <b>录屏</b>
               <video src={urls.screen} controls style={{ width: '100%', borderRadius: 10, background: '#000' }} />
-              <span className="muted small">同目录下有双语字幕文件（.srt），可在播放器里加载。</span>
             </div>
           )}
           {urls.mix && (

@@ -5,17 +5,19 @@ import { lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import type { SecretName } from '@core/config/schema';
 import { api, useDevices, useSettings } from '../api';
 import { ExternalLink } from '../components/ui';
-import { DRIVER_GUIDES, guessMeetingDevice, guessVirtualMic } from '../content/guides';
+import { guessMeetingDevice, guessVirtualMic } from '../content/guides';
 import { TestPanel } from './Settings';
 import { DriverInstaller } from '../components/DriverInstaller';
 
-const KEY_INFO: Record<SecretName, { label: string; url: string; help: string }> = {
-  llm: { label: '智谱 GLM（免费）API Key', url: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys', help: '注册智谱开放平台后在“API Keys”创建，GLM-4.7-Flash 免费。也可以在设置里换成 DeepSeek、通义或本机 Ollama。' },
-  dashscope: { label: '阿里云百炼 API Key', url: 'https://bailian.console.aliyun.com/?tab=model#/api-key', help: '登录阿里云百炼控制台 › API Key 创建（sk- 开头）。新用户有免费额度。' },
-  azure: { label: 'Azure 语音服务 Key', url: 'https://portal.azure.com', help: '在 Azure 门户创建“语音服务”，定价层选 F0（免费）。区域在设置里填写。' },
-  azureTranslator: { label: 'Azure 翻译 Key', url: 'https://portal.azure.com', help: '在 Azure 门户创建“翻译”资源，定价层选 F0（每月 200 万字符免费）。' },
-  deepl: { label: 'DeepL Key', url: 'https://www.deepl.com/pro-api', help: '' },
+const KEY_INFO: Record<SecretName, { label: string; url: string; placeholder: string }> = {
+  llm: { label: '智谱 GLM API Key', url: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys', placeholder: '' },
+  dashscope: { label: '阿里云百炼 API Key', url: 'https://bailian.console.aliyun.com/?tab=model#/api-key', placeholder: 'sk-…' },
+  azure: { label: 'Azure 语音服务 Key（F0 免费层）', url: 'https://portal.azure.com', placeholder: '' },
+  azureTranslator: { label: 'Azure 翻译 Key（F0 免费层）', url: 'https://portal.azure.com', placeholder: '' },
+  deepl: { label: 'DeepL Key', url: 'https://www.deepl.com/pro-api', placeholder: '' },
 };
+
+const STEPS = ['选方案', '填 Key', '虚拟声卡'];
 
 export function Onboarding({ onDone }: { onDone: () => void }) {
   const [s, update] = useSettings();
@@ -28,7 +30,6 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   if (!s) return null;
   const p = PRESETS.find((x) => x.id === choice)!;
   const os = platform === 'darwin' ? 'mac' : platform === 'win32' ? 'win' : 'linux';
-  const guide = DRIVER_GUIDES.find((g) => g.os === os)!;
   const vm = guessVirtualMic(outputs);
 
   const finishPlan = async () => {
@@ -60,12 +61,16 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '36px 24px' }}>
       <div className="brand" style={{ fontSize: 20 }}>
         <img className="logo" src={logoUrl} alt="" />
-        <div>
-          欢迎使用会议同传助手
-          <small>中文 ⇄ Español / English · 免费开源</small>
-        </div>
+        <h1 style={{ fontSize: 'inherit', margin: 0 }}>欢迎使用会议同传助手</h1>
       </div>
-      <p className="muted">三步完成设置：选方案 → 填 Key → 装虚拟声卡。之后在任何会议软件里都能双向同传，也能开“现场房间”让大家用手机加入。</p>
+      <ol className="stepper" aria-label="设置步骤">
+        {STEPS.map((name, i) => (
+          <li key={name} className={i === step ? 'current' : i < step ? 'done' : ''} aria-current={i === step ? 'step' : undefined}>
+            <span className="num">{i + 1}</span>
+            {name}
+          </li>
+        ))}
+      </ol>
 
       {step === 0 && (
         <div className="card">
@@ -81,18 +86,12 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               </button>
             ))}
           </div>
-          <h3>① 选择翻译方案（之后可在设置里随时更换）</h3>
+          <h3>翻译方案</h3>
           <div className="grid2">
             {PRESETS.map((x) => (
               <button key={x.id} className={`preset ${choice === x.id ? 'active' : ''}`} onClick={() => setChoice(x.id)}>
-                <h4>
-                  {x.name}
-                  {x.id === 'free' && <span className="badge ok" style={{ marginLeft: 6 }}>推荐免费</span>}
-                </h4>
-                <p>{x.description}</p>
-                <p className="muted small" style={{ marginTop: 6 }}>
-                  费用：{x.cost}
-                </p>
+                <h4>{x.name}</h4>
+                <p className="muted small">{x.cost}</p>
               </button>
             ))}
           </div>
@@ -106,22 +105,16 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 
       {step === 1 && (
         <div className="card">
-          <h3>② 填写 Key（只保存在本机，加密存储）</h3>
+          <h3>填写 Key</h3>
           <div className="stack">
             {p.needs.map((k) => (
-              <div key={k} className="stack" style={{ gap: 4 }}>
-                <b>{KEY_INFO[k].label}</b>
-                <input type="password" placeholder="粘贴到这里" value={keys[k] ?? ''} onChange={(e) => setKeys({ ...keys, [k]: e.target.value })} />
-                <span className="muted small">
-                  {KEY_INFO[k].help} <ExternalLink href={KEY_INFO[k].url}>去获取</ExternalLink>
+              <label key={k} className="field">
+                <span>
+                  {KEY_INFO[k].label} <ExternalLink href={KEY_INFO[k].url}>获取 ↗</ExternalLink>
                 </span>
-              </div>
+                <input type="password" placeholder={KEY_INFO[k].placeholder} value={keys[k] ?? ''} onChange={(e) => setKeys({ ...keys, [k]: e.target.value })} />
+              </label>
             ))}
-            {choice === 'free' && (
-              <div className="callout info">
-                免费方案的语音识别在本机离线完成（首次开会自动下载约 500MB 模型），语音合成使用系统自带声音。Windows 若没有西班牙语或英语语音，请在“设置 › 时间和语言 › 语音”里添加。
-              </div>
-            )}
           </div>
           <div className="row" style={{ marginTop: 16, justifyContent: 'space-between' }}>
             <button className="btn" onClick={() => setStep(0)}>
@@ -138,7 +131,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           </div>
           {Object.values(keys).some(Boolean) && (
             <div style={{ marginTop: 14 }}>
-              <TestPanel scope="llm" label="测试一下（会先保存 Key）" beforeRun={storeKeys} />
+              <TestPanel scope="llm" label="测试" beforeRun={storeKeys} />
             </div>
           )}
         </div>
@@ -146,24 +139,23 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 
       {step === 2 && (
         <div className="card">
-          <h3>③ 让会议软件听到译音：安装虚拟声卡</h3>
+          <h3>虚拟声卡</h3>
           {vm ? (
-            <div className="callout info">✅ 已装好虚拟麦克风：{vm.label}</div>
+            <dl className="facts">
+              <dt>已装好</dt>
+              <dd>{vm.label}</dd>
+              <dt>会议软件的麦克风选</dt>
+              <dd><b>{os === 'mac' ? 'BlackHole 2ch' : os === 'win' ? 'CABLE Output' : 'MI_Translated_Mic'}</b></dd>
+            </dl>
           ) : (
-            <>
-              <p className="muted" style={{ marginTop: 0 }}>用 Teams、飞书、腾讯会议等<b>电脑客户端</b>开会时需要它。只用网页版会议（装 Chrome 插件）或现场房间，可以跳过。</p>
-              <DriverInstaller onDone={refresh} />
-            </>
-          )}
-          {vm && (
-            <p className="hint">最后一步：开会时在会议软件的“音频设置”里，把<b>麦克风</b>选成 <b>{os === 'mac' ? 'BlackHole 2ch' : os === 'win' ? 'CABLE Output' : 'MI_Translated_Mic'}</b>。</p>
+            <DriverInstaller onDone={refresh} />
           )}
           <div className="row" style={{ marginTop: 16, justifyContent: 'space-between' }}>
             <button className="btn" onClick={() => setStep(p.needs.length ? 1 : 0)}>
               上一步
             </button>
-            <button className="btn primary big" onClick={finish}>
-              完成，开始使用
+            <button className={`btn big ${vm ? 'primary' : ''}`} onClick={finish}>
+              {vm ? '完成' : '跳过，开始使用'}
             </button>
           </div>
         </div>

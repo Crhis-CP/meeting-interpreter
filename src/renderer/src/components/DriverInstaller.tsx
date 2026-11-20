@@ -49,10 +49,9 @@ export function DriverInstaller({ onDone }: { onDone?: () => void }) {
         <button className="btn primary big" disabled={busy} onClick={() => void install()}>
           {busy ? '正在安装…' : '一键安装虚拟麦克风'}
         </button>
-        {text && <span className="muted small">{text}</span>}
+        {text && <span className="muted small" role="status">{text}</span>}
       </div>
-      {error && <div className="callout err">{error}</div>}
-      <span className="hint">从官网下载安装（免费），过程中电脑会让你输入一次密码或点一次“允许”。</span>
+      {error && <div className="callout err" role="alert">{error}</div>}
     </div>
   );
 }

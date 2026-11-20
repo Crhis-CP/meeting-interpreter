@@ -237,6 +237,8 @@ export interface RendererApi {
     detectMeetingApps(): Promise<string[]>;
     screenSources(): Promise<ScreenSource[]>;
     chooseRecordsDir(): Promise<string | null>;
+    /** Opens the folder where meetings are saved. */
+    openRecordsDir(): Promise<void>;
     showWindow(name: 'main' | 'overlay'): Promise<void>;
     setOverlayClickThrough(on: boolean): Promise<void>;
   };

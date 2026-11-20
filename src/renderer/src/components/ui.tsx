@@ -1,20 +1,21 @@
 import { memo, type ReactNode } from 'react';
 import type { TranscriptSegment } from '@core/types';
 
-export function Toggle(props: { checked: boolean; onChange: (v: boolean) => void; label?: ReactNode; disabled?: boolean }) {
+/** A switch. Without a visible `label`, give `ariaLabel` so it still has a name (screen readers, agents). */
+export function Toggle(props: { checked: boolean; onChange: (v: boolean) => void; label?: ReactNode; ariaLabel?: string; disabled?: boolean }) {
   return (
     <label className="toggle" style={props.disabled ? { opacity: 0.5, pointerEvents: 'none' } : undefined}>
-      <input type="checkbox" checked={props.checked} onChange={(e) => props.onChange(e.target.checked)} />
+      <input type="checkbox" role="switch" checked={props.checked} disabled={props.disabled} aria-label={props.ariaLabel} onChange={(e) => props.onChange(e.target.checked)} />
       <span className="track" />
       {props.label && <span>{props.label}</span>}
     </label>
   );
 }
 
-export function Level({ db }: { db: number }) {
+export function Level({ db, label }: { db: number; label?: string }) {
   const pct = Math.max(0, Math.min(100, ((db + 60) / 60) * 100));
   return (
-    <div className="level" title={`${db} dB`}>
+    <div className="level" role="meter" aria-label={label} aria-valuemin={-60} aria-valuemax={0} aria-valuenow={Math.max(-60, Math.min(0, db))}>
       <div style={{ width: `${pct}%` }} />
     </div>
   );
@@ -75,12 +76,11 @@ export const SegmentView = memo(function SegmentView({ seg, onClick }: { seg: Tr
   );
 });
 
-export function Field(props: { label: ReactNode; children: ReactNode; hint?: ReactNode }) {
+export function Field(props: { label: ReactNode; children: ReactNode }) {
   return (
     <label className="field">
       <span>{props.label}</span>
       {props.children}
-      {props.hint && <span className="muted small">{props.hint}</span>}
     </label>
   );
 }

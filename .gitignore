@@ -21,3 +21,6 @@ android/app/build/
 android/app/src/main/assets/www/
 android/local.properties
 src/renderer/public/offline-mt/
+
+# Temporary agent worktrees
+.claude/worktrees/
