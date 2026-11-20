@@ -1,0 +1,46 @@
+:root {
+  --blue: #2563eb;
+  --red: #dc2626;
+  --text: #111827;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --bg: #f8fafc;
+  font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: var(--text);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; }
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 16px; margin: 24px 0 10px; }
+.muted { color: var(--muted); font-size: 13px; }
+.small { font-size: 12px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.between { justify-content: space-between; }
+.stack > * + * { margin-top: 10px; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { flex: 1; border: 0; background: #fff; padding: 10px 6px; font-size: 14px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--blue); color: #fff; font-weight: 600; }
+.big { width: 100%; border: 0; border-radius: 12px; padding: 14px; font-size: 17px; font-weight: 700; color: #fff; background: var(--blue); cursor: pointer; }
+.big.stop { background: var(--red); }
+.big:disabled { opacity: 0.6; cursor: default; }
+.btn { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 7px 12px; font-size: 13px; cursor: pointer; }
+.btn.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+a { color: var(--blue); text-decoration: none; cursor: pointer; }
+.callout { border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.5; }
+.callout.warn { background: #fffbeb; color: #92400e; }
+.callout.err { background: #fef2f2; color: #991b1b; }
+.callout.info { background: #eff6ff; color: #1e40af; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; margin-right: 6px; }
+.dot.ok { background: #16a34a; }
+.dot.busy { background: #f59e0b; }
+.dot.err { background: var(--red); }
+label.field { display: block; font-size: 13px; color: var(--muted); }
+label.field > span { display: block; margin-bottom: 4px; }
+input[type='text'], input[type='password'], select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; font-family: inherit; background: #fff; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.card { border: 1px solid var(--line); border-radius: 12px; padding: 16px; background: #fff; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { border-bottom: 1px solid var(--line); padding: 6px; text-align: left; vertical-align: top; }
+td input[type='text'] { padding: 5px 7px; font-size: 13px; }

@@ -42,5 +42,8 @@
     "electron.vite.config.mts",
     "vitest.config.mts",
     "playwright.config.ts"
+  ],
+  "exclude": [
+    "e2e/extension.spec.ts"
   ]
 }

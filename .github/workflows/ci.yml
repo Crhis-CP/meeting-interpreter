@@ -26,6 +26,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Build the Chrome extension
+        run: node scripts/build-extension.mjs
       - name: Install Chromium for the phone-room test
         run: npx playwright install --with-deps chromium
       - name: End-to-end tests (Electron under Xvfb)

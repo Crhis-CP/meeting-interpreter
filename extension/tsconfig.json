@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noImplicitOverride": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": ["chrome", "node"],
+    "paths": {
+      "@core/*": ["../src/core/*"],
+      "@shared/*": ["../src/shared/*"]
+    }
+  },
+  "include": ["src/**/*", "tests/**/*", "../src/core/**/*", "../src/shared/**/*", "../src/main/provider-test.ts", "../e2e/extension.spec.ts"]
+}

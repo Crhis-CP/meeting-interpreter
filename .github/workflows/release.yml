@@ -76,6 +76,9 @@ jobs:
       - run: npm run build
       - name: Package
         run: npx electron-builder ${{ matrix.args }} --publish never
+      - name: Chrome extension
+        if: runner.os == 'Linux'
+        run: node scripts/build-extension.mjs --zip
       - uses: actions/upload-artifact@v4
         with:
           name: installers-${{ matrix.os }}
