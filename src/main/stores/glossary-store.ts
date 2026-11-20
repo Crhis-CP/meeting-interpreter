@@ -100,4 +100,38 @@ export class GlossaryStore {
     this.persist();
     return this.items;
   }
+
+  /**
+   * Terms learned after a meeting go to their own glossary, “自动术语”, where the user sees them and
+   * can delete any. Terms the user already has (in any glossary) are skipped. Returns those added.
+   */
+  addAutoTerms(terms: { zh: string; foreign: string }[], foreign: 'es' | 'en'): { zh: string; foreign: string }[] {
+    let g = this.items.find((x) => x.id === AUTO_GLOSSARY_ID);
+    if (!g) {
+      g = { id: AUTO_GLOSSARY_ID, name: '自动术语（会后学到的）', enabled: true, entries: [] };
+      this.items.push(g);
+    }
+    const have = new Set(this.items.flatMap((x) => x.entries.flatMap((e) => [e.zh, e.es, e.en ?? ''].filter(Boolean).map((v) => v.toLowerCase()))));
+    const added: { zh: string; foreign: string }[] = [];
+    for (const t of terms) {
+      if (have.has(t.zh.toLowerCase()) || have.has(t.foreign.toLowerCase())) continue;
+      have.add(t.zh.toLowerCase());
+      have.add(t.foreign.toLowerCase());
+      g.entries.push({ id: newEntryId(), zh: t.zh, es: foreign === 'es' ? t.foreign : '', en: foreign === 'en' ? t.foreign : '', aliasesZh: [], aliasesEs: [], aliasesEn: [], note: '会后自动学到', enabled: true });
+      added.push(t);
+    }
+    if (added.length) this.persist();
+    return added;
+  }
+
+  removeAutoTerm(zh: string): Glossary[] {
+    const g = this.items.find((x) => x.id === AUTO_GLOSSARY_ID);
+    if (g) {
+      g.entries = g.entries.filter((e) => e.zh !== zh);
+      this.persist();
+    }
+    return this.items;
+  }
 }
+
+export const AUTO_GLOSSARY_ID = 'auto-terms';

@@ -118,6 +118,13 @@ export class MockLlm implements Llm {
   readonly id = 'demo';
   async complete(req: LlmRequest): Promise<string> {
     if (!req.json) return req.user;
+    // The after-meeting review: the demo meeting's product and an industry term.
+    if (req.system.includes('MIS-HEARD')) {
+      const en = req.system.includes('English form');
+      const known: [string, string, string][] = [['会议', 'reunión', 'meeting'], ['新产品', 'nuevo producto', 'new product'], ['交货期', 'plazo de entrega', 'delivery time'], ['合同草稿', 'borrador del contrato', 'draft contract']];
+      const terms = known.filter(([zh, es, eng]) => req.user.includes(zh) && req.user.toLowerCase().includes(en ? eng : es)).map(([zh, es, eng]) => ({ zh, foreign: en ? eng : es }));
+      return JSON.stringify({ items: [], terms });
+    }
     return JSON.stringify({
       title: { zh: '新产品交货与价格洽谈', es: 'Negociación de entrega y precio del nuevo producto' },
       summary: {

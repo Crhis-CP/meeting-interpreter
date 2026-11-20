@@ -4,7 +4,7 @@ import type { PipelineState } from '../core/pipeline/pipeline';
 import type { VoiceInfo } from '../core/providers/types';
 import type { MeetingSummary, SummaryTemplate } from '../core/session/summary';
 import type { CalibrationResult, ProfileCorrection } from '../core/profile/profile';
-import type { ReviewSuggestion } from '../core/profile/review';
+import type { LearnedTerm, ReviewSuggestion } from '../core/profile/review';
 import type { Direction, MeetingMeta, TranscriptSegment } from '../core/types';
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : DeepPartial<T[K]>) : T[K] };
@@ -76,7 +76,10 @@ export interface MeetingDetail {
 
 export interface StoredReview {
   at: number;
-  suggestions: (ReviewSuggestion & { decision?: 'accepted' | 'ignored' })[];
+  /** Likely mis-hearings in my sentences; applied automatically (`auto`) and can be undone. */
+  suggestions: (ReviewSuggestion & { decision?: 'accepted' | 'ignored' | 'undone'; auto?: boolean })[];
+  /** Terms learned from this meeting and added to the “自动术语” glossary. */
+  terms?: LearnedTerm[];
 }
 
 /** The voice profile as the settings page shows it. */
@@ -171,6 +174,10 @@ export interface RendererApi {
     /** Asks the LLM which of my words were likely mis-heard (needs an LLM key). */
     review(id: string): Promise<StoredReview>;
     decide(id: string, segId: string, heard: string, accept: boolean): Promise<MeetingDetail | null>;
+    /** Undoes an automatic correction (the sentence goes back, the learned word is forgotten). */
+    undo(id: string, segId: string, heard: string): Promise<MeetingDetail | null>;
+    /** Removes a term this meeting added to the automatic glossary. */
+    forgetTerm(id: string, zh: string): Promise<MeetingDetail | null>;
   };
   /** The personal voice profile (accent calibration and learned corrections), kept in a local file. */
   profile: {
@@ -240,7 +247,7 @@ export interface RendererEvents {
   'driver-progress': { text: string };
   'calibration-progress': { done: number; total: number };
   /** The after-meeting review found words to confirm (History opens them). */
-  'review-ready': { id: string; count: number };
+  'review-ready': { id: string; count: number; terms: number };
   room: RoomState;
   toast: { level: 'info' | 'warn' | 'error'; message: string };
   settings: AppSettings;

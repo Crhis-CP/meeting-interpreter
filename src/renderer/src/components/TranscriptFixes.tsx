@@ -41,58 +41,67 @@ export function EditableSegment({ meetingId, seg, onSaved }: { meetingId: string
   );
 }
 
-/** “可能听错的地方”: the after-meeting review, to accept or ignore one by one (or all at once). */
+/**
+ * What the after-meeting review learned by itself: corrected mis-hearings (each can be undone) and
+ * new terms added to the automatic glossary (each can be removed).
+ */
 export function ReviewPanel({ d, onChange }: { d: MeetingDetail; onChange: (d: MeetingDetail) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const open = d.review?.suggestions.filter((s) => !s.decision) ?? [];
-  const decide = async (segId: string, heard: string, accept: boolean) => {
-    const next = await api.meetings.decide(d.meta.id, segId, heard, accept);
-    if (next) onChange(next);
-  };
-  const run = async (fn: () => Promise<void>) => {
+  const run = async (fn: () => Promise<MeetingDetail | null | void>) => {
     setBusy(true);
     setError('');
     try {
-      await fn();
+      const next = await fn();
+      if (next) onChange(next);
     } catch (err) {
       setError(errMsg(err));
     } finally {
       setBusy(false);
     }
   };
-  const mine = d.segments.some((s) => s.dir === 'out');
-  if (!mine) return null;
+  const fixes = d.review?.suggestions.filter((s) => s.decision === 'accepted' || s.decision === 'undone' || !s.decision) ?? [];
+  const terms = d.review?.terms ?? [];
+  const jump = (segId: string) => document.getElementById(`seg-${segId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   return (
     <div className="callout info" style={{ marginBottom: 12 }} data-testid="review-panel">
       {!d.review ? (
         <div className="row between">
-          <span>想让识别越用越准？让大模型找出这场会议里我说的话可能听错的地方，确认后以后会自动改对。</span>
-          <button className="btn sm" disabled={busy} onClick={() => void run(async () => { await api.meetings.review(d.meta.id); const n = await api.meetings.get(d.meta.id); if (n) onChange(n); })}>
-            {busy ? '检查中…' : '找出可能听错的地方'}
+          <span>让 AI 读一遍这场会议：自动改正我说的话里听错的词，并学会会议里的人名、产品、行业术语。以后自动用上，学错了可以撤销。</span>
+          <button className="btn sm" disabled={busy} onClick={() => void run(async () => (await api.meetings.review(d.meta.id), api.meetings.get(d.meta.id)))}>
+            {busy ? '学习中…' : 'AI 自动学习'}
           </button>
         </div>
-      ) : open.length ? (
+      ) : (
         <div className="stack">
-          <div className="row between">
-            <b>可能听错了 {open.length} 处：确认后会改正记录，并记住以后自动改对</b>
-            <button className="btn primary sm" disabled={busy} onClick={() => void run(async () => { for (const s of open) await decide(s.segId, s.heard, true); })}>全部采用</button>
-          </div>
-          {open.map((s) => (
+          <b>会后自动学习：{fixes.length || terms.length ? `改正 ${fixes.filter((f) => f.decision !== 'undone').length} 处听错的词，学会 ${terms.length} 个新术语` : '没有发现听错的词，也没有新术语'}</b>
+          {fixes.map((s) => (
             <div key={`${s.segId}:${s.heard}`} className="row between">
               <span>
-                “{s.heard}” → “<b>{s.meant}</b>”{s.reason ? <span className="muted small">（{s.reason}）</span> : null}
-                <a href={`#seg-${s.segId}`} className="small" style={{ marginLeft: 6 }} onClick={(e) => { e.preventDefault(); document.getElementById(`seg-${s.segId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>看原句</a>
+                {s.decision === 'undone' ? <s>“{s.heard}” → “{s.meant}”</s> : <>“{s.heard}” → “<b>{s.meant}</b>”</>}
+                {s.reason ? <span className="muted small">（{s.reason}）</span> : null}
+                <a href={`#seg-${s.segId}`} className="small" style={{ marginLeft: 6 }} onClick={(e) => (e.preventDefault(), jump(s.segId))}>看原句</a>
               </span>
-              <span className="row">
-                <button className="btn sm" disabled={busy} onClick={() => void run(() => decide(s.segId, s.heard, true))}>采用</button>
-                <button className="btn ghost sm" disabled={busy} onClick={() => void run(() => decide(s.segId, s.heard, false))}>忽略</button>
-              </span>
+              {s.decision === 'undone' ? (
+                <span className="muted small">已撤销</span>
+              ) : s.decision === 'accepted' ? (
+                <button className="btn ghost sm" disabled={busy} onClick={() => void run(() => api.meetings.undo(d.meta.id, s.segId, s.heard))}>撤销</button>
+              ) : (
+                <span className="row">
+                  <button className="btn sm" disabled={busy} onClick={() => void run(() => api.meetings.decide(d.meta.id, s.segId, s.heard, true))}>采用</button>
+                  <button className="btn ghost sm" disabled={busy} onClick={() => void run(() => api.meetings.decide(d.meta.id, s.segId, s.heard, false))}>忽略</button>
+                </span>
+              )}
             </div>
           ))}
+          {terms.map((t) => (
+            <div key={t.zh} className="row between">
+              <span>新术语：{t.zh} = <b>{t.foreign}</b></span>
+              <button className="btn ghost sm" disabled={busy} onClick={() => void run(() => api.meetings.forgetTerm(d.meta.id, t.zh))}>移除</button>
+            </div>
+          ))}
+          {terms.length > 0 && <span className="muted small">新术语在 术语表 › 自动术语（会后学到的） 里，可以随时修改或删除。</span>}
         </div>
-      ) : (
-        <span className="muted">会后检查完成{d.review.suggestions.length ? '，可能听错的地方都处理好了' : '：没有发现听错的地方'}。识别错了也可以点每句话旁边的“✎ 改正”。</span>
       )}
       {error && <div className="callout err" style={{ marginTop: 8 }}>{error}</div>}
     </div>

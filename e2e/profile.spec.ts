@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 import { launchApp, mainWindow } from './helpers';
 
 test('accent calibration, then correcting a sentence teaches the profile', async () => {
-  const { app, recordsDir } = await launchApp();
+  const { app, recordsDir, dataDir } = await launchApp();
   const win = await mainWindow(app);
   await win.waitForLoadState('domcontentloaded');
 
@@ -39,7 +39,20 @@ test('accent calibration, then correcting a sentence teaches the profile', async
   // 3. Correct a recognised sentence in the record: re-translated, files rewritten, and learned.
   await win.getByRole('button', { name: '查看会议记录' }).click();
   await win.locator('.list-item').first().click();
-  await expect(win.getByTestId('review-panel')).toBeVisible();
+  // AI learning after the meeting (the demo LLM answers): new terms go to the automatic glossary.
+  const panel = win.getByTestId('review-panel');
+  await panel.getByRole('button', { name: 'AI 自动学习' }).click();
+  await expect(panel).toContainText(/学会 [1-9] 个新术语/, { timeout: 15_000 });
+  await expect(panel).toContainText('会议 = reunión');
+  await panel.locator('.row', { hasText: '会议 = ' }).getByRole('button', { name: '移除' }).click();
+  await expect(panel).not.toContainText('会议 = reunión');
+  // The automatic glossary exists, without the removed term.
+  const glossaries = JSON.parse(readFileSync(join(dataDir, 'glossaries.json'), 'utf8')) as { id: string; name: string; entries: { zh: string }[] }[];
+  const auto = glossaries.find((g) => g.id === 'auto-terms')!;
+  expect(auto.name).toBe('自动术语（会后学到的）');
+  expect(auto.entries.map((e) => e.zh)).not.toContain('会议');
+
+  // 3. Correct a recognised sentence in the record: re-translated, files rewritten, and learned.
   const seg = win.locator('.editable-seg', { hasText: '欢迎参加今天的' }).first();
   await seg.getByRole('button', { name: '✎ 改正' }).click();
   await seg.getByLabel('改正识别的文字').fill('大家好，欢迎参加今天的会意。');

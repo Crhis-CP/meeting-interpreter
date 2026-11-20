@@ -14,7 +14,7 @@ import { calibrationScript } from '../core/profile/calibration';
 import { runCalibration } from '../core/profile/calibrate';
 import { learnFromEdit } from '../core/profile/learn';
 import { addCalibration, addCorrections, mergeProfiles, personalFor, profileHotwords, ProfileSchema, recordConfusions, removeCorrection, userPairs } from '../core/profile/profile';
-import { reviewTranscript } from '../core/profile/review';
+import { reviewMeeting as reviewMeetingCore } from '../core/profile/review';
 import { createLogger, setLogSink } from '../core/log';
 import { createProviders, makeLlm, type Providers } from '../core/providers/registry';
 import { azureVoicesFor } from '../core/providers/azure';
@@ -357,6 +357,30 @@ const handlers: Record<string, Handler> = {
 
   'meetings.editSegment': (id: string, segId: string, srcText: string) => editSegment(id, segId, srcText),
   'meetings.review': async (id: string) => reviewMeeting(id),
+  'meetings.undo': async (id: string, segId: string, heard: string) => {
+    const detail = meetings.get(id);
+    const review = detail?.review;
+    const item = review?.suggestions.find((s) => s.segId === segId && s.heard === heard);
+    if (!detail || !review || !item || item.decision !== 'accepted') return detail;
+    const seg = detail.segments.find((s) => s.id === segId);
+    if (seg) {
+      profileStore.update((p) => removeCorrection(p, baseOf(seg.srcLang), item.heard));
+      const i = seg.srcText.indexOf(item.meant);
+      if (i >= 0) await editSegment(id, segId, seg.srcText.slice(0, i) + item.heard + seg.srcText.slice(i + item.meant.length), { learn: false });
+    }
+    item.decision = 'undone';
+    meetings.saveReview(id, review);
+    return meetings.get(id);
+  },
+  'meetings.forgetTerm': (id: string, zh: string) => {
+    glossaries.removeAutoTerm(String(zh));
+    const detail = meetings.get(id);
+    if (detail?.review?.terms) {
+      detail.review.terms = detail.review.terms.filter((t) => t.zh !== zh);
+      meetings.saveReview(id, detail.review);
+    }
+    return meetings.get(id);
+  },
   'meetings.decide': async (id: string, segId: string, heard: string, accept: boolean) => {
     const detail = meetings.get(id);
     const review = detail?.review;
@@ -565,21 +589,22 @@ function autoReview(id: string): void {
   if (mine < 3) return;
   void reviewMeeting(id)
     .then((r) => {
-      const n = r.suggestions.length;
-      if (n) broadcast('review-ready', { id, count: n });
+      const n = r.suggestions.filter((s) => s.decision === 'accepted').length;
+      const t = r.terms?.length ?? 0;
+      if (n || t) broadcast('review-ready', { id, count: n, terms: t });
     })
     .catch((err) => log.warn('after-meeting review failed', err instanceof Error ? err.message : String(err)));
 }
 
 /** Corrects one recognised sentence: re-translate, rewrite the transcript files, learn from the fix. */
-async function editSegment(id: string, segId: string, srcText: string): Promise<{ segment: TranscriptSegment; learned: { heard: string; meant: string }[] }> {
+async function editSegment(id: string, segId: string, srcText: string, opts: { learn?: boolean } = {}): Promise<{ segment: TranscriptSegment; learned: { heard: string; meant: string }[] }> {
   const detail = meetings.get(id);
   const seg = detail?.segments.find((s) => s.id === segId);
   if (!detail || !seg) throw new Error('找不到这句话');
   const text = String(srcText ?? '').trim().slice(0, 2000);
   if (!text || text === seg.srcText) return { segment: seg, learned: [] };
   const base = baseOf(seg.srcLang);
-  const learned = learnFromEdit(seg.srcText, text, base);
+  const learned = opts.learn === false ? [] : learnFromEdit(seg.srcText, text, base);
   let dstText = seg.dstText;
   try {
     const entries = glossaries.active();
@@ -614,15 +639,29 @@ function profileView(): ProfileView {
   return { file: profileStore.file(), corrections: p.corrections, pairs: userPairs(p), calibrations: p.calibrations };
 }
 
-/** The after-meeting review of my own sentences (needs the user's LLM key). */
+/**
+ * After a meeting (needs the user's LLM key): words the recogniser mis-heard in my sentences are
+ * corrected and learned, and the meeting's names / products / industry terms go to the automatic
+ * glossary — all by itself; each can be undone.
+ */
 async function reviewMeeting(id: string): Promise<StoredReview> {
   const detail = meetings.get(id);
   if (!detail) throw new Error('会议不存在');
   const llm = makeLlm(settings.get(), secrets.all(), ctx, false);
-  if (!llm) throw new Error('需要先在 设置 › 翻译服务 里填写大模型 Key（例如免费的智谱），才能自动找出听错的地方');
-  const terms = glossaries.active().map((e) => e.zh).filter(Boolean);
-  const suggestions = await reviewTranscript(llm, detail.segments, { terms });
-  const review: StoredReview = { at: Date.now(), suggestions };
+  if (!llm) throw new Error('需要先在 设置 › 翻译服务 里填写大模型 Key（例如免费的智谱），才能自动学习');
+  const foreign: 'es' | 'en' = baseOf(detail.meta.remoteLang) === 'en' ? 'en' : 'es';
+  const known = glossaries.active().flatMap((e) => [e.zh, foreign === 'en' ? (e.en ?? '') : e.es]).filter(Boolean);
+  const r = await reviewMeetingCore(llm, detail.segments, { terms: known, foreign });
+  const review: StoredReview = { at: Date.now(), suggestions: r.suggestions, terms: [] };
+  for (const sg of review.suggestions) {
+    const seg = meetings.get(id)?.segments.find((s) => s.id === sg.segId);
+    if (!seg || !seg.srcText.includes(sg.heard)) continue;
+    profileStore.update((p) => addCorrections(p, [{ heard: sg.heard, meant: sg.meant }], baseOf(seg.srcLang), 'review'));
+    await editSegment(id, sg.segId, seg.srcText.split(sg.heard).join(sg.meant), { learn: false }).catch((err) => log.warn('auto correction failed', err instanceof Error ? err.message : String(err)));
+    sg.decision = 'accepted';
+    sg.auto = true;
+  }
+  review.terms = glossaries.addAutoTerms(r.terms, foreign);
   meetings.saveReview(id, review);
   return review;
 }

@@ -180,7 +180,7 @@ export function MyCorrectionsCard({ s, update }: { s: AppSettings; update: (patc
       <p className="hint" style={{ marginTop: 0 }}>
         软件从校准、你在会议记录里改的字、会后检查中学到的“听成 → 其实是”。每次识别后自动改对，也会提醒识别方式多留意这些词。
       </p>
-      <Toggle checked={s.interpretation.autoReview} onChange={(v) => void update({ interpretation: { autoReview: v } })} label="会后自动检查我说的话里可能听错的词（需要大模型 Key；结果在会议记录里确认）" />
+      <Toggle checked={s.interpretation.autoReview} onChange={(v) => void update({ interpretation: { autoReview: v } })} label="会后自动学习：改正我说的话里听错的词，学会会议里的新术语（需要大模型 Key，例如免费的智谱；学错了可以在会议记录里撤销）" />
       {p.pairs.length > 0 && <div className="small" style={{ marginTop: 8 }}>你的口音特点：{p.pairs.map(pairName).join('、')}</div>}
       {p.corrections.length ? (
         <table className="table" style={{ marginTop: 10 }}>

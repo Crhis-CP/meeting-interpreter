@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Llm, LlmRequest } from '@core/providers/types';
 import type { TranscriptSegment } from '@core/types';
-import { reviewTranscript } from '@core/profile/review';
+import { reviewMeeting, reviewTranscript } from '@core/profile/review';
 
 const seg = (id: string, dir: 'out' | 'in', srcText: string, srcLang = dir === 'out' ? 'zh-CN' : 'es-AR'): TranscriptSegment => ({
   id, dir, speaker: dir === 'out' ? 'me' : 'them', seq: 1, start: 0, end: 1, srcLang, srcText, dstLang: 'x', dstText: 'x', status: 'done',
@@ -44,5 +44,48 @@ describe('after-meeting review of what I said', () => {
   it('returns nothing when there is nothing of mine or the reply is not JSON', async () => {
     expect(await reviewTranscript(new FakeLlm('{}'), [seg('in-1', 'in', 'Hola')], { terms: [] })).toEqual([]);
     expect(await reviewTranscript(new FakeLlm('sorry'), segs, { terms: [] })).toEqual([]);
+  });
+});
+
+describe('after-meeting review learns terms by itself', () => {
+  const segs = [
+    seg('out-1', 'out', '我们下周介绍星云平台的价格。'),
+    { ...seg('in-1', 'in', 'Nos interesa mucho la Plataforma Nébula.'), dstText: '我们对星云平台很感兴趣。' },
+    seg('out-2', 'out', '星云平台支持西班牙语。'),
+  ];
+
+  it('returns names / products / industry terms that are really in the meeting, with their translation', async () => {
+    const llm = new FakeLlm(
+      JSON.stringify({
+        items: [],
+        terms: [
+          { zh: '星云平台', foreign: 'Plataforma Nébula' },
+          { zh: '价格', foreign: 'precio' }, // an everyday word the model should have skipped: still in the meeting, so kept (the user can delete it)
+          { zh: '量子计划', foreign: 'Plan Cuántico' }, // never said in the meeting
+          { zh: 'x', foreign: '' },
+        ],
+      }),
+    );
+    const r = await reviewMeeting(llm, segs, { terms: [], foreign: 'es' });
+    expect(r.terms).toContainEqual({ zh: '星云平台', foreign: 'Plataforma Nébula' });
+    expect(r.terms.find((t) => t.zh === '量子计划')).toBeUndefined();
+    expect(r.terms.find((t) => t.zh === 'x')).toBeUndefined();
+    expect(llm.requests[0]!.user).toContain('Nos interesa mucho la Plataforma Nébula. ‖ 我们对星云平台很感兴趣。');
+  });
+
+  it('does not suggest terms the user already has', async () => {
+    const llm = new FakeLlm(JSON.stringify({ items: [], terms: [{ zh: '星云平台', foreign: 'Plataforma Nébula' }] }));
+    const r = await reviewMeeting(llm, segs, { terms: ['星云平台'], foreign: 'es' });
+    expect(r.terms).toEqual([]);
+  });
+});
+
+describe('learned terms are never mis-hearings', () => {
+  it('drops a “term” that is the mis-heard word itself', async () => {
+    const segs = [seg('out-1', 'out', '我们下周把河同发给你们。'), { ...seg('in-1', 'in', 'Gracias por el contrato.'), dstText: '谢谢你们的合同。' }];
+    const llm = new FakeLlm(JSON.stringify({ items: [{ line: 1, heard: '河同', meant: '合同', reason: '' }], terms: [{ zh: '河同', foreign: 'contrato' }] }));
+    const r = await reviewMeeting(llm, segs, { terms: [], foreign: 'es' });
+    expect(r.suggestions).toHaveLength(1);
+    expect(r.terms).toEqual([]);
   });
 });

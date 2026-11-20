@@ -50,9 +50,10 @@ export function App() {
     setTimeout(() => setToasts((x) => x.filter((y) => y.id !== id)), t.level === 'error' ? 9000 : 6000);
   });
   useEvent('navigate', ({ page }) => setPage(page as Page));
-  useEvent('review-ready', ({ id, count }) => {
+  useEvent('review-ready', ({ id, count, terms }) => {
     const tid = Date.now() + Math.random();
-    setToasts((x) => [...x, { id: tid, level: 'info', message: `会后检查：刚才的会议里可能有 ${count} 处听错了，点这里去确认（确认后以后会自动改对）`, meetingId: id }]);
+    const what = [count ? `改正了 ${count} 处听错的词` : '', terms ? `学会了 ${terms} 个新术语` : ''].filter(Boolean).join('，');
+    setToasts((x) => [...x, { id: tid, level: 'info', message: `会后自动学习：${what}，以后会自动用上。点这里查看（学错了可以撤销）`, meetingId: id }]);
     setTimeout(() => setToasts((x) => x.filter((y) => y.id !== tid)), 15000);
   });
   useEvent('model-progress', (p) => {
