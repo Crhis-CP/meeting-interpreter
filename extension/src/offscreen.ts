@@ -8,10 +8,10 @@
 import { base64ToBytes, bytesToBase64, bytesToInt16, floatToInt16, int16ToBytes, int16ToFloat, resampleLinear } from '@core/audio/pcm';
 import { otherLanguage } from '@core/lang/languages';
 import { DirectionPipeline } from '@core/pipeline/pipeline';
-import { createProviders } from '@core/providers/registry';
 import { Transcript } from '@core/session/transcript';
 import type { Direction, MeetingMeta, TranscriptSegment } from '@core/types';
 import { consoleLogger, createBrowserContext } from './browser-context';
+import { buildProviders } from './engine-providers';
 import { PORT_NAME, toAppSettings, type EngineToPage, type FromOffscreen, type PageToEngine, type SessionState, type StoredData, type ToOffscreen, type DOmit } from './shared';
 
 const log = consoleLogger('engine');
@@ -122,7 +122,7 @@ async function start(msg: Extract<ToOffscreen, { type: 'start' }>) {
     const { data } = msg;
     const settings = toAppSettings(data.settings);
     const pctx = createBrowserContext(log, addHeaders);
-    const providers = createProviders(settings, data.secrets, pctx, () => data.glossary); // throws when a key is missing
+    const providers = buildProviders(data.settings, data.secrets, pctx, () => data.glossary); // throws when a key is missing
     const now = Date.now();
     const meta: MeetingMeta = {
       id: new Date(now).toISOString().replace(/[:.]/g, '-'),

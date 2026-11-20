@@ -18,7 +18,7 @@ export const MEETING_SITES = [
   'https://*.webex.com/*',
 ];
 
-export type ProviderSet = 'dashscope' | 'azure' | 'custom' | 'demo';
+export type ProviderSet = 'free' | 'dashscope' | 'azure' | 'custom' | 'demo';
 
 /** What the user configures in the extension (kept in chrome.storage.local). */
 export interface ExtSettings {
@@ -44,9 +44,9 @@ export interface ExtSettings {
 
 export const DEFAULT_SETTINGS: ExtSettings = {
   remote: 'es-MX',
-  providers: 'dashscope',
-  out: { asr: 'dashscope', mt: 'qwen-mt', tts: 'dashscope', voice: '' },
-  in: { asr: 'dashscope', mt: 'qwen-mt', tts: 'dashscope', voice: '' },
+  providers: 'free',
+  out: { asr: 'local', mt: 'llm', tts: 'system', voice: '' },
+  in: { asr: 'local', mt: 'llm', tts: 'system', voice: '' },
   llm: { preset: 'zhipu-free', baseUrl: '', model: '' },
   dashscopeRegion: 'cn',
   azureRegion: 'eastasia',
@@ -61,6 +61,7 @@ export const DEFAULT_SETTINGS: ExtSettings = {
 
 /** Provider choices per preset; `custom` keeps the user's own per-direction choices. */
 export const PROVIDER_SETS: Record<Exclude<ProviderSet, 'custom'>, { asr: string; mt: string; tts: string }> = {
+  free: { asr: 'local', mt: 'llm', tts: 'system' },
   dashscope: { asr: 'dashscope', mt: 'qwen-mt', tts: 'dashscope' },
   azure: { asr: 'azure', mt: 'azure-translator', tts: 'azure' },
   demo: { asr: 'demo', mt: 'demo', tts: 'demo' },
@@ -81,7 +82,7 @@ export function withDefaults(s: Partial<ExtSettings> | undefined): ExtSettings {
 
 /** The core engine's settings for these extension settings. */
 export function toAppSettings(s: ExtSettings): AppSettings {
-  const tts = (t: string) => (t === 'none' || t === 'dashscope' || t === 'azure' || t === 'demo' ? t : 'none');
+  const tts = (t: string) => (t === 'none' || t === 'dashscope' || t === 'azure' || t === 'demo' || t === 'system' ? t : 'none');
   return parseSettings({
     onboarded: true,
     preset: s.providers === 'demo' ? 'demo' : 'custom',

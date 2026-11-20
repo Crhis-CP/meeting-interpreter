@@ -1,4 +1,7 @@
+import { pingDesktop } from '@core/bridge/desktop';
+import { consoleLogger, createBrowserContext } from './browser-context';
 import { h, settingsProblem } from './dom';
+import { usesDesktop } from './engine-providers';
 import { IDLE_STATE, loadAll, MEETING_SITES, withDefaults, type SessionState, type ToBackground } from './shared';
 
 const app = document.getElementById('app')!;
@@ -54,6 +57,37 @@ async function render() {
         h('button', { class: isEn ? 'on' : '', onclick: () => isEn || void setRemote('en-US') }, 'English'),
       ),
     );
+    const setProviders = async (providers: 'free' | 'dashscope') => {
+      await chrome.storage.local.set({ settings: withDefaults({ ...s, providers }) });
+      void render();
+    };
+    const other = s.providers !== 'free' && s.providers !== 'dashscope';
+    app.append(
+      h('div', { class: 'muted', style: 'margin-bottom:6px' }, '方案'),
+      h(
+        'div',
+        { class: 'seg', style: 'margin-bottom:6px' },
+        h('button', { class: s.providers === 'free' ? 'on' : '', onclick: () => void setProviders('free') }, '免费版'),
+        h('button', { class: s.providers === 'dashscope' ? 'on' : '', onclick: () => void setProviders('dashscope') }, '高级版'),
+        other ? h('button', { class: 'on', onclick: () => openOptions() }, { azure: 'Azure', custom: '自定义', demo: '演示' }[s.providers as 'azure'] ?? '自定义') : null,
+      ),
+      h(
+        'div',
+        { class: 'muted small', style: 'margin-bottom:14px;line-height:1.5' },
+        s.providers === 'free' ? '免费：需要电脑上同时打开桌面客户端，翻译用免费的智谱 GLM。' : s.providers === 'dashscope' ? '准确度最高、声音最自然：阿里云百炼，一个 Key。' : '',
+      ),
+    );
+    if (usesDesktop(s)) {
+      const warn = h('div');
+      app.append(warn);
+      void pingDesktop(createBrowserContext(consoleLogger('popup'), async () => undefined)).then((ok) => {
+        if (!ok) {
+          warn.replaceWith(
+            h('div', { class: 'callout warn', style: 'margin-bottom:12px' }, '免费版需要先打开电脑上的“会议同传助手”桌面客户端。', ' ', h('a', { href: 'https://github.com/Crhis-CP/meeting-interpreter/releases/latest', target: '_blank' }, '下载')),
+          );
+        }
+      });
+    }
     const problem = settingsProblem(data);
     if (problem) {
       app.append(

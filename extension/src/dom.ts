@@ -1,6 +1,6 @@
-import { createProviders } from '@core/providers/registry';
 import { consoleLogger, createBrowserContext } from './browser-context';
-import { toAppSettings, type StoredData } from './shared';
+import { buildProviders } from './engine-providers';
+import type { StoredData } from './shared';
 
 type Child = Node | string | null | undefined | false;
 type Props = Record<string, unknown> & { class?: string; style?: string };
@@ -27,7 +27,7 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Props = 
 export function settingsProblem(data: StoredData): string | null {
   try {
     const ctx = createBrowserContext(consoleLogger('check'), async () => undefined);
-    const p = createProviders(toAppSettings(data.settings), data.secrets, ctx, () => data.glossary);
+    const p = buildProviders(data.settings, data.secrets, ctx, () => data.glossary);
     for (const dir of ['out', 'in'] as const) {
       p.asr(dir);
       p.mt(dir);

@@ -23,6 +23,7 @@ import { ModelManager } from './providers/local-asr/model-manager';
 import { modelsForLang, modelsSize, type ModelId } from './providers/local-asr/models';
 import { SystemTts } from './providers/system-tts';
 import { RoomHost } from './room/room-host';
+import { DesktopBridge } from './bridge/desktop-bridge';
 import { audioConfig, SessionManager } from './session/session-manager';
 import { GlossaryStore } from './stores/glossary-store';
 import { MeetingsStore } from './stores/meetings-store';
@@ -124,6 +125,22 @@ const localAsr = (dir: Direction) => {
       }),
   });
 };
+
+/** The Chrome extension's free tier: offline recognition and system voices on 127.0.0.1. */
+const desktopBridge = new DesktopBridge({
+  version: app.getVersion(),
+  log: log.child('bridge'),
+  enabled: () => settings.get().bridge.enabled,
+  asr: () => localAsr('in'),
+  tts: systemTts,
+  modelsReady: (base) => modelsForLang(base, settings.get().local.esModel).every((id) => models.status(id) === 'ready'),
+  ensureModels: (base, onStatus) =>
+    models.ensureFor(base, settings.get().local.esModel, (p) => {
+      onStatus(`正在下载本机识别模型 ${p.file} ${p.total ? Math.round((p.received / p.total) * 100) : 0}%`);
+      broadcast('model-progress', p);
+    }),
+  onClients: (n) => log.info(`extension recognition sessions: ${n}`),
+});
 
 function providers(): Providers {
   return createProviders(settings.get(), secrets.all(), ctx, () => glossaries.active(), { systemTts, localAsr });
@@ -528,6 +545,7 @@ app.whenReady().then(() => {
   settings.on('changed', () => updateTray());
   sessionManager.on('ended', () => updateTray());
   log.info(`started ${app.getVersion()} on ${process.platform} ${process.arch}`);
+  void desktopBridge.start().catch((err) => log.warn('desktop bridge unavailable', err instanceof Error ? err.message : String(err)));
   // A quiet check for a newer release on GitHub (no auto-install: unsigned builds).
   setTimeout(() => {
     void checkForUpdate(app.getVersion(), log, proxiedFetch).then((u) => {

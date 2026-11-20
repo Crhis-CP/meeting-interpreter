@@ -134,6 +134,8 @@ export const SettingsSchema = z.object({
       publicLink: z.boolean().default(false),
     })
     .default({ port: 47800, publicLink: false }),
+  /** Let the Chrome extension use this app's offline recognition and voices (free tier). */
+  bridge: z.object({ enabled: z.boolean().default(true) }).default({ enabled: true }),
   platform: z.string().default(''),
 });
 

@@ -338,6 +338,12 @@ function ProvidersTab({ s, update }: TabProps) {
       )}
 
       <div className="card">
+        <h3>Chrome 插件（免费版）</h3>
+        <Toggle checked={s.bridge.enabled} onChange={(v) => void update({ bridge: { enabled: v } })} label="允许 Chrome 插件使用本机离线识别和系统语音" />
+        <p className="hint">网页版会议用插件时，选“免费版”就会借用这里的识别和语音（只在本机 127.0.0.1 上，网页无法访问）。使用时请保持本软件打开。</p>
+      </div>
+
+      <div className="card">
         <h3>高级：每个方向分别选择</h3>
         {(['out', 'in'] as const).map((d) => {
           const c = dir(d);

@@ -9,8 +9,9 @@ import { makeLlm } from '@core/providers/registry';
 import { summarize, summaryToMarkdown, TEMPLATE_NAMES, type MeetingSummary, type SummaryTemplate } from '@core/session/summary';
 import { toMarkdown, toSrt } from '@core/session/transcript';
 import { testDirection, testLlm } from '../../src/main/provider-test';
-import { createProviders } from '@core/providers/registry';
 import { consoleLogger, createBrowserContext } from './browser-context';
+import { buildProviders, usesDesktop } from './engine-providers';
+import { DESKTOP_BRIDGE_PORT, pingDesktop } from '@core/bridge/desktop';
 import { h, settingsProblem } from './dom';
 import { loadAll, toAppSettings, withDefaults, type ExtSettings, type ProviderSet, type SavedMeeting } from './shared';
 
@@ -78,7 +79,8 @@ async function render() {
 // ------------------------------------------------------------------ settings
 
 const SETS: { id: ProviderSet; name: string; desc: string }[] = [
-  { id: 'dashscope', name: '阿里云百炼（推荐）', desc: '一个 Key 搞定识别、翻译、发音，国内直连，准确度最高。新用户有免费额度，之后约 2–4 元/小时。' },
+  { id: 'free', name: '免费版（配合桌面客户端）', desc: '识别用电脑上的离线模型，对方听到的是电脑自带的声音，翻译用免费的智谱 GLM（注册即可拿免费 Key）。需要同时打开“会议同传助手”桌面客户端。' },
+  { id: 'dashscope', name: '高级版：阿里云百炼（推荐）', desc: '一个 Key 搞定识别、翻译、发音，国内直连，准确度最高。新用户有免费额度，之后约 2–4 元/小时。' },
   { id: 'azure', name: '微软 Azure', desc: '需要 Azure 语音和 Azure 翻译两个 Key（都有免费层）。免费层同一时间只能识别一路，双向同传请用标准层。' },
   { id: 'custom', name: '自己组合', desc: '每个方向分别选识别、翻译、发音服务，例如翻译换成免费的智谱 GLM 或 DeepL。' },
   { id: 'demo', name: '演示', desc: '不需要 Key，只用来看看效果（说什么都会出固定的演示句子）。' },
@@ -164,11 +166,37 @@ async function renderSettings(body: HTMLElement) {
     if (s.llm.preset === 'custom') {
       keys.append(
         h('label', { class: 'field' }, h('span', {}, '接口地址（OpenAI 兼容）'), h('input', { type: 'text', value: s.llm.baseUrl, onchange: (e: Event) => void set({ llm: { ...s.llm, baseUrl: (e.target as HTMLInputElement).value.trim() } }) })),
+        s.llm.baseUrl
+          ? h('button', {
+              class: 'btn',
+              onclick: async () => {
+                try {
+                  const ok = await chrome.permissions.request({ origins: [`${new URL(s.llm.baseUrl).origin}/*`] });
+                  alert(ok ? '已允许插件访问这个接口地址。' : '没有授权，插件无法访问这个接口地址。');
+                } catch (err) {
+                  alert(`接口地址不正确：${err instanceof Error ? err.message : String(err)}`);
+                }
+              },
+            }, '允许插件访问这个地址')
+          : '',
         h('label', { class: 'field' }, h('span', {}, '模型名'), h('input', { type: 'text', value: s.llm.model, onchange: (e: Event) => void set({ llm: { ...s.llm, model: (e.target as HTMLInputElement).value.trim() } }) })),
       );
     }
   }
   if (uses('deepl')) keys.append(secretInput(secrets, 'deepl', 'DeepL API Key'));
+  if (usesDesktop(s)) {
+    const st = h('div', { class: 'callout info' }, '正在检查桌面客户端…');
+    keys.append(st);
+    void pingDesktop(ctx()).then((p) => {
+      if (p) {
+        st.className = 'callout info';
+        st.textContent = `✅ 已连接桌面客户端 ${p.version}${p.models.zh ? '' : '（首次使用会自动下载离线识别模型，约 500MB）'}`;
+      } else {
+        st.className = 'callout warn';
+        st.replaceChildren('没有检测到桌面客户端：免费版需要在电脑上安装并打开“会议同传助手”（设置 › 翻译服务 里允许 Chrome 插件使用）。', ' ', h('a', { href: 'https://github.com/Crhis-CP/meeting-interpreter/releases/latest', target: '_blank' }, '下载桌面客户端'));
+      }
+    });
+  }
   if (keys.childElementCount === 1) keys.append(h('div', { class: 'muted' }, '当前方案不需要 Key。'));
   if (problem) keys.append(h('div', { class: 'callout warn' }, problem));
   body.append(keys);
@@ -181,9 +209,9 @@ async function renderSettings(body: HTMLElement) {
       dirCard.append(
         h('b', {}, d === 'out' ? '我说中文 → 对方听' : '对方说话 → 我看中文'),
         h('div', { class: 'grid2' },
-          h('label', { class: 'field' }, h('span', {}, '语音识别'), select(c.asr, [['dashscope', '阿里云百炼'], ['azure', 'Azure'], ['demo', '演示']], (v) => upd({ asr: v }))),
+          h('label', { class: 'field' }, h('span', {}, '语音识别'), select(c.asr, [['local', '本机离线（桌面客户端，免费）'], ['dashscope', '阿里云百炼'], ['azure', 'Azure'], ['demo', '演示']], (v) => upd({ asr: v }))),
           h('label', { class: 'field' }, h('span', {}, '翻译'), select(c.mt, [['qwen-mt', '百炼 翻译模型'], ['llm', '大模型（可选免费的智谱）'], ['deepl', 'DeepL'], ['azure-translator', 'Azure 翻译'], ['demo', '演示']], (v) => upd({ mt: v }))),
-          h('label', { class: 'field' }, h('span', {}, '发音'), select(c.tts, [['dashscope', '阿里云百炼'], ['azure', 'Azure'], ['none', '不发音'], ['demo', '演示']], (v) => upd({ tts: v }))),
+          h('label', { class: 'field' }, h('span', {}, '发音'), select(c.tts, [['system', '电脑自带声音（桌面客户端，免费）'], ['dashscope', '阿里云百炼'], ['azure', 'Azure'], ['none', '不发音'], ['demo', '演示']], (v) => upd({ tts: v }))),
         ),
       );
     }
@@ -193,9 +221,11 @@ async function renderSettings(body: HTMLElement) {
   body.append(
     h('div', { class: 'card stack', style: 'margin-top:14px' },
       h('h2', { style: 'margin-top:0' }, '④ 声音和字幕'),
-      s.out.tts !== 'none' && s.out.tts !== 'demo'
+      s.out.tts === 'dashscope' || s.out.tts === 'azure'
         ? h('label', { class: 'field' }, h('span', {}, `对方听到的声音（${lang(s.remote).nameZh}）`), select(s.out.voice, voiceOptions(s.out.tts, s.remote), (v) => void set({ out: { ...s.out, voice: v } })))
-        : null,
+        : s.out.tts === 'system'
+          ? systemVoiceSelect(s, set)
+          : null,
       toggle(s.playOriginal, '听对方的原声', (v) => set({ playOriginal: v })),
       toggle(s.speakIn, '同时用中文读出对方的话（默认只看字幕）', (v) => set({ speakIn: v })),
       toggle(s.showMine, '字幕里也显示我说的话和译文（方便确认翻得对不对）', (v) => set({ showMine: v })),
@@ -219,7 +249,7 @@ async function renderSettings(body: HTMLElement) {
           try {
             const data = await loadAll();
             const settings = toAppSettings(data.settings);
-            const p = createProviders(settings, data.secrets, ctx(), () => data.glossary);
+            const p = buildProviders(data.settings, data.secrets, ctx(), () => data.glossary);
             const steps = [
               ...(await testDirection(p, 'out', 'zh-CN', settings.languages.remote)),
               ...(await testDirection(p, 'in', settings.languages.remote, 'zh-CN')),
@@ -246,6 +276,23 @@ async function renderSettings(body: HTMLElement) {
       h('div', { class: 'muted small' }, '如果插件装好前就已经进了会议，请刷新会议页面重新入会。'),
     ),
   );
+}
+
+/** Voices installed on the computer, listed by the desktop app. */
+function systemVoiceSelect(s: ExtSettings, set: (p: Partial<ExtSettings>) => Promise<void>) {
+  const wrap = h('label', { class: 'field' }, h('span', {}, `对方听到的声音（电脑自带，${lang(s.remote).nameZh}）`));
+  const sel = select(s.out.voice, [['', '默认']], (v) => void set({ out: { ...s.out, voice: v } }));
+  wrap.append(sel);
+  void (async () => {
+    try {
+      const res = await fetch(`http://127.0.0.1:${DESKTOP_BRIDGE_PORT}/voices?lang=${encodeURIComponent(s.remote)}`);
+      const voices = (await res.json()) as { id: string; name: string }[];
+      for (const v of voices) sel.append(h('option', { value: v.id, selected: v.id === s.out.voice }, v.name));
+    } catch {
+      // desktop app not running: only the default
+    }
+  })();
+  return wrap;
 }
 
 function toggle(checked: boolean, label: string, onchange: (v: boolean) => Promise<void>) {

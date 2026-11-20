@@ -1,7 +1,11 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { chromium, expect, test, type Page, type Worker } from '@playwright/test';
+import { chromium, expect, test, type BrowserContext, type Page, type Worker } from '@playwright/test';
+import { Emitter } from '../src/core/events';
+import { createLogger } from '../src/core/log';
+import type { AsrEvents, AsrSession } from '../src/core/providers/types';
+import { DesktopBridge } from '../src/main/bridge/desktop-bridge';
 import { concatInt16, silence, tone } from '../src/core/audio/pcm';
 import { encodeWav } from '../src/core/audio/wav';
 
@@ -50,7 +54,7 @@ type Stats = Record<'before' | 'after' | 'end', { hi: number; lo: number }>;
 const stats = (p: Page) => p.evaluate(() => (window as unknown as { stats: Stats }).stats);
 const subtitles = (p: Page) => p.evaluate(() => document.getElementById('meeting-interpreter-subtitles')?.shadowRoot?.textContent ?? '');
 
-test('extension: my Chinese is replaced by the translation in the meeting, subtitles float on the page', async () => {
+async function launch() {
   const dir = mkdtempSync(join(tmpdir(), 'mi-ext-'));
   const context = await chromium.launchPersistentContext(join(dir, 'profile'), {
     headless: false,
@@ -68,26 +72,36 @@ test('extension: my Chinese is replaced by the translation in the meeting, subti
   await context.route('https://meet.google.com/**', (r) => r.fulfill({ contentType: 'text/html', body: MEETING_PAGE }));
   const sw: Worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
   const extId = new URL(sw.url()).host;
-
-  // An extension page to talk to the service worker (as the popup does).
   const ext = await context.newPage();
   await ext.goto(`chrome-extension://${extId}/options.html`);
+  return { context, sw, extId, ext };
+}
+
+async function joinMeeting(context: BrowserContext, sw: Worker) {
+  const page = await context.newPage();
+  await page.goto('https://meet.google.com/abc-defg-hij');
+  await page.waitForFunction(() => (window as unknown as { stats: { ready: boolean } }).stats.ready);
+  await page.bringToFront();
+  const tabId = await sw.evaluate(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id);
+  expect(tabId).toBeTruthy();
+  return { page, tabId: tabId! };
+}
+
+test('extension: my Chinese is replaced by the translation in the meeting, subtitles float on the page', async () => {
+  const { context, sw, extId, ext } = await launch();
+
+  // The options page talks to the service worker (as the popup does).
   await ext.evaluate(() => chrome.storage.local.set({ settings: { providers: 'demo', remote: 'es-MX' } }));
   await ext.reload();
   await expect(ext.getByText('当前方案不需要 Key。')).toBeVisible();
   await ext.screenshot({ path: 'test-results/extension-options.png' });
 
-  const page = await context.newPage();
-  await page.goto('https://meet.google.com/abc-defg-hij');
-  await page.waitForFunction(() => (window as unknown as { stats: { ready: boolean } }).stats.ready);
+  const { page, tabId } = await joinMeeting(context, sw);
   expect(await page.evaluate(() => (window as unknown as { trackLabel: string }).trackLabel)).not.toBe('');
 
   // Before interpretation the meeting hears the real microphone.
   await expect.poll(async () => (await stats(page)).before.hi, { timeout: 15_000 }).toBeGreaterThan(-60);
 
-  await page.bringToFront();
-  const tabId = await sw.evaluate(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id);
-  expect(tabId).toBeTruthy();
   const st = await ext.evaluate((id) => chrome.runtime.sendMessage({ type: 'start', tabId: id }), tabId);
   expect(st.status, JSON.stringify(st)).toBe('running');
   await expect.poll(async () => (await ext.evaluate(() => chrome.runtime.sendMessage({ type: 'state' }))).micHooked).toBe(true);
@@ -118,5 +132,76 @@ test('extension: my Chinese is replaced by the translation in the meeting, subti
   await ext.getByRole('button', { name: '生成会议纪要' }).click();
   await expect(ext.getByText('下载中文纪要')).toBeVisible();
   await ext.screenshot({ path: 'test-results/extension-history.png' });
+  await ext.evaluate(() => chrome.storage.local.set({ settings: {} }));
+  await ext.setViewportSize({ width: 352, height: 560 });
+  await ext.goto(`chrome-extension://${extId}/popup.html`);
+  await expect(ext.getByRole('button', { name: '开始同传' })).toBeVisible();
+  await ext.screenshot({ path: 'test-results/extension-popup.png' });
   await context.close();
+});
+
+test('extension free tier: recognition and voice come from the desktop app', async () => {
+  // A stand-in for the desktop app: "recognises" a fixed sentence once it has heard 1 s of audio
+  // and speaks with a 250 Hz tone.
+  const heard: string[] = [];
+  const bridge = new DesktopBridge({
+    version: 'test',
+    log: createLogger('bridge'),
+    enabled: () => true,
+    modelsReady: () => true,
+    ensureModels: async () => undefined,
+    asr: () => ({
+      id: 'fake',
+      start: async (o) => {
+        heard.push(o.lang);
+        const events = new Emitter<AsrEvents>();
+        let n = 0;
+        let said = false;
+        const s: AsrSession = {
+          events,
+          push: (pcm) => {
+            n += pcm.length;
+            if (!said && n > 16000) {
+              said = true;
+              events.emit('final', { text: '大家好，欢迎参加今天的会议。' });
+            }
+          },
+          end: async () => void events.emit('closed', {}),
+          close: () => undefined,
+        };
+        return s;
+      },
+    }),
+    tts: () => ({
+      id: 'fake',
+      voices: () => [],
+      async *synthesize() {
+        const r = 22050;
+        yield { samples: Int16Array.from({ length: r }, (_, i) => Math.round(Math.sin((2 * Math.PI * 250 * i) / r) * 8000)), sampleRate: r };
+      },
+    }),
+  });
+  await bridge.start();
+  try {
+    const { context, sw, ext } = await launch();
+    await ext.evaluate(() =>
+      chrome.storage.local.set({
+        settings: { providers: 'custom', remote: 'es-MX', out: { asr: 'local', mt: 'demo', tts: 'system', voice: '' }, in: { asr: 'local', mt: 'demo', tts: 'none', voice: '' } },
+      }),
+    );
+    await ext.reload();
+    await expect(ext.getByText('已连接桌面客户端 test')).toBeVisible();
+    const { page, tabId } = await joinMeeting(context, sw);
+    const st = await ext.evaluate((id) => chrome.runtime.sendMessage({ type: 'start', tabId: id }), tabId);
+    expect(st.status, JSON.stringify(st)).toBe('running');
+    await page.waitForTimeout(400);
+    await page.evaluate(() => ((window as unknown as { stats: { phase: string } }).stats.phase = 'after'));
+    await expect.poll(() => subtitles(page), { timeout: 30_000 }).toContain('Hola a todos, bienvenidos a la reunión de hoy.');
+    await expect.poll(async () => (await stats(page)).after.lo, { timeout: 15_000 }).toBeGreaterThan(-70);
+    expect(heard).toContain('zh-CN');
+    await ext.evaluate(() => chrome.runtime.sendMessage({ type: 'stop' }));
+    await context.close();
+  } finally {
+    await bridge.stop();
+  }
 });
