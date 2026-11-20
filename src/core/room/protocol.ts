@@ -36,7 +36,7 @@ const AUDIO_UP = 0x01;
 const TTS_DOWN = 0x02;
 
 /** Phone → host microphone frame: [0x01][Int16 LE PCM, 16 kHz mono]. */
-export function encodeAudioUp(pcm: Int16Array): Uint8Array {
+export function encodeAudioUp(pcm: Int16Array): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(1 + pcm.length * 2);
   out[0] = AUDIO_UP;
   const v = new DataView(out.buffer);
@@ -45,7 +45,7 @@ export function encodeAudioUp(pcm: Int16Array): Uint8Array {
 }
 
 /** Host → phone speech frame: [0x02][u16 id length][id UTF-8][u32 sample rate][Int16 LE PCM]. */
-export function encodeTtsFrame(segmentId: string, sampleRate: number, pcm: Int16Array): Uint8Array {
+export function encodeTtsFrame(segmentId: string, sampleRate: number, pcm: Int16Array): Uint8Array<ArrayBuffer> {
   const id = new TextEncoder().encode(segmentId);
   const out = new Uint8Array(1 + 2 + id.length + 4 + pcm.length * 2);
   const v = new DataView(out.buffer);

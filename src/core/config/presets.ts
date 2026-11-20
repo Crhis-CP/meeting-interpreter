@@ -43,7 +43,7 @@ export const PRESETS: ProviderPreset[] = [
   {
     id: 'azure',
     name: 'Azure 语音（含免费层）',
-    description: '微软 Azure 识别和神经网络语音，支持 Azure 中国区；免费层每月有固定时长。翻译用 Azure 翻译（每月 200 万字符免费）。',
+    description: '微软 Azure 识别和神经网络语音，支持 Azure 中国区。翻译用 Azure 翻译（每月 200 万字符免费）。注意：免费层 F0 同一时间只能识别一路，双向同传请用标准层 S0（按量付费）。',
     cost: '免费层够轻度使用，超出按量付费',
     quality: 3,
     needs: ['azure', 'azureTranslator'],

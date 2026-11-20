@@ -1,0 +1,276 @@
+import { createRequire } from 'node:module';
+import { ASR_RATE, int16ToFloat } from '@core/audio/pcm';
+import { baseOf, type LangBase } from '@core/lang/languages';
+import { ProviderError } from '@core/providers/types';
+import type { LangCode } from '@core/types';
+import { DEFAULT_WHISPER, MODELS, modelFile, type ModelId, type WhisperModelId } from './models';
+import type { ModelStatus } from './model-manager';
+
+// ------------------------------------------------------------------ the parts of sherpa-onnx-node we use
+// sherpa-onnx-node ships no TypeScript types; these mirror its JSDoc typedefs (types.js) for 2.0.x.
+
+export interface SherpaVadConfig {
+  sileroVad: {
+    model: string;
+    threshold: number;
+    minSilenceDuration: number;
+    minSpeechDuration: number;
+    maxSpeechDuration: number;
+    windowSize: number;
+  };
+  sampleRate: number;
+  numThreads: number;
+  provider: string;
+  debug: boolean;
+}
+
+export interface SherpaSpeechSegment {
+  /** Sample index (16 kHz) since the VAD was created. */
+  start: number;
+  samples: Float32Array;
+}
+
+export interface SherpaVad {
+  acceptWaveform(samples: Float32Array): void;
+  isEmpty(): boolean;
+  /** `enableExternalBuffer` must be false under Electron (V8's memory cage forbids external buffers). */
+  front(enableExternalBuffer?: boolean): SherpaSpeechSegment;
+  pop(): void;
+  flush(): void;
+  reset(): void;
+}
+
+export interface SherpaOfflineRecognizerConfig {
+  featConfig: { sampleRate: number; featureDim: number };
+  modelConfig: {
+    senseVoice?: { model: string; language: string; useInverseTextNormalization: number };
+    whisper?: { encoder: string; decoder: string; language: string; task: string };
+    tokens: string;
+    numThreads: number;
+    provider: string;
+    debug: boolean;
+  };
+}
+
+export interface SherpaOfflineStream {
+  acceptWaveform(wave: { samples: Float32Array; sampleRate: number }): void;
+}
+
+export interface SherpaOfflineRecognizer {
+  createStream(): SherpaOfflineStream;
+  decode(stream: SherpaOfflineStream): void;
+  getResult(stream: SherpaOfflineStream): { text: string; lang?: string };
+}
+
+export interface SherpaOnnxModule {
+  Vad: new (config: SherpaVadConfig, bufferSizeInSeconds: number) => SherpaVad;
+  OfflineRecognizer: new (config: SherpaOfflineRecognizerConfig) => SherpaOfflineRecognizer;
+  version?: string;
+}
+
+/**
+ * Loads the native module. Call it in the process that will run recognition (the utility process).
+ * A runtime require, not an import: sherpa-onnx-node is an optionalDependency, which electron-vite does
+ * not externalize, and the bundler must not try to inline its `.node` binary.
+ */
+export function loadSherpaOnnx(): SherpaOnnxModule {
+  try {
+    const req = createRequire(import.meta.url);
+    return req('sherpa-onnx-node') as SherpaOnnxModule;
+  } catch (err) {
+    throw new ProviderError(`无法加载本机识别引擎（sherpa-onnx）：${err instanceof Error ? err.message : String(err)}`, 'local', { cause: err });
+  }
+}
+
+// ------------------------------------------------------------------ recogniser
+
+/** What the recogniser needs from the ModelManager. */
+export interface ModelLocator {
+  status(id: string): ModelStatus;
+  pathOf(id: string, file: string): string;
+}
+
+export interface VadTuning {
+  /** Speech probability above which a 32 ms window counts as speech. */
+  threshold: number;
+  /** Seconds of silence that end a sentence. */
+  minSilenceDuration: number;
+  /** Shorter bursts are ignored. */
+  minSpeechDuration: number;
+  /** Longer speech is cut (the VAD then splits at the next short pause). */
+  maxSpeechDuration: number;
+}
+
+export const DEFAULT_VAD: VadTuning = { threshold: 0.5, minSilenceDuration: 0.5, minSpeechDuration: 0.25, maxSpeechDuration: 10 };
+
+export interface LocalRecognizerOptions {
+  sherpa: SherpaOnnxModule;
+  lang: LangCode;
+  models: ModelLocator;
+  /** One finished sentence; times are seconds since the first sample fed. */
+  onFinal: (text: string, startSec: number, endSec: number) => void;
+  /** Whisper model for Spanish. Default whisper-small; falls back to the other Whisper model when only that one is downloaded. */
+  esModel?: WhisperModelId;
+  /** Threads for the recogniser. Default 2. */
+  numThreads?: number;
+  vad?: Partial<VadTuning>;
+}
+
+/** Silero VAD window at 16 kHz (sherpa-onnx docs and examples use 512 samples = 32 ms). */
+export const VAD_WINDOW = 512;
+
+/** Audio added before each VAD segment: Silero's onset detection can clip the first syllable (e.g. a short "No …"). */
+export const PRE_ROLL_SECONDS = 0.2;
+
+/** Whisper's well-known inventions on silence or noise (Spanish subtitle credits, sound annotations). */
+const WHISPER_JUNK: RegExp[] = [
+  /amara\.org/i,
+  /^subt[ií]tul(os|ado)\b.*\bpor\b/i,
+  /^[([]\s*(m[uú]sica|music|aplausos|risas|silencio|ruido)\s*[)\]]\.?$/i,
+];
+
+/** Normalises whitespace and drops results without any letter or digit (and Whisper's inventions). */
+export function cleanText(raw: string, lang: LangBase): string {
+  const text = raw.replace(/\s+/g, ' ').trim();
+  if (!/[\p{L}\p{N}]/u.test(text)) return '';
+  if (lang === 'es' && WHISPER_JUNK.some((re) => re.test(text))) return '';
+  return text;
+}
+
+function pickWhisper(models: ModelLocator, preferred: WhisperModelId): WhisperModelId {
+  if (models.status(preferred) === 'ready') return preferred;
+  const other: WhisperModelId = preferred === 'whisper-small' ? 'whisper-base' : 'whisper-small';
+  return models.status(other) === 'ready' ? other : preferred;
+}
+
+/**
+ * Silero VAD cuts the 16 kHz stream into sentences; each sentence is decoded by an offline recogniser
+ * (SenseVoice for Chinese, Whisper for Spanish). Decoding is synchronous: run this in a worker process.
+ */
+export class LocalRecognizer {
+  readonly lang: LangBase;
+  /** The recogniser model in use. */
+  readonly model: ModelId;
+  private readonly vad: SherpaVad;
+  private readonly recognizer: SherpaOfflineRecognizer;
+  private readonly tuning: VadTuning;
+  private pending: Float32Array = new Float32Array(0);
+  /** Recent audio by absolute sample index (what the VAD has seen), for the pre-roll. */
+  private readonly history: Float32Array;
+  private historyEnd = 0;
+
+  constructor(private readonly opts: LocalRecognizerOptions) {
+    this.lang = baseOf(opts.lang);
+    this.model = this.lang === 'zh' ? 'sensevoice' : pickWhisper(opts.models, opts.esModel ?? DEFAULT_WHISPER);
+    const missing = (['silero-vad', this.model] as ModelId[]).filter((id) => opts.models.status(id) !== 'ready');
+    if (missing.length) {
+      throw new ProviderError(`本机离线识别模型还没有下载：${missing.map((id) => MODELS[id].label).join('、')}。请先下载模型再开始。`, 'local');
+    }
+    this.tuning = { ...DEFAULT_VAD, ...opts.vad };
+    // A segment can start up to maxSpeechDuration (+ the silence that ends it) before the newest sample.
+    this.history = new Float32Array(Math.ceil((this.tuning.maxSpeechDuration + 5) * ASR_RATE));
+    const path = (id: ModelId, role: Parameters<typeof modelFile>[1]) => opts.models.pathOf(id, modelFile(id, role).name);
+    const numThreads = opts.numThreads ?? 2;
+
+    this.vad = new opts.sherpa.Vad(
+      {
+        sileroVad: { model: path('silero-vad', 'vad'), ...this.tuning, windowSize: VAD_WINDOW },
+        sampleRate: ASR_RATE,
+        numThreads: 1,
+        provider: 'cpu',
+        debug: false,
+      },
+      60,
+    );
+
+    const modelConfig: SherpaOfflineRecognizerConfig['modelConfig'] =
+      this.model === 'sensevoice'
+        ? {
+            senseVoice: { model: path('sensevoice', 'model'), language: 'zh', useInverseTextNormalization: 1 },
+            tokens: path('sensevoice', 'tokens'),
+            numThreads,
+            provider: 'cpu',
+            debug: false,
+          }
+        : {
+            whisper: { encoder: path(this.model, 'encoder'), decoder: path(this.model, 'decoder'), language: 'es', task: 'transcribe' },
+            tokens: path(this.model, 'tokens'),
+            numThreads,
+            provider: 'cpu',
+            debug: false,
+          };
+    this.recognizer = new opts.sherpa.OfflineRecognizer({ featConfig: { sampleRate: ASR_RATE, featureDim: 80 }, modelConfig });
+  }
+
+  /** Feeds 16 kHz mono PCM; finished sentences are decoded and reported before this returns. */
+  feed(pcm: Int16Array): void {
+    if (!pcm.length) return;
+    const input = int16ToFloat(pcm);
+    let buf = input;
+    if (this.pending.length) {
+      buf = new Float32Array(this.pending.length + input.length);
+      buf.set(this.pending);
+      buf.set(input, this.pending.length);
+    }
+    let off = 0;
+    for (; off + VAD_WINDOW <= buf.length; off += VAD_WINDOW) this.accept(buf.subarray(off, off + VAD_WINDOW));
+    this.pending = buf.slice(off);
+    this.drain();
+  }
+
+  /** End of the stream: decodes the sentence still open. */
+  flush(): void {
+    // Pad with enough silence for the VAD to close the open sentence itself: its flush() drops the
+    // last minSilenceDuration of audio, which would cut off the final words.
+    const silence = Math.ceil(((this.tuning.minSilenceDuration + 0.1) * ASR_RATE) / VAD_WINDOW) * VAD_WINDOW;
+    const tail = new Float32Array(Math.ceil(this.pending.length / VAD_WINDOW) * VAD_WINDOW + silence);
+    tail.set(this.pending);
+    this.pending = new Float32Array(0);
+    for (let off = 0; off < tail.length; off += VAD_WINDOW) this.accept(tail.subarray(off, off + VAD_WINDOW));
+    this.vad.flush();
+    this.drain();
+  }
+
+  /** One window per call: the VAD makes one speech/non-speech decision for everything passed in a call. */
+  private accept(window: Float32Array): void {
+    const cap = this.history.length;
+    for (let i = 0; i < window.length; i++) this.history[(this.historyEnd + i) % cap] = window[i]!;
+    this.historyEnd += window.length;
+    this.vad.acceptWaveform(window);
+  }
+
+  /** Remembered samples [from, to), clipped to what is still in the history. */
+  private recall(from: number, to: number): Float32Array {
+    const cap = this.history.length;
+    from = Math.max(from, this.historyEnd - cap, 0);
+    const out = new Float32Array(Math.max(0, to - from));
+    for (let i = 0; i < out.length; i++) out[i] = this.history[(from + i) % cap]!;
+    return out;
+  }
+
+  private drain(): void {
+    while (!this.vad.isEmpty()) {
+      const segment = this.vad.front(false);
+      this.vad.pop();
+      this.decode(segment);
+    }
+  }
+
+  private decode(segment: SherpaSpeechSegment): void {
+    if (!segment.samples.length) return;
+    const lead = this.recall(segment.start - Math.round(PRE_ROLL_SECONDS * ASR_RATE), segment.start);
+    let samples = segment.samples;
+    if (lead.length) {
+      samples = new Float32Array(lead.length + segment.samples.length);
+      samples.set(lead);
+      samples.set(segment.samples, lead.length);
+    }
+    const stream = this.recognizer.createStream();
+    stream.acceptWaveform({ samples, sampleRate: ASR_RATE });
+    this.recognizer.decode(stream);
+    const text = cleanText(this.recognizer.getResult(stream).text ?? '', this.lang);
+    if (!text) return;
+    const start = (segment.start - lead.length) / ASR_RATE;
+    this.opts.onFinal(text, start, start + samples.length / ASR_RATE);
+  }
+}

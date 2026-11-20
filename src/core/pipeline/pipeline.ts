@@ -196,7 +196,8 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
 
   /**
    * Mute / push-to-talk. Closing the gate pushes a short silence so the recogniser finishes the
-   * sentence, and ends the recognition session after 30 s idle (it reconnects on the next open).
+   * sentence, and ends the recognition session after 15 s idle — before services drop idle
+   * connections themselves (DashScope after ~23 s) — and reconnects on the next open.
    */
   setGate(open: boolean): void {
     if (open === this.gateOpen) return;
@@ -212,7 +213,7 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
         this.session = null;
         if (s) void s.end().catch(() => s.close());
         if (!this.stopping) this.setState('idle');
-      }, 30000);
+      }, 15000);
     } else if (!this.session && !this.stopping && this.state !== 'connecting' && this.state !== 'reconnecting') {
       void this.connect(true);
     }

@@ -86,7 +86,7 @@ export interface LocalModelStatus {
 
 export interface AppInfo {
   version: string;
-  platform: NodeJS.Platform | string;
+  platform: string;
   arch: string;
   recordsDir: string;
   dataDir: string;

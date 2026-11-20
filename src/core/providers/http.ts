@@ -35,7 +35,13 @@ export async function httpRequest(ctx: ProviderContext, provider: string, url: s
   const retries = opts.retries ?? 2;
   let attempt = 0;
   for (;;) {
+    if (opts.signal?.aborted) {
+      const e = new Error('aborted');
+      e.name = 'AbortError';
+      throw e;
+    }
     const ac = new AbortController();
+    let keepAbort = false;
     const onAbort = () => ac.abort();
     opts.signal?.addEventListener('abort', onAbort, { once: true });
     const timer = setTimeout(() => ac.abort(), opts.timeoutMs ?? 20000);
@@ -47,7 +53,11 @@ export async function httpRequest(ctx: ProviderContext, provider: string, url: s
         body = JSON.stringify(opts.json);
       }
       const res = await ctx.fetch(url, { method: opts.method ?? (body ? 'POST' : 'GET'), headers, body, signal: ac.signal });
-      if (res.ok) return res;
+      if (res.ok) {
+        // Keep the caller's abort wired to the body stream (streaming TTS); only the timeout ends here.
+        keepAbort = true;
+        return res;
+      }
       const text = await res.text().catch(() => '');
       const retryable = res.status === 429 || res.status >= 500;
       if (retryable && attempt < retries) {
@@ -75,7 +85,7 @@ export async function httpRequest(ctx: ProviderContext, provider: string, url: s
       );
     } finally {
       clearTimeout(timer);
-      opts.signal?.removeEventListener('abort', onAbort);
+      if (!keepAbort) opts.signal?.removeEventListener('abort', onAbort);
     }
   }
 }
@@ -98,13 +108,19 @@ export async function* readBody(res: Response): AsyncIterable<Uint8Array> {
     return;
   }
   const reader = res.body.getReader();
+  let finished = false;
   try {
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        finished = true;
+        break;
+      }
       if (value && value.length) yield value;
     }
   } finally {
+    // Stop the download when the consumer leaves early.
+    if (!finished) await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }

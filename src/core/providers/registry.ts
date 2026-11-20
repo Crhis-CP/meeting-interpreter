@@ -1,0 +1,162 @@
+import type { AppSettings, Secrets } from '../config/schema';
+import type { GlossaryEntry } from '../glossary/types';
+import type { Direction } from '../types';
+import { AzureAsr, AzureTts } from './azure';
+import { AzureTranslator } from './azure-translator';
+import { DashscopeAsr, DashscopeTts, QwenMtTranslator, type DashscopeConfig } from './dashscope';
+import { DeeplTranslator } from './deepl';
+import { LlmTranslator } from './llm-translator';
+import { MockAsr, MockLlm, MockTranslator, MockTts } from './mock';
+import { llmPreset, OpenAiCompatibleLlm } from './openai-compatible';
+import { ProviderError, type Llm, type ProviderContext, type StreamingAsr, type Translator, type Tts } from './types';
+
+export interface ProviderExtras {
+  /** OS voices (main process only). */
+  systemTts?: () => Tts;
+  /** Offline recogniser for a language (main process only). */
+  localAsr?: (dir: Direction) => StreamingAsr;
+}
+
+export interface Providers {
+  asr(dir: Direction): StreamingAsr;
+  mt(dir: Direction): Translator;
+  tts(dir: Direction): Tts | null;
+  llm(): Llm | null;
+  describe(): Record<string, string>;
+}
+
+const NAMES: Record<string, string> = {
+  dashscope: '阿里云百炼',
+  azure: 'Azure 语音',
+  azureTranslator: 'Azure 翻译',
+  llm: '大模型',
+  deepl: 'DeepL',
+};
+
+function need(secrets: Secrets, name: keyof Secrets): string {
+  const v = secrets[name];
+  if (!v) throw new ProviderError(`请先在“服务设置”里填写 ${NAMES[name] ?? name} 的 Key`, String(name));
+  return v;
+}
+
+/** The LLM key: its own, or the DashScope key for the 通义千问 preset. */
+export function llmKey(settings: AppSettings, secrets: Secrets): string {
+  if (secrets.llm) return secrets.llm;
+  const p = llmPreset(settings.llm.preset);
+  if (p?.usesDashscopeKey && secrets.dashscope) return secrets.dashscope;
+  return '';
+}
+
+export function makeLlm(settings: AppSettings, secrets: Secrets, ctx: ProviderContext, forSummary = false): Llm | null {
+  if (settings.preset === 'demo' && !secrets.llm && !secrets.dashscope) return new MockLlm();
+  const p = llmPreset(settings.llm.preset);
+  const key = llmKey(settings, secrets);
+  if (!key && !p?.noKey) return null;
+  return new OpenAiCompatibleLlm(
+    {
+      baseUrl: settings.llm.baseUrl || p?.baseUrl || '',
+      apiKey: key,
+      model: (forSummary && settings.llm.summaryModel) || settings.llm.model || p?.model || '',
+      extraBody: p?.extraBody,
+      label: p?.name ?? '大模型',
+    },
+    ctx,
+  );
+}
+
+function dashscopeConfig(settings: AppSettings, secrets: Secrets): DashscopeConfig {
+  return {
+    apiKey: need(secrets, 'dashscope'),
+    region: settings.dashscope.region,
+    host: settings.dashscope.host || undefined,
+    asrModel: settings.dashscope.asrModel || undefined,
+    ttsModel: settings.dashscope.ttsModel || undefined,
+    mtModel: settings.dashscope.mtModel || undefined,
+  };
+}
+
+function azureConfig(settings: AppSettings, secrets: Secrets) {
+  return { key: need(secrets, 'azure'), region: settings.azure.region, endpoint: settings.azure.endpoint || undefined };
+}
+
+/**
+ * Builds the providers chosen in the settings. Constructing is cheap and validates that the
+ * needed keys exist; nothing connects until a pipeline starts.
+ */
+export function createProviders(
+  settings: AppSettings,
+  secrets: Secrets,
+  ctx: ProviderContext,
+  glossary: () => GlossaryEntry[],
+  extras: ProviderExtras = {},
+): Providers {
+  const cfg = (dir: Direction) => (dir === 'out' ? settings.out : settings.in);
+  const remoteScript = (dir: Direction) => (dir === 'out' ? 'self' : 'remote');
+
+  const asr = (dir: Direction): StreamingAsr => {
+    switch (cfg(dir).asr) {
+      case 'demo':
+        return new MockAsr(remoteScript(dir));
+      case 'dashscope':
+        return new DashscopeAsr(dashscopeConfig(settings, secrets), ctx);
+      case 'azure':
+        return new AzureAsr(azureConfig(settings, secrets), ctx);
+      case 'local':
+        if (!extras.localAsr) throw new ProviderError('本机离线识别只在桌面版可用', 'local');
+        return extras.localAsr(dir);
+    }
+  };
+
+  const mt = (dir: Direction): Translator => {
+    switch (cfg(dir).mt) {
+      case 'demo':
+        return new MockTranslator();
+      case 'llm': {
+        const llm = makeLlm(settings, secrets, ctx);
+        if (!llm) throw new ProviderError('请先在“服务设置”里填写大模型的 Key（例如免费的智谱 GLM）', 'llm');
+        return new LlmTranslator(llm);
+      }
+      case 'qwen-mt':
+        return new QwenMtTranslator(dashscopeConfig(settings, secrets), ctx);
+      case 'deepl':
+        return new DeeplTranslator({ apiKey: need(secrets, 'deepl'), useGlossary: settings.deepl.useGlossary }, ctx, glossary);
+      case 'azure-translator':
+        return new AzureTranslator(
+          { key: secrets.azureTranslator || need(secrets, 'azure'), region: settings.azure.translatorRegion || settings.azure.region },
+          ctx,
+        );
+    }
+  };
+
+  const tts = (dir: Direction): Tts | null => {
+    switch (cfg(dir).tts) {
+      case 'none':
+        return null;
+      case 'demo':
+        return new MockTts();
+      case 'dashscope':
+        return new DashscopeTts(dashscopeConfig(settings, secrets), ctx);
+      case 'azure':
+        return new AzureTts(azureConfig(settings, secrets), ctx);
+      case 'system':
+        if (!extras.systemTts) throw new ProviderError('系统语音只在桌面版可用', 'system');
+        return extras.systemTts();
+    }
+  };
+
+  return {
+    asr,
+    mt,
+    tts,
+    llm: () => makeLlm(settings, secrets, ctx, true),
+    describe: () => ({
+      outAsr: settings.out.asr,
+      outMt: settings.out.mt,
+      outTts: settings.out.tts,
+      inAsr: settings.in.asr,
+      inMt: settings.in.mt,
+      inTts: settings.in.tts,
+      llm: `${settings.llm.preset}:${settings.llm.model}`,
+    }),
+  };
+}
