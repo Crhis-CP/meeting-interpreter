@@ -22,9 +22,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
-    "cli": "tsx src/cli/index.ts",
-    "fixtures": "tsx scripts/make-fixtures.ts",
-    "icons": "tsx scripts/make-icons.ts",
+    "cli": "tsx --tsconfig tsconfig.node.json src/cli/index.ts",
+    "icons": "node scripts/make-icons.mjs",
     "dist": "npm run build && electron-builder",
     "postinstall": "electron-builder install-app-deps"
   },

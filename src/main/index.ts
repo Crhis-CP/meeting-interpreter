@@ -18,6 +18,7 @@ import { createNodeContext } from './platform/node-context';
 import { testDirection, testLlm } from './provider-test';
 import { LocalAsr } from './providers/local-asr/client';
 import { ModelManager } from './providers/local-asr/model-manager';
+import { modelsForLang, modelsSize, type ModelId } from './providers/local-asr/models';
 import { SystemTts } from './providers/system-tts';
 import { RoomHost } from './room/room-host';
 import { audioConfig, SessionManager } from './session/session-manager';
@@ -148,6 +149,7 @@ const handlers: Record<string, Handler> = {
   'settings.applyPreset': (id: PresetId) => {
     const s = settings.applyPreset(id);
     broadcast('settings', s);
+    if (usesLocalAsr()) void prefetchModels();
     return s;
   },
   'secrets.status': () => secrets.status(),
@@ -179,6 +181,7 @@ const handlers: Record<string, Handler> = {
 
   'meeting.start': async (opts: { title?: string; platform?: string; mode?: 'meeting' | 'room' }) => {
     if (process.platform === 'darwin') await systemPreferences.askForMediaAccess('microphone').catch(() => false);
+    await requireLocalModels(opts?.mode ?? 'meeting');
     const state = await sessionManager.start(opts ?? {});
     updateTray();
     if (settings.get().ui.overlay.enabled && opts?.mode !== 'room') showOverlay();
@@ -254,7 +257,10 @@ const handlers: Record<string, Handler> = {
     toAudio({ type: 'testTone', target, config: audioConfig(settings.get(), 'meeting') });
   },
 
-  'room.start': () => room.start(),
+  'room.start': async () => {
+    await requireLocalModels('room');
+    return room.start();
+  },
   'room.stop': () => room.stop(),
   'room.state': () => room.state(),
   'room.setPublic': (on: boolean) => room.setPublic(on),
@@ -268,7 +274,8 @@ const handlers: Record<string, Handler> = {
     osVersion: release(),
   }),
   'app.openExternal': (url: string) => {
-    if (/^https?:\/\//.test(url)) return shell.openExternal(url);
+    // Web links, and the OS privacy/sound settings pages we point people to.
+    if (/^https?:\/\//.test(url) || /^x-apple\.systempreferences:/.test(url) || /^ms-settings:/.test(url)) return shell.openExternal(url);
   },
   'app.detectMeetingApps': () => detectMeetingApps(),
   'app.screenSources': async () => {
@@ -287,6 +294,46 @@ const handlers: Record<string, Handler> = {
     overlayWindow?.setIgnoreMouseEvents(on, { forward: true });
   },
 };
+
+function usesLocalAsr(): boolean {
+  const s = settings.get();
+  return s.out.asr === 'local' || s.in.asr === 'local';
+}
+
+let prefetching: Promise<void> | null = null;
+
+/** Downloads the offline models the current settings need, in the background, once. */
+function prefetchModels(): Promise<void> {
+  if (prefetching) return prefetching;
+  const s = settings.get();
+  const bases = new Set<'zh' | 'es'>();
+  if (s.out.asr === 'local') bases.add(baseOf(s.languages.self));
+  if (s.in.asr === 'local') bases.add(baseOf(s.languages.remote));
+  prefetching = (async () => {
+    for (const base of bases) await models.ensureFor(base, s.local.esModel, (p) => broadcast('model-progress', p));
+    broadcast('toast', { level: 'info', message: '本机离线识别模型已下载完成。' });
+  })()
+    .catch((err) => broadcast('toast', { level: 'warn', message: `下载本机识别模型失败：${err instanceof Error ? err.message : String(err)}（可在 设置 › 翻译服务 里重试）` }))
+    .finally(() => {
+      prefetching = null;
+    });
+  return prefetching;
+}
+
+/** Before a meeting with offline recognition, make sure its models are on disk. */
+async function requireLocalModels(mode: 'meeting' | 'room'): Promise<void> {
+  if (!usesLocalAsr()) return;
+  const s = settings.get();
+  const needed = new Set<ModelId>();
+  if (s.out.asr === 'local') modelsForLang(s.languages.self, s.local.esModel).forEach((id) => needed.add(id));
+  if (s.in.asr === 'local' && mode === 'meeting') modelsForLang(s.languages.remote, s.local.esModel).forEach((id) => needed.add(id));
+  if (mode === 'room' && s.in.asr === 'local') modelsForLang(s.languages.remote, s.local.esModel).forEach((id) => needed.add(id));
+  const missing = [...needed].filter((id) => models.status(id) !== 'ready');
+  if (!missing.length) return;
+  if (!prefetching) void prefetchModels();
+  const mb = Math.round(modelsSize(missing) / 1_000_000);
+  throw new Error(`正在下载本机离线识别模型（约 ${mb} MB），下载完成后即可开始${mode === 'room' ? '房间' : '同传'}。可在 设置 › 翻译服务 查看进度，或改用其他方案。`);
+}
 
 ipcMain.handle(IPC.invoke, async (_e, method: string, ...args: unknown[]) => {
   const h = handlers[method];
@@ -457,4 +504,3 @@ app.on('will-quit', async (e) => {
   void room.stop();
 });
 
-void baseOf;

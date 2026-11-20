@@ -301,6 +301,12 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
       case 'started':
         this.s.loopbackExcludesSelf = msg.loopbackExcludesSelf;
         this.s.warnings = msg.warnings;
+        // System loopback that also captures our own Chinese speech would feed it back into the
+        // Spanish recogniser: switch the voice off (subtitles stay) rather than loop.
+        if (msg.loopbackExcludesSelf === false && this.s.meetingSource === 'loopback' && this.s.in.speak) {
+          this.setInSpeak(false);
+          this.s.warnings = [...this.s.warnings, '为避免把中文译音再次翻译，已自动关闭“播放中文译音”（只显示字幕）。要听中文语音，请改用“虚拟扬声器”模式。'];
+        }
         this.publish(true);
         return;
       case 'recChunk': {

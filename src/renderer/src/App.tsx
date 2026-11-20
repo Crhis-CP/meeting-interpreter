@@ -33,6 +33,7 @@ export function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [version, setVersion] = useState('');
   const [skipOnboarding, setSkipOnboarding] = useState(false);
+  const [download, setDownload] = useState<{ file: string; pct: number } | null>(null);
 
   useEffect(() => {
     void api.app.info().then((i) => setVersion(i.version));
@@ -44,6 +45,10 @@ export function App() {
     setTimeout(() => setToasts((x) => x.filter((y) => y.id !== id)), t.level === 'error' ? 9000 : 6000);
   });
   useEvent('navigate', ({ page }) => setPage(page as Page));
+  useEvent('model-progress', (p) => {
+    const pct = p.total ? Math.round((p.received / p.total) * 100) : 0;
+    setDownload(pct >= 100 ? null : { file: p.file, pct });
+  });
 
   if (!settings) return null;
   if (!settings.onboarded && !skipOnboarding) return <Onboarding onDone={() => setSkipOnboarding(true)} />;
@@ -77,6 +82,11 @@ export function App() {
         </div>
       </aside>
       <main className="main">
+        {download && (
+          <div className="callout info" style={{ marginBottom: 14 }}>
+            正在下载本机离线识别模型（只需一次）：{download.file} {download.pct}%
+          </div>
+        )}
         {page === 'meeting' && <MeetingPage settings={settings} state={meeting} go={go} />}
         {page === 'room' && <RoomPage settings={settings} state={meeting} />}
         {page === 'history' && <HistoryPage openId={openMeeting} setOpenId={setOpenMeeting} />}
