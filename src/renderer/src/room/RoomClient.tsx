@@ -9,18 +9,15 @@ const T = {
   zh: {
     title: '同传房间',
     name: '你的名字',
-    namePh: '例如：王经理',
-    pick: '选择你说的语言',
+    pick: '我说',
     join: '加入',
     joining: '正在加入…',
     hold: '按住说话',
-    talking: '正在说…松开发送',
+    talking: '松开发送',
     continuous: '持续说话',
-    continuousOn: '正在持续说话（点击停止）',
-    headphones: '建议戴上耳机，你会听到其他语言发言的中文译音。',
     voice: '播放译音',
     leave: '离开',
-    empty: '还没有人发言。按住下面的按钮说话。',
+    empty: '还没有人发言',
     peers: '在线',
     reconnecting: '连接断开，正在重连…',
     ended: '房间已关闭。',
@@ -32,18 +29,15 @@ const T = {
   es: {
     title: 'Sala de interpretación',
     name: 'Tu nombre',
-    namePh: 'Por ejemplo: Carlos',
-    pick: 'Elige el idioma que hablas',
+    pick: 'Hablo',
     join: 'Unirse',
     joining: 'Uniéndose…',
     hold: 'Mantén pulsado para hablar',
-    talking: 'Hablando… suelta para enviar',
+    talking: 'Suelta para enviar',
     continuous: 'Hablar sin pulsar',
-    continuousOn: 'Hablando sin pulsar (toca para parar)',
-    headphones: 'Usa auriculares: oirás la interpretación al español de lo que digan en chino.',
-    voice: 'Voz de la interpretación',
+    voice: 'Audio traducido',
     leave: 'Salir',
-    empty: 'Nadie ha hablado todavía. Mantén pulsado el botón para hablar.',
+    empty: 'Nadie ha hablado todavía',
     peers: 'Conectados',
     reconnecting: 'Conexión perdida, reconectando…',
     ended: 'La sala se ha cerrado.',
@@ -55,18 +49,15 @@ const T = {
   en: {
     title: 'Interpreting room',
     name: 'Your name',
-    namePh: 'e.g. John',
-    pick: 'Choose the language you speak',
+    pick: 'I speak',
     join: 'Join',
     joining: 'Joining…',
     hold: 'Hold to talk',
-    talking: 'Talking… release to send',
+    talking: 'Release to send',
     continuous: 'Talk hands-free',
-    continuousOn: 'Talking hands-free (tap to stop)',
-    headphones: 'Wear headphones: you will hear an English interpretation of what is said in Chinese.',
-    voice: 'Interpretation voice',
+    voice: 'Translated audio',
     leave: 'Leave',
-    empty: 'Nobody has spoken yet. Hold the button below to talk.',
+    empty: 'Nobody has spoken yet',
     peers: 'Online',
     reconnecting: 'Connection lost, reconnecting…',
     ended: 'The room has been closed.',
@@ -76,6 +67,7 @@ const T = {
     host: 'Host',
   },
 };
+const LANG_NAMES = { zh: '中文', es: 'Español', en: 'English' } as const;
 
 const isZh = (code: string) => code.toLowerCase().startsWith('zh');
 
@@ -111,7 +103,7 @@ export function RoomClient() {
   const myId = useRef('');
   const retry = useRef(0);
   const leaving = useRef(false);
-  const listRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLElement>(null);
   voiceRef.current = voiceOn;
 
   useEffect(() => {
@@ -289,76 +281,70 @@ export function RoomClient() {
     setJoined(false);
   };
 
-  if (!token) return <div style={{ padding: 24 }}>链接缺少房间码，请重新扫码。 / Falta el código de la sala, escanea de nuevo. / The link has no room code, scan again.</div>;
+  if (!token) return <p role="alert" style={{ padding: 24 }}>链接缺少房间码，请重新扫码。 / Falta el código de la sala, escanea de nuevo. / The link has no room code, scan again.</p>;
 
   if (!joined) {
+    // The room's language pair is the title; then my language, my name, join.
     return (
-      <div style={{ padding: '32px 22px', maxWidth: 480, margin: '0 auto' }}>
-        <h1 style={{ fontSize: 24, margin: '8px 0 4px' }}>同传房间 · {foreign === 'en' ? 'Room' : 'Sala'}</h1>
-        <p style={{ opacity: 0.7, marginTop: 0 }}>中文 ⇄ {foreign === 'en' ? 'English' : 'Español'}</p>
-        <p style={{ marginTop: 28, marginBottom: 10, opacity: 0.85 }}>{t.pick}</p>
-        <div style={{ display: 'flex', gap: 10 }}>
+      <main className="join">
+        <h1>中文 ⇄ {LANG_NAMES[foreign]}</h1>
+        <div className="label" id="pick">{t.pick}</div>
+        <div className="choices" role="radiogroup" aria-labelledby="pick">
           {(['zh', foreign] as const).map((l) => (
-            <button key={l} onClick={() => setUi(l)} style={{ ...choice, ...(ui === l ? choiceOn : {}) }}>
-              {l === 'zh' ? '中文' : l === 'en' ? 'English' : 'Español'}
-            </button>
+            <label key={l} className="choice">
+              <input type="radio" name="lang" checked={ui === l} onChange={() => setUi(l)} />
+              <span>{LANG_NAMES[l]}</span>
+            </label>
           ))}
         </div>
-        <p style={{ marginTop: 22, marginBottom: 8, opacity: 0.85 }}>{t.name}</p>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t.namePh} maxLength={24} style={input} />
-        <button onClick={join} disabled={joining} style={{ ...bigBtn, marginTop: 26, width: '100%' }}>
+        <label className="label" htmlFor="name">{t.name}</label>
+        <input id="name" className="field" value={name} onChange={(e) => setName(e.target.value)} maxLength={24} autoComplete="name" />
+        <button className="primary" onClick={join} disabled={joining}>
           {joining ? t.joining : t.join}
         </button>
-        <p style={{ opacity: 0.6, fontSize: 13, marginTop: 18, lineHeight: 1.6 }}>🎧 {t.headphones}</p>
-        {error && <p style={{ color: '#fca5a5' }}>{error}</p>}
-      </div>
+        {error && <p role="alert" className="err">{error}</p>}
+      </main>
     );
   }
 
   const mine = (s: TranscriptSegment) => (ui === 'zh' ? isZh(s.srcLang) : !isZh(s.srcLang));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid #222836' }}>
-        <b style={{ flex: 1 }}>{t.title}</b>
-        <span style={{ fontSize: 12, opacity: 0.7 }}>
-          {t.peers} {peers.length}
-        </span>
-        <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <input type="checkbox" checked={voiceOn} onChange={(e) => setVoiceOn(e.target.checked)} /> {t.voice}
+    <div className="room">
+      <header className="bar">
+        <h1 className="sr-only">{t.title}</h1>
+        <span className="peers">{t.peers} {peers.length}</span>
+        <label>
+          <input type="checkbox" role="switch" checked={voiceOn} onChange={(e) => setVoiceOn(e.target.checked)} /> {t.voice}
         </label>
-        <button onClick={leave} style={smallBtn}>
-          {t.leave}
-        </button>
-      </div>
-      {status === 'reconnecting' && <div style={banner}>{t.reconnecting}</div>}
-      {status === 'ended' && <div style={banner}>{t.ended}</div>}
-      {error && status !== 'ended' && <div style={{ ...banner, background: '#7f1d1d' }}>{error}</div>}
-      <div ref={listRef} style={{ flex: 1, overflow: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {segs.length === 0 && <div style={{ opacity: 0.6, textAlign: 'center', marginTop: 40 }}>{t.empty}</div>}
+        <button className="small" onClick={leave}>{t.leave}</button>
+      </header>
+      {status === 'reconnecting' && <div role="status" className="banner">{t.reconnecting}</div>}
+      {status === 'ended' && <div role="status" className="banner">{t.ended}</div>}
+      {error && status !== 'ended' && <div role="alert" className="banner err">{error}</div>}
+      <main ref={listRef} className="log">
+        {segs.length === 0 && <p className="empty">{t.empty}</p>}
         {segs.map((s) => {
           const own = mine(s);
-          const main = own ? s.srcText : s.status === 'done' || s.status === 'skipped' ? s.dstText : s.status === 'failed' ? t.failed : t.translating;
+          const shown = s.status === 'done' || s.status === 'skipped';
+          const main = own ? s.srcText : shown ? s.dstText : s.status === 'failed' ? t.failed : t.translating;
           const sub = own ? s.dstText : s.srcText;
           const who = s.speaker === 'me' ? t.host : s.speaker === 'them' ? '—' : s.speaker;
           return (
-            <div key={s.id} style={{ alignSelf: own ? 'flex-end' : 'flex-start', maxWidth: '88%' }}>
-              <div style={{ fontSize: 12, opacity: 0.55, marginBottom: 3, textAlign: own ? 'right' : 'left' }}>{who}</div>
-              <div style={{ background: own ? '#1e3a8a' : '#1f2937', borderRadius: 14, padding: '10px 13px' }}>
-                <div style={{ fontSize: 18, lineHeight: 1.45 }}>{main}</div>
-                {sub && <div style={{ fontSize: 13, opacity: 0.6, marginTop: 4 }}>{sub}</div>}
+            <div key={s.id} className={own ? 'msg own' : 'msg'}>
+              <div className="who">{who}</div>
+              <div className="bubble">
+                <div className="main" lang={own ? s.srcLang : shown ? s.dstLang : undefined}>{main}</div>
+                {sub && <div className="sub" lang={own ? s.dstLang : s.srcLang}>{sub}</div>}
               </div>
             </div>
           );
         })}
-        {partial && (
-          <div style={{ opacity: 0.55, fontStyle: 'italic', fontSize: 14 }}>
-            {partial.name}: {partial.text}
-          </div>
-        )}
-      </div>
-      <div style={{ padding: '14px 16px calc(14px + env(safe-area-inset-bottom))', borderTop: '1px solid #222836', display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+        {partial && <div className="partial">{partial.name}: {partial.text}</div>}
+      </main>
+      <footer className="controls">
         {!continuous && (
           <button
+            className={talking ? 'talk on' : 'talk'}
             onPointerDown={(e) => {
               e.preventDefault();
               void setTalk(true);
@@ -367,30 +353,22 @@ export function RoomClient() {
             onPointerLeave={() => talkingRef.current && void setTalk(false)}
             onPointerCancel={() => void setTalk(false)}
             onContextMenu={(e) => e.preventDefault()}
-            style={{ ...talkBtn, background: talking ? '#dc2626' : '#2563eb', transform: talking ? 'scale(1.04)' : 'none' }}
           >
             {talking ? t.talking : t.hold}
           </button>
         )}
         <button
+          className="small"
+          aria-pressed={continuous}
           onClick={() => {
             const next = !continuous;
             setContinuous(next);
             void setTalk(next);
           }}
-          style={{ ...smallBtn, ...(continuous ? { background: '#dc2626', borderColor: '#dc2626', padding: '14px 18px', width: '100%' } : {}) }}
         >
-          {continuous ? t.continuousOn : t.continuous}
+          {t.continuous}
         </button>
-      </div>
+      </footer>
     </div>
   );
 }
-
-const choice: React.CSSProperties = { flex: 1, padding: '16px 0', borderRadius: 14, border: '2px solid #374151', background: '#1f2937', color: '#fff', fontSize: 18, cursor: 'pointer' };
-const choiceOn: React.CSSProperties = { borderColor: '#3b82f6', background: '#1e3a8a' };
-const input: React.CSSProperties = { width: '100%', padding: '14px 12px', borderRadius: 12, border: '1px solid #374151', background: '#111827', color: '#fff', fontSize: 16 };
-const bigBtn: React.CSSProperties = { padding: '16px 0', borderRadius: 14, border: 0, background: '#2563eb', color: '#fff', fontSize: 18, cursor: 'pointer' };
-const smallBtn: React.CSSProperties = { padding: '7px 12px', borderRadius: 10, border: '1px solid #374151', background: 'transparent', color: '#fff', cursor: 'pointer' };
-const talkBtn: React.CSSProperties = { width: '100%', padding: '26px 0', borderRadius: 18, border: 0, color: '#fff', fontSize: 20, fontWeight: 600, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', transition: 'transform .1s' };
-const banner: React.CSSProperties = { background: '#78350f', padding: '8px 16px', fontSize: 13 };

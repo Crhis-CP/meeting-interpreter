@@ -31,7 +31,8 @@ test('phone app: hands-free conversation translates what is said and speaks it',
   await page.goto(`http://localhost:${port}/`);
   await page.evaluate(() => localStorage.setItem('mi-settings', JSON.stringify({ provider: 'demo', mode: 'hands-free' })));
   await page.reload();
-  await expect(page.getByText('把手机放在你们中间，直接说话。')).toBeVisible();
+  await expect(page.getByRole('radio', { name: '免按键' })).toBeChecked();
+  await expect(page.getByRole('button', { name: '开始对话' })).toBeVisible();
   await page.screenshot({ path: 'test-results/mobile-idle.png' });
 
   await page.getByRole('button', { name: '开始' }).click();
@@ -44,7 +45,7 @@ test('phone app: hands-free conversation translates what is said and speaks it',
   await expect(page.getByRole('button', { name: '开始' })).toBeVisible();
 
   // Push-to-talk mode and the settings sheet.
-  await page.getByRole('button', { name: '按住说话', exact: true }).last().click();
+  await page.getByRole('radio', { name: '按住说话' }).check();
   await expect(page.locator('.mic .cap')).toHaveText('按住说话');
   await page.getByRole('button', { name: '设置' }).click();
   await expect(page.getByText('去获取 Key ↗')).toBeVisible();

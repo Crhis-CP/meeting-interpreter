@@ -64,6 +64,7 @@ const save = () => {
 };
 
 const KEY_URL = 'https://bailian.console.aliyun.com/?tab=model#/api-key';
+const SITE = 'https://crhis-cp.github.io/meeting-interpreter/';
 const isEn = () => lang(settings.remote).base === 'en';
 const foreignName = () => (isEn() ? 'English' : 'Español');
 
@@ -269,23 +270,24 @@ function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, 
 }
 
 const app = document.getElementById('app')!;
-let list: HTMLDivElement;
+let list: HTMLElement;
 let partialEl: HTMLDivElement;
 let statusEl: HTMLDivElement;
 
+/** What the phone is doing right now; the mic button's caption says what to do. */
 function statusLine(): string {
   if (status === 'error') return statusText;
   if (status === 'starting') return '正在连接…';
-  if (!engine) return settings.mode === 'hands-free' ? '点下面的按钮开始，双方直接说话' : '按住按钮说话，松开就翻译';
+  if (!engine) return '';
   if (status === 'speaking') return '正在播放翻译…';
-  if (settings.mode === 'ptt') return held ? '正在听…松开就翻译' : '按住按钮说话（谁说都行）';
-  return '正在听，谁说都行';
+  return settings.mode === 'ptt' && !held ? '' : '正在听…';
 }
 
 function renderStatus() {
   if (statusEl) {
     statusEl.textContent = statusLine();
     statusEl.className = `status ${status}`;
+    statusEl.setAttribute('role', status === 'error' ? 'alert' : 'status');
   }
   document.body.dataset.state = engine ? (status === 'speaking' ? 'speaking' : settings.mode === 'ptt' && !held ? 'idle' : 'listening') : 'off';
 }
@@ -300,7 +302,17 @@ function renderPartial() {
 function bubble(s: TranscriptSegment) {
   const mine = s.speaker === 'me';
   const main = s.dstText ?? (s.status === 'failed' ? '（翻译失败）' : '…');
-  return h('div', { class: `turn ${mine ? 'me' : 'them'}` }, h('div', { class: 'main', style: s.draft ? 'opacity:.65' : undefined }, main), h('div', { class: 'src' }, s.srcText));
+  return h('div', { class: `turn ${mine ? 'me' : 'them'}` },
+    h('div', { class: 'main', lang: s.dstText ? s.dstLang : undefined, style: s.draft ? 'opacity:.65' : undefined }, main),
+    h('div', { class: 'src', lang: s.srcLang }, s.srcText),
+  );
+}
+
+/** A segmented control made of real radio buttons: one radiogroup named `label`. */
+function seg<T extends string>(label: string, options: [T, string][], value: T, onchange: (v: T) => void) {
+  return h('div', { class: 'seg', role: 'radiogroup', 'aria-label': label },
+    ...options.map(([v, text]) => h('label', {}, h('input', { type: 'radio', name: label, value: v, checked: v === value, onchange: () => onchange(v) }), h('span', {}, text))),
+  );
 }
 
 function render() {
@@ -311,22 +323,21 @@ function render() {
     save();
     render();
   };
-  list = h('div', { class: 'list' });
+  list = h('main', { class: 'list' });
   const turns = [...segs.values()].sort((a, b) => a.start - b.start);
-  if (webOnly) list.append(h('div', { class: 'banner' }, '网页版只能演示：说什么都会出现固定的示范句子。真实翻译请用安卓 App，或在电脑上开“现场房间”扫码。'));
-  if (!turns.length) list.append(h('div', { class: 'empty' }, h('div', { class: 'hello' }, '你好 · ', isEn() ? 'Hello' : 'Hola'), h('div', {}, '把手机放在你们中间，直接说话。'), h('div', {}, '中文会翻成', isEn() ? '英语' : '西班牙语', '，对方的话会翻成中文。')));
+  if (webOnly) list.append(h('div', { class: 'banner', role: 'note' }, '网页版只能演示，翻译是固定的示范句子。', h('a', { href: SITE, target: '_blank' }, '下载安卓 App ↗')));
   for (const s of turns) list.append(bubble(s));
   partialEl = h('div', { class: 'partial' });
   list.append(partialEl);
 
+  // The mic button's caption is its name: what tapping it does.
   const mic =
     settings.mode === 'hands-free'
-      ? h('button', { class: 'mic', 'aria-label': engine ? '暂停' : '开始', onclick: () => void (engine ? stop() : start()) }, h('span', { class: 'ring' }), micIcon(), h('span', { class: 'cap' }, engine ? '暂停' : '开始对话'))
+      ? h('button', { class: 'mic', onclick: () => void (engine ? stop() : start()) }, h('span', { class: 'ring' }), micIcon(), h('span', { class: 'cap' }, engine ? '暂停' : '开始对话'))
       : h(
           'button',
           {
             class: 'mic',
-            'aria-label': '按住说话',
             onpointerdown: async (ev: PointerEvent) => {
               (ev.target as HTMLElement).setPointerCapture?.(ev.pointerId);
               if (!engine) await start();
@@ -341,22 +352,19 @@ function render() {
           h('span', { class: 'cap' }, '按住说话'),
         );
 
-  statusEl = h('div', { class: 'status' });
+  statusEl = h('div', { class: 'status', role: 'status' });
   app.replaceChildren(
     h('header', {},
-      h('button', { class: 'pill', onclick: toggleLang, disabled: !!engine }, '中文 ⇄ ', foreignName()),
+      h('button', { class: 'pill', title: '切换对方的语言', onclick: toggleLang, disabled: !!engine }, '中文 ⇄ ', foreignName()),
       h('div', { class: 'grow' }),
-      turns.length && !engine ? h('button', { class: 'icon-btn', 'aria-label': '清空', onclick: () => (segs.clear(), render()) }, '清空') : null,
+      turns.length && !engine ? h('button', { class: 'icon-btn', onclick: () => (segs.clear(), render()) }, '清空') : null,
       h('button', { class: 'icon-btn', 'aria-label': '设置', onclick: () => openSettings() }, gearIcon()),
     ),
     list,
     h('footer', {},
       statusEl,
       mic,
-      h('div', { class: 'seg' },
-        h('button', { class: settings.mode === 'hands-free' ? 'on' : '', onclick: () => setMode('hands-free') }, '免按键'),
-        h('button', { class: settings.mode === 'ptt' ? 'on' : '', onclick: () => setMode('ptt') }, '按住说话'),
-      ),
+      seg('说话方式', [['hands-free', '免按键'], ['ptt', '按住说话']], settings.mode, setMode),
     ),
   );
   renderStatus();
@@ -376,6 +384,7 @@ const svg = (d: string, size = 30) => {
   el.setAttribute('viewBox', '0 0 24 24');
   el.setAttribute('width', String(size));
   el.setAttribute('height', String(size));
+  el.setAttribute('aria-hidden', 'true');
   el.innerHTML = d;
   return el;
 };
@@ -386,7 +395,7 @@ const gearIcon = () => svg('<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.4-3a7
 
 /** Offline translation models: download once, then translation needs no network. */
 function offlineRow(): HTMLElement {
-  const status = h('small', {}, offlineMissing ? '只需下载一次' : '✅ 已下载，不联网也能翻译');
+  const status = h('small', { role: 'status' }, offlineMissing ? '' : '离线翻译已下载');
   const btn = h('button', {
     class: 'link',
     onclick: async () => {
@@ -394,7 +403,7 @@ function offlineRow(): HTMLElement {
       try {
         await offline.download((p) => (status.textContent = `下载中 ${Math.round((p.received / p.total) * 100)}%`));
         offlineMissing = 0;
-        status.textContent = '✅ 已下载，不联网也能翻译';
+        status.textContent = '离线翻译已下载';
         btn.remove();
       } catch (err) {
         status.textContent = err instanceof Error ? err.message : String(err);
@@ -405,7 +414,6 @@ function offlineRow(): HTMLElement {
   return h('div', { class: 'row' }, offlineMissing ? btn : null, status);
 }
 
-/** Record 16 s of my voice and clone it with 百炼, so the other side hears my own voice. */
 /** The voice profile imported from the desktop app (kept on this phone). */
 let profile: VoiceProfile = (() => {
   try {
@@ -416,8 +424,12 @@ let profile: VoiceProfile = (() => {
   }
 })();
 
+/** A settings row with a switch on the right (a real checkbox with the switch role). */
+const switchRow = (label: string, checked: boolean, onchange: (on: boolean) => void, disabled = false) =>
+  h('label', { class: 'row toggle' }, h('span', {}, label), h('input', { type: 'checkbox', role: 'switch', class: 'switch', checked, disabled, onchange: (e: Event) => onchange((e.target as HTMLInputElement).checked) }));
+
 function profileGroup(close: () => void): HTMLElement {
-  const status = h('small', {}, `当前：${profileSummary(profile)}`);
+  const status = h('small', { role: 'status' }, profileSummary(profile));
   const input = h('input', { type: 'file', accept: '.json,application/json', style: 'display:none' }) as HTMLInputElement;
   input.onchange = async () => {
     const f = input.files?.[0];
@@ -425,35 +437,33 @@ function profileGroup(close: () => void): HTMLElement {
     try {
       profile = await readProfileFile(f, profile);
       localStorage.setItem('mi-profile', profileJson(profile));
-      status.textContent = `已导入：${profileSummary(profile)}`;
+      status.textContent = profileSummary(profile);
     } catch (err) {
       status.textContent = err instanceof Error ? err.message : String(err);
     }
   };
-  return h(
-    'div',
-    { class: 'group' },
-    h('label', { class: 'row' }, h('span', {}, '口音档案'), status, h('small', {}, '在电脑版做口音校准后点“导出”，把 voice-profile.json 传到手机上再导入，识别会按你的口音自动改对。')),
+  return h('section', { class: 'group', 'aria-labelledby': 'profile-title' },
+    h('div', { class: 'row toggle' }, h('span', { id: 'profile-title' }, '口音档案'), status),
     input,
-    h('button', { class: 'link', onclick: () => input.click() }, '导入 voice-profile.json'),
+    h('button', { class: 'link', onclick: () => input.click() }, '从电脑版导入'),
     profile.corrections.length
       ? h('button', { class: 'link', onclick: () => { profile = emptyProfile(); localStorage.removeItem('mi-profile'); close(); } }, '清除口音档案')
       : null,
   );
 }
 
+/** Record 16 s of my voice and clone it with 百炼, so the other side hears my own voice. */
 function myVoiceGroup(close: () => void): HTMLElement {
-  const status = h('small', {});
-  const consent = h('input', { type: 'checkbox', class: 'switch' });
+  const status = h('small', { role: 'status' });
   const rec = h('button', {
     class: 'link',
+    disabled: true,
     onclick: async () => {
       if (!secrets.dashscope) return void (status.textContent = '先填写阿里云百炼 Key');
-      if (!consent.checked) return void (status.textContent = '请先打开“这是我本人的声音”');
       rec.disabled = true;
       try {
-        const wav = await recordVoiceSample(SAMPLE_SECONDS, (left) => (status.textContent = left ? `正在录音，请朗读上面的文字… ${left} 秒` : '录好了'));
-        status.textContent = '正在生成你的音色（约半分钟）…';
+        const wav = await recordVoiceSample(SAMPLE_SECONDS, (left) => (status.textContent = left ? `正在录音… ${left} 秒` : '录好了'));
+        status.textContent = '正在生成你的音色…';
         const pctx = createMobileContext(log);
         const cfg = { apiKey: secrets.dashscope, region: 'cn' as const };
         const id = await createClonedVoice(pctx, cfg, wav);
@@ -468,69 +478,82 @@ function myVoiceGroup(close: () => void): HTMLElement {
       }
     },
   }, settings.myVoiceId ? '重新录制（16 秒）' : '开始录音（16 秒）');
-  return h('div', { class: 'group' },
+  // Read the text, agree, record: in that order. Recording waits for the consent.
+  return h('section', { class: 'group', 'aria-label': '用我的声音' },
     settings.myVoiceId
-      ? h('label', { class: 'row' }, h('span', {}, '对方听到我的声音'), h('input', { type: 'checkbox', class: 'switch', checked: settings.useMyVoice, onchange: (e: Event) => (settings.useMyVoice = (e.target as HTMLInputElement).checked) }))
-      : h('div', { class: 'row' }, h('span', {}, '用我的声音'), h('small', {}, '对方听到的翻译用你自己的音色。生成音色免费。')),
-    h('div', { class: 'row' }, h('small', {}, '朗读：'), h('span', {}, SAMPLE_SCRIPT)),
-    h('label', { class: 'row' }, h('span', {}, '这是我本人的声音，我同意用它合成我的翻译语音'), consent),
+      ? switchRow('对方听到我的声音', settings.useMyVoice, (on) => (settings.useMyVoice = on))
+      : h('div', { class: 'row', 'aria-hidden': 'true' }, '用我的声音'),
+    h('blockquote', { class: 'row quote', lang: 'zh-CN' }, SAMPLE_SCRIPT),
+    switchRow('这是我本人的声音，我同意用它合成我的翻译语音', false, (on) => (rec.disabled = !on)),
     rec,
     status,
   );
 }
 
 function openSettings(hint?: string) {
-  const sheet = h('div', { class: 'sheet' });
+  const sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'sheet-title' });
   const close = () => {
     save();
     sheet.remove();
     render();
   };
-  const row = (label: string, control: Node, note?: string) => h('label', { class: 'row' }, h('span', {}, label), control, note ? h('small', {}, note) : null);
-  const select = (value: string, opts: [string, string][], on: (v: string) => void) =>
-    h('select', { onchange: (e: Event) => on((e.target as HTMLSelectElement).value) }, ...opts.map(([v, l]) => h('option', { value: v, selected: v === value }, l)));
-  const keyInput = (name: keyof Secrets, placeholder: string) =>
-    h('input', { type: 'password', value: secrets[name] ?? '', placeholder, autocomplete: 'off', oninput: (e: Event) => (secrets = { ...secrets, [name]: (e.target as HTMLInputElement).value.trim() || undefined }) });
+  const row = (label: string, control: Node) => h('label', { class: 'row' }, h('span', {}, label), control);
+  const select = (value: string, opts: [string, string][], on: (v: string) => void, attrs: Record<string, string> = {}) =>
+    h('select', { ...attrs, onchange: (e: Event) => on((e.target as HTMLSelectElement).value) }, ...opts.map(([v, l]) => h('option', { value: v, selected: v === value }, l)));
+  const keyInput = (name: keyof Secrets) =>
+    h('input', { type: 'password', id: `key-${name}`, value: secrets[name] ?? '', autocomplete: 'off', oninput: (e: Event) => (secrets = { ...secrets, [name]: (e.target as HTMLInputElement).value.trim() || undefined }) });
   const voices: [string, string][] = [['', '默认'], ...DASHSCOPE_VOICES.map((v) => [v.id, v.name] as [string, string])];
+  const reopen = () => {
+    close();
+    openSettings();
+  };
 
   sheet.append(
     ...([
-    h('div', { class: 'sheet-head' }, h('b', {}, '设置'), h('button', { class: 'done', onclick: close }, '完成')),
-    hint ? h('div', { class: 'hint' }, hint) : null,
+    h('div', { class: 'sheet-head' }, h('h2', { id: 'sheet-title' }, '设置'), h('button', { class: 'done', onclick: close }, '完成')),
+    hint ? h('div', { class: 'hint', role: 'alert' }, hint) : null,
     h('div', { class: 'group' },
-      row('对方说', select(lang(settings.remote).base, REMOTE_CHOICES.map((c) => [c.base, c.name]), (v) => {
-        settings.remote = withRemoteBase(settings.remote, v as 'es' | 'en');
-        close();
-        openSettings();
-      })),
-      row('口音（一般不用改）', select(settings.remote, accentsOf(lang(settings.remote).base).map((a) => [a.code, a.name]), (v) => (settings.remote = v))),
+      // 对方说: the language and, beside it, its accent.
+      h('div', { class: 'row' },
+        h('label', { htmlFor: 'remote' }, '对方说'),
+        h('div', { class: 'pair' },
+          select(lang(settings.remote).base, REMOTE_CHOICES.map((c) => [c.base, c.name]), (v) => {
+            settings.remote = withRemoteBase(settings.remote, v as 'es' | 'en');
+            reopen();
+          }, { id: 'remote' }),
+          select(settings.remote, accentsOf(lang(settings.remote).base).map((a) => [a.code, a.name]), (v) => (settings.remote = v), { 'aria-label': '口音' }),
+        ),
+      ),
     ),
     h('div', { class: 'group' },
-      row('阿里云百炼 Key', keyInput('dashscope', '粘贴 Key（sk- 开头）')),
-      h('button', { class: 'link', onclick: () => openExternal(KEY_URL) }, '去获取 Key ↗'),
-      row('翻译', select(settings.mt, [['offline', '离线翻译（免费，最快）'], ['qwen-mt', '百炼翻译'], ['llm', '大模型（可选免费的智谱）']], (v) => {
+      h('div', { class: 'row' },
+        h('div', { class: 'row-head' }, h('label', { htmlFor: 'key-dashscope' }, '阿里云百炼 Key'), h('button', { class: 'link', onclick: () => openExternal(KEY_URL) }, '去获取 Key ↗')),
+        keyInput('dashscope'),
+      ),
+      row('翻译', select(settings.mt, [['offline', '离线翻译（免费）'], ['qwen-mt', '百炼翻译'], ['llm', '大模型']], (v) => {
         settings.mt = v as MobileSettings['mt'];
-        close();
-        openSettings();
+        reopen();
       })),
       settings.mt === 'offline' ? offlineRow() : null,
       settings.mt === 'llm' ? row('大模型', select(settings.llmPreset, LLM_PRESETS.filter((p) => p.id !== 'ollama' && p.id !== 'custom').map((p) => [p.id, p.name]), (v) => (settings.llmPreset = v))) : null,
-      settings.mt === 'llm' ? row('大模型 Key', keyInput('llm', '粘贴 Key')) : null,
+      settings.mt === 'llm' ? row('大模型 Key', keyInput('llm')) : null,
     ),
     h('div', { class: 'group' },
-      row(`对方听到的声音（${foreignName()}）`, select(settings.voiceForeign, voices, (v) => (settings.voiceForeign = v))),
-      row('我听到的中文声音', select(settings.voiceChinese, voices, (v) => (settings.voiceChinese = v))),
+      row('对方听到的声音', select(settings.voiceForeign, voices, (v) => (settings.voiceForeign = v))),
+      row('我听到的声音', select(settings.voiceChinese, voices, (v) => (settings.voiceChinese = v))),
       row(`字号 ${settings.fontSize}`, h('input', { type: 'range', min: 16, max: 34, value: settings.fontSize, oninput: (e: Event) => (settings.fontSize = Number((e.target as HTMLInputElement).value)) })),
     ),
     myVoiceGroup(close),
     profileGroup(close),
     h('div', { class: 'group' },
-      row('演示模式', h('input', { type: 'checkbox', class: 'switch', checked: settings.provider === 'demo', disabled: webOnly, onchange: (e: Event) => (settings.provider = (e.target as HTMLInputElement).checked ? 'demo' : 'dashscope') }), '不用 Key，只看效果'),
+      switchRow('演示模式', settings.provider === 'demo', (on) => (settings.provider = on ? 'demo' : 'dashscope'), webOnly),
     ),
-    h('p', { class: 'foot' }, '多人现场开会：在电脑上打开“现场房间”，大家用手机扫码加入。', h('br'), h('a', { href: '#', onclick: (e: Event) => (e.preventDefault(), openExternal('https://crhis-cp.github.io/meeting-interpreter/guide.html#face')) }, '新手上手'), ' · 免费开源 · Key 只保存在这部手机上'),
+    h('p', { class: 'foot' }, h('a', { href: '#', onclick: (e: Event) => (e.preventDefault(), openExternal('https://crhis-cp.github.io/meeting-interpreter/guide.html#face')) }, '新手上手'), ' · Key 只保存在这部手机上'),
     ].filter(Boolean) as Node[]),
   );
+  sheet.addEventListener('keydown', (e) => e.key === 'Escape' && close());
   document.body.append(sheet);
+  sheet.querySelector<HTMLButtonElement>('.done')?.focus();
 }
 
 render();
@@ -539,7 +562,7 @@ render();
 if (!webOnly) {
   void checkForUpdate(__APP_VERSION__, log, createMobileContext(log).fetch).then((u) => {
     if (!u) return;
-    const note = h('button', { class: 'banner update', onclick: () => openExternal('https://crhis-cp.github.io/meeting-interpreter/') }, `有新版本 ${u.version}，点这里下载安装`);
+    const note = h('button', { class: 'banner update', onclick: () => openExternal(SITE) }, `新版本 ${u.version} · 下载安装`);
     document.body.prepend(note);
   });
 }

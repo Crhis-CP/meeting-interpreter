@@ -10,7 +10,50 @@
       html, body, #root { margin: 0; height: 100%; }
       body { font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', Roboto, sans-serif; background: #0f1218; color: #f3f4f6; -webkit-tap-highlight-color: transparent; }
       * { box-sizing: border-box; }
-      button { font: inherit; }
+      button { font: inherit; color: inherit; cursor: pointer; }
+      :focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+      .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+      /* Joining: the language pair, my language, my name, join. */
+      .join { padding: 32px 22px; max-width: 480px; margin: 0 auto; }
+      .join h1 { font-size: 26px; margin: 8px 0 0; }
+      .join .label { display: block; margin: 26px 0 10px; opacity: 0.85; }
+      .choices { display: flex; gap: 10px; }
+      .choice { position: relative; flex: 1; display: grid; place-items: center; padding: 16px 0; font-size: 18px; }
+      .choice input { appearance: none; position: absolute; inset: 0; margin: 0; border-radius: 14px; border: 2px solid #374151; background: #1f2937; cursor: pointer; }
+      .choice input:checked { border-color: #3b82f6; background: #1e3a8a; }
+      .choice span { position: relative; pointer-events: none; }
+      .field { width: 100%; padding: 14px 12px; border-radius: 12px; border: 1px solid #374151; background: #111827; color: #fff; font-size: 16px; }
+      .primary { width: 100%; margin-top: 26px; padding: 16px 0; border-radius: 14px; border: 0; background: #2563eb; color: #fff; font-size: 18px; }
+      .primary:disabled { opacity: 0.6; }
+      .err { color: #fca5a5; }
+
+      /* In the room: who is here and the listening switch, the conversation, the talk buttons. */
+      .room { display: flex; flex-direction: column; height: 100%; }
+      .bar { padding: 12px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #222836; }
+      .bar .peers { flex: 1; font-size: 13px; opacity: 0.7; }
+      .bar label { font-size: 13px; display: flex; align-items: center; gap: 6px; }
+      .small { padding: 7px 12px; border-radius: 10px; border: 1px solid #374151; background: transparent; }
+      .banner { background: #78350f; padding: 8px 16px; font-size: 13px; }
+      .banner.err { background: #7f1d1d; color: inherit; }
+      .log { flex: 1; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+      .empty { opacity: 0.6; text-align: center; margin-top: 40px; }
+      .msg { align-self: flex-start; max-width: 88%; }
+      .msg.own { align-self: flex-end; }
+      .who { font-size: 12px; opacity: 0.55; margin-bottom: 3px; }
+      .own .who { text-align: right; }
+      .bubble { background: #1f2937; border-radius: 14px; padding: 10px 13px; }
+      .own .bubble { background: #1e3a8a; }
+      .bubble .main { font-size: 18px; line-height: 1.45; }
+      .bubble .sub { font-size: 13px; opacity: 0.6; margin-top: 4px; }
+      .partial { opacity: 0.55; font-style: italic; font-size: 14px; }
+      .controls { padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid #222836; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+      .talk { width: 100%; padding: 26px 0; border-radius: 18px; border: 0; color: #fff; font-size: 20px; font-weight: 600; background: #2563eb; touch-action: none; user-select: none; -webkit-user-select: none; transition: transform 0.1s; }
+      .talk.on { background: #dc2626; transform: scale(1.04); }
+      /* Hands-free on: the toggle becomes the big red "live" control. */
+      .small[aria-pressed='true'] { width: 100%; padding: 14px 18px; background: #dc2626; border-color: #dc2626; }
+      .small[aria-pressed='true']::before { content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%; background: #fff; animation: live 1.2s ease-in-out infinite; }
+      @keyframes live { 50% { opacity: 0.3; } }
     </style>
   </head>
   <body>

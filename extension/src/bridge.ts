@@ -125,7 +125,7 @@ function ensureOverlay(): Overlay {
   .box{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:rgba(17,24,39,.86);color:#fff;border-radius:14px;
        box-shadow:0 8px 30px rgba(0,0,0,.35);overflow:hidden;user-select:text}
   .bar{display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12px;color:#cbd5e1;cursor:move;background:rgba(255,255,255,.06)}
-  .bar b{color:#fff;font-weight:600}
+  .state{color:#fff;font-weight:600}
   .dot{width:8px;height:8px;border-radius:50%;background:#64748b}
   .live .dot{background:#22c55e}
   .sp{flex:1}
@@ -140,12 +140,12 @@ function ensureOverlay(): Overlay {
   .notice{color:#fca5a5;font-size:13px;padding:0 14px 8px}
   .min .lines,.min .notice{display:none}
 </style>
-<div class="box">
-  <div class="bar"><span class="dot"></span><b>会议同传</b><span class="state">未开始</span><span class="sp"></span>
-    <button class="smaller" title="字小一点">A-</button><button class="bigger" title="字大一点">A+</button>
-    <button class="toggle" title="收起 / 展开">—</button><button class="close" title="隐藏字幕（不影响同传）">✕</button></div>
+<div class="box" role="region" aria-label="同传字幕">
+  <div class="bar"><span class="dot"></span><span class="state" role="status">未开始</span><span class="sp"></span>
+    <button class="smaller" title="字小一点" aria-label="字小一点">A-</button><button class="bigger" title="字大一点" aria-label="字大一点">A+</button>
+    <button class="toggle" title="收起" aria-label="收起" aria-expanded="true">—</button><button class="close" title="隐藏字幕" aria-label="隐藏字幕">✕</button></div>
   <div class="lines"></div>
-  <div class="notice"></div>
+  <div class="notice" role="alert"></div>
 </div>`;
   const box = root.querySelector('.box') as HTMLDivElement;
   const lines = root.querySelector('.lines') as HTMLDivElement;
@@ -164,7 +164,8 @@ function ensureOverlay(): Overlay {
   setSize(size);
   (root.querySelector('.smaller') as HTMLButtonElement).onclick = () => setSize(size - 2);
   (root.querySelector('.bigger') as HTMLButtonElement).onclick = () => setSize(size + 2);
-  (root.querySelector('.toggle') as HTMLButtonElement).onclick = () => box.classList.toggle('min');
+  const toggle = root.querySelector('.toggle') as HTMLButtonElement;
+  toggle.onclick = () => toggle.setAttribute('aria-expanded', String(!box.classList.toggle('min')));
   (root.querySelector('.close') as HTMLButtonElement).onclick = () => (host.style.display = 'none');
 
   // Drag by the title bar.

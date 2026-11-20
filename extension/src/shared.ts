@@ -102,10 +102,13 @@ export function toAppSettings(s: ExtSettings): AppSettings {
   });
 }
 
+/** The provider sets as the popup and the options page name them. */
+export const PLAN_NAMES: Record<ProviderSet, string> = { free: '免费', dashscope: '高级 · 最准', azure: 'Azure', custom: '自己组合', demo: '演示' };
+
 /** Where to get the key each tier needs (opened in a new tab). */
 export const KEY_LINKS = {
-  llm: { label: '智谱 Key（免费）', url: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys', hint: '注册后点“添加新的 API Key”，复制粘贴到这里' },
-  dashscope: { label: '阿里云百炼 Key', url: 'https://bailian.console.aliyun.com/?tab=model#/api-key', hint: '登录后点“创建 API Key”（sk- 开头），复制粘贴到这里' },
+  llm: { label: '智谱 Key（免费）', url: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys' },
+  dashscope: { label: '阿里云百炼 Key', url: 'https://bailian.console.aliyun.com/?tab=model#/api-key' },
 } as const;
 
 export const DESKTOP_DOWNLOAD = 'https://github.com/Crhis-CP/meeting-interpreter/releases/latest';

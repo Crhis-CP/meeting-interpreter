@@ -220,7 +220,7 @@ test('extension: free offline translation (models downloaded into the browser)',
     chrome.storage.local.set({ settings: { providers: 'custom', remote: 'es-MX', out: { asr: 'demo', mt: 'offline', tts: 'demo', voice: '' }, in: { asr: 'demo', mt: 'offline', tts: 'demo', voice: '' } } }),
   );
   await ext.goto(`chrome-extension://${extId}/options.html#offline`); // starts the download
-  await expect(ext.getByText('✅ 离线翻译已下载（不联网也能翻译）')).toBeVisible({ timeout: 540_000 });
+  await expect(ext.getByRole('status').filter({ hasText: '离线翻译已下载' })).toBeVisible({ timeout: 540_000 });
   const { page, tabId } = await joinMeeting(context, sw);
   const st = await ext.evaluate((id) => chrome.runtime.sendMessage({ type: 'start', tabId: id }), tabId);
   expect(st.status, JSON.stringify(st)).toBe('running');

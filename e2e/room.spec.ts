@@ -24,8 +24,8 @@ test('room: a Chinese phone speaks, a Spanish phone sees the translation', async
 
   for (const [page, lang, name] of [[zh, '中文', '王经理'], [es, 'Español', 'Carlos']] as const) {
     await page.goto(url);
-    await page.getByRole('button', { name: lang, exact: true }).click();
-    await page.locator('input').fill(name);
+    await page.getByRole('radio', { name: lang, exact: true }).check();
+    await page.getByRole('textbox', { name: lang === '中文' ? '你的名字' : 'Tu nombre' }).fill(name);
     await page.getByRole('button', { name: lang === '中文' ? '加入' : 'Unirse' }).click();
   }
   await expect(zh.getByRole('button', { name: '按住说话' })).toBeVisible();
