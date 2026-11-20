@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import logoUrl from './assets/logo.png';
+import { Icon } from './components/icons';
 import { lang } from '@core/lang/languages';
 import { api, useEvent, useMeetingState, useSettings } from './api';
 import { GlossaryPage } from './pages/Glossary';
@@ -12,12 +14,12 @@ import { GuidePage } from './pages/Guide';
 export type Page = 'meeting' | 'room' | 'history' | 'glossary' | 'settings' | 'guide';
 
 const NAV: { id: Page; label: string; icon: string }[] = [
-  { id: 'meeting', label: '会议同传', icon: '🎧' },
-  { id: 'room', label: '现场房间', icon: '📱' },
-  { id: 'history', label: '会议记录', icon: '🗂️' },
-  { id: 'glossary', label: '术语表', icon: '📖' },
-  { id: 'settings', label: '设置', icon: '⚙️' },
-  { id: 'guide', label: '使用指南', icon: '❓' },
+  { id: 'meeting', label: '会议同传', icon: 'headphones' },
+  { id: 'room', label: '现场房间', icon: 'people' },
+  { id: 'history', label: '会议记录', icon: 'doc' },
+  { id: 'glossary', label: '术语表', icon: 'book' },
+  { id: 'settings', label: '设置', icon: 'gear' },
+  { id: 'guide', label: '使用指南', icon: 'help' },
 ];
 
 interface Toast {
@@ -63,7 +65,7 @@ export function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
-          <div className="logo">译</div>
+          <img className="logo" src={logoUrl} alt="" />
           <div>
             会议同传助手
             <small>{lang(settings.languages.remote).base === 'en' ? '中文 ⇄ English' : '中文 ⇄ Español'}</small>
@@ -71,7 +73,7 @@ export function App() {
         </div>
         {NAV.map((n) => (
           <button key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => go(n.id)}>
-            <span>{n.icon}</span>
+            <span className="nav-icon"><Icon name={n.icon} /></span>
             {n.label}
             {n.id === 'meeting' && meeting?.active && meeting.mode === 'meeting' && <span className="dot" />}
             {n.id === 'room' && meeting?.active && meeting.mode === 'room' && <span className="dot" />}

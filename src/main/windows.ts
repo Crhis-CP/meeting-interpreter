@@ -32,8 +32,11 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 620,
     show: false,
     title: '会议同传助手',
-    backgroundColor: '#f5f6f8',
     autoHideMenuBar: true,
+    // macOS: native translucent sidebar and inset traffic lights, like Apple's own apps.
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const, vibrancy: 'sidebar' as const, visualEffectState: 'followWindow' as const, backgroundColor: '#00000000' }
+      : { backgroundColor: '#f5f5f7' }),
     webPreferences: {
       preload: preload('index'),
       contextIsolation: true,

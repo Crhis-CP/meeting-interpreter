@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import logoUrl from '../assets/logo.png';
 import { PRESETS, type PresetId } from '@core/config/presets';
 import { lang, REMOTE_LANGUAGES } from '@core/lang/languages';
 import type { SecretName } from '@core/config/schema';
@@ -54,7 +55,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '36px 24px' }}>
       <div className="brand" style={{ fontSize: 20 }}>
-        <div className="logo">译</div>
+        <img className="logo" src={logoUrl} alt="" />
         <div>
           欢迎使用会议同传助手
           <small>中文 ⇄ Español / English · 免费开源</small>

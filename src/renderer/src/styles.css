@@ -612,3 +612,228 @@ table.table {
   padding: 1px 6px;
   font-size: 12px;
 }
+
+/* ===================================================================== macOS-native look
+   System font and colours, a translucent sidebar (real vibrancy on macOS), segmented tabs,
+   push buttons with hairline borders, green switches, and dark mode that follows the system. */
+:root {
+  --bg: #f5f5f7;
+  --panel: #ffffff;
+  --ink: #1d1d1f;
+  --ink-2: #424245;
+  --ink-3: #86868b;
+  --line: rgba(0, 0, 0, 0.09);
+  --accent: #007aff;
+  --accent-soft: rgba(0, 122, 255, 0.12);
+  --live: #ff3b30;
+  --ok: #34c759;
+  --warn: #ff9f0a;
+  --radius: 12px;
+  --shadow: 0 0.5px 1px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.05);
+  --control: #ffffff;
+  --control-border: rgba(0, 0, 0, 0.14);
+  --hover: rgba(0, 0, 0, 0.05);
+  --sidebar: rgba(236, 236, 240, 0.86);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', 'Microsoft YaHei', 'Segoe UI', 'Noto Sans SC', sans-serif;
+  font-size: 13.5px;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.003em;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1e1e;
+    --panel: #2a2a2c;
+    --ink: #f5f5f7;
+    --ink-2: #d1d1d6;
+    --ink-3: #98989d;
+    --line: rgba(255, 255, 255, 0.1);
+    --accent: #0a84ff;
+    --accent-soft: rgba(10, 132, 255, 0.2);
+    --control: #3a3a3c;
+    --control-border: rgba(255, 255, 255, 0.14);
+    --hover: rgba(255, 255, 255, 0.07);
+    --sidebar: rgba(40, 40, 42, 0.9);
+    color-scheme: dark;
+  }
+}
+html.mac,
+html.mac body,
+html.mac #root {
+  background: transparent;
+}
+html.mac .main {
+  background: var(--bg);
+}
+.sidebar {
+  background: var(--sidebar);
+  border-right: 1px solid var(--line);
+  backdrop-filter: saturate(180%) blur(24px);
+  padding: 14px 10px;
+}
+html.mac .sidebar {
+  background: transparent;
+  padding-top: 44px; /* room for the traffic lights */
+  -webkit-app-region: drag;
+}
+html.mac .sidebar button {
+  -webkit-app-region: no-drag;
+}
+.brand .logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.nav-item {
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 13.5px;
+}
+.nav-item:hover {
+  background: var(--hover);
+}
+.nav-item.active {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--ink);
+  font-weight: 500;
+}
+@media (prefers-color-scheme: dark) {
+  .nav-item.active {
+    background: rgba(255, 255, 255, 0.12);
+  }
+}
+.main {
+  padding: 28px 32px 44px;
+}
+.page-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.card {
+  background: var(--panel);
+  border: 0.5px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.btn {
+  background: var(--control);
+  border: 0.5px solid var(--control-border);
+  border-radius: 7px;
+  padding: 6px 13px;
+  box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.08);
+  color: var(--ink);
+}
+.btn:hover {
+  background: var(--control);
+  filter: brightness(0.97);
+}
+.btn:active {
+  filter: brightness(0.92);
+}
+.btn.primary {
+  background: linear-gradient(180deg, #2a8cff, var(--accent));
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #fff;
+}
+.btn.primary:hover {
+  background: linear-gradient(180deg, #2a8cff, var(--accent));
+}
+.btn.danger {
+  background: linear-gradient(180deg, #ff5a50, var(--live));
+  border-color: rgba(0, 0, 0, 0.12);
+}
+.btn.ghost {
+  box-shadow: none;
+  background: transparent;
+  border-color: transparent;
+}
+.btn.big {
+  padding: 10px 22px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 10px;
+}
+input[type='text'],
+input[type='password'],
+input[type='number'],
+select,
+textarea {
+  background: var(--control);
+  border: 0.5px solid var(--control-border);
+  border-radius: 7px;
+  padding: 6px 9px;
+  box-shadow: inset 0 0.5px 1px rgba(0, 0, 0, 0.06);
+}
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3.5px rgba(0, 122, 255, 0.28);
+}
+.toggle .track {
+  width: 38px;
+  height: 22px;
+  background: rgba(120, 120, 128, 0.32);
+}
+.toggle .track::after {
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+}
+.toggle input:checked + .track {
+  background: var(--ok);
+}
+.toggle input:checked + .track::after {
+  left: 18px;
+}
+/* Tabs as a macOS segmented control. */
+.tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(118, 118, 128, 0.12);
+}
+.tab {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 14px;
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+}
+.tab.active {
+  background: var(--control);
+  color: var(--ink);
+  font-weight: 500;
+  border: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+}
+.preset {
+  border: 0.5px solid var(--control-border);
+  background: var(--panel);
+  border-radius: 12px;
+}
+.preset.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.callout {
+  border-radius: 10px;
+}
+.list-item {
+  border-radius: 10px;
+}
+.seg .bubble {
+  border-radius: 16px;
+}
+.nav-icon {
+  display: inline-flex;
+  color: var(--accent);
+}

@@ -7,24 +7,24 @@
 <meta name="description" content="中文 ⇄ 西班牙语 / 英语 实时同声传译。免费开源，支持 Teams、飞书、腾讯会议、Zoom 等。">
 <link rel="icon" href="favicon.png">
 <style>
-  :root { --blue:#2563eb; --text:#0f172a; --muted:#64748b; --line:#e2e8f0; font-family: system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; color: var(--text); }
+  :root { --blue:#007aff; --text:#1d1d1f; --muted:#86868b; --line:rgba(0,0,0,.1); font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: linear-gradient(180deg,#eef2ff 0,#fff 320px); }
+  body { margin: 0; background: #f5f5f7; }
   main { max-width: 760px; margin: 0 auto; padding: 48px 20px 64px; }
   header { text-align: center; }
-  header img { width: 96px; height: 96px; }
-  h1 { font-size: 30px; margin: 12px 0 6px; }
+  header img { width: 112px; height: 112px; filter: drop-shadow(0 8px 20px rgba(0,0,0,.25)); }
+  h1 { font-size: 40px; letter-spacing: -0.02em; margin: 16px 0 8px; }
   .sub { color: var(--muted); font-size: 16px; margin: 0; }
-  .primary { display: block; margin: 28px auto 6px; max-width: 420px; text-align: center; background: var(--blue); color: #fff; text-decoration: none; font-size: 19px; font-weight: 700; padding: 16px; border-radius: 14px; box-shadow: 0 8px 24px rgba(37,99,235,.25); }
+  .primary { display: block; margin: 32px auto 8px; max-width: 360px; text-align: center; background: var(--blue); color: #fff; text-decoration: none; font-size: 18px; font-weight: 600; padding: 14px; border-radius: 980px; }
   .primary small { display: block; font-weight: 400; font-size: 13px; opacity: .85; margin-top: 2px; }
   .ver { text-align: center; color: var(--muted); font-size: 13px; }
   h2 { font-size: 17px; margin: 40px 0 12px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(220px,1fr)); gap: 12px; }
-  .item { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; text-decoration: none; color: inherit; background: #fff; display: block; }
+  .item { border: 0; border-radius: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.06); padding: 14px 16px; text-decoration: none; color: inherit; background: #fff; display: block; }
   .item:hover { border-color: var(--blue); }
   .item b { display: block; font-size: 15px; }
   .item span { color: var(--muted); font-size: 13px; }
-  .phone { border: 1px solid #c7d2fe; background: #eef2ff; border-radius: 14px; padding: 16px; line-height: 1.7; font-size: 15px; }
+  .phone { border: 0; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); border-radius: 18px; padding: 16px; line-height: 1.7; font-size: 15px; }
   .tip { color: var(--muted); font-size: 13px; line-height: 1.7; }
   footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 48px; }
   a { color: var(--blue); }

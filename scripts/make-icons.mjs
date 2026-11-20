@@ -3,33 +3,30 @@
 import { chromium } from 'playwright';
 import { writeFileSync } from 'node:fs';
 
+// The mark: a glowing ∞ (two-way, never-ending interpretation) whose crossing is a short sound wave.
+const LOOP = 'M512 512C442 412 380 352 300 352a160 160 0 0 0 0 320c80 0 142-60 212-160s132-160 212-160a160 160 0 0 1 0 320c-80 0-142-60-212-160z';
+
 const appSvg = (size) => `
 <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#4f46e5"/><stop offset="0.55" stop-color="#2563eb"/><stop offset="1" stop-color="#06b6d4"/>
-    </linearGradient>
-    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#4338ca"/><stop offset="1" stop-color="#0891b2"/>
-    </linearGradient>
-    <filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#0f172a" flood-opacity="0.28"/></filter>
+    <radialGradient id="bg" cx="0.5" cy="0.35" r="0.9"><stop offset="0" stop-color="#182024"/><stop offset="1" stop-color="#05080a"/></radialGradient>
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="140" y1="0" x2="884" y2="0"><stop offset="0" stop-color="#5eead4"/><stop offset="1" stop-color="#f8fafc"/></linearGradient>
+    <filter id="f" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="16" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
   </defs>
   <rect x="48" y="48" width="928" height="928" rx="220" fill="url(#bg)"/>
-  <g filter="url(#sh)">
-    <path d="M300 236h300a116 116 0 0 1 116 116v236a116 116 0 0 1-116 116H452l-134 104a14 14 0 0 1-22-12v-92a116 116 0 0 1-112-116V352a116 116 0 0 1 116-116z" fill="#fff"/>
-  </g>
-  <text x="450" y="560" font-size="300" text-anchor="middle" font-family="'Noto Sans CJK SC','Source Han Sans SC','PingFang SC','Microsoft YaHei',sans-serif" font-weight="800" fill="url(#ink)">译</text>
-  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="44">
-    <path d="M786 400a150 150 0 0 1 0 140" opacity="0.95"/>
-    <path d="M858 340a240 240 0 0 1 0 260" opacity="0.6"/>
+  <rect x="50" y="50" width="924" height="924" rx="218" fill="none" stroke="#fff" stroke-opacity="0.07" stroke-width="4"/>
+  <path filter="url(#f)" fill="none" stroke="url(#g)" stroke-width="46" stroke-linecap="round" d="${LOOP}"/>
+  <circle cx="512" cy="512" r="74" fill="url(#bg)"/>
+  <g filter="url(#f)" stroke="#fde68a" stroke-width="22" stroke-linecap="round">
+    <line x1="472" y1="492" x2="472" y2="532"/><line x1="512" y1="462" x2="512" y2="562"/><line x1="552" y1="487" x2="552" y2="537"/>
   </g>
 </svg>`;
 
+// Menu-bar / tray: the same ∞ as a solid glyph (macOS template image when black).
 const traySvg = (color) => `
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <path d="M14 10h26a9 9 0 0 1 9 9v18a9 9 0 0 1-9 9H27l-11 9v-9h-2a9 9 0 0 1-9-9V19a9 9 0 0 1 9-9z" fill="${color}"/>
-  <path d="M54 22a12 12 0 0 1 0 12" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round"/>
-  <path d="M59 17a19 19 0 0 1 0 22" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="96 260 832 504">
+  <path fill="none" stroke="${color}" stroke-width="84" stroke-linecap="round" d="${LOOP}"/>
+  <circle cx="512" cy="512" r="88" fill="#000" fill-opacity="0"/>
 </svg>`;
 
 async function render(page, svg, size, path, transparent = true) {
