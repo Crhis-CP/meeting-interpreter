@@ -26,12 +26,19 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - name: Build the Chrome extension
-        run: node scripts/build-extension.mjs
+      - name: Build the Chrome extension and the phone app's web part
+        run: node scripts/build-extension.mjs && node scripts/build-mobile.mjs
       - name: Install Chromium for the phone-room test
         run: npx playwright install --with-deps chromium
       - name: End-to-end tests (Electron under Xvfb)
         run: xvfb-run -a npx playwright test
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Android app compiles
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
         if: always()
         with:

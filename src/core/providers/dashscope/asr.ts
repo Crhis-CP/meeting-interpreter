@@ -171,7 +171,7 @@ class DashscopeAsrSession implements AsrSession {
     const parameters: Record<string, unknown> = {
       format: 'pcm',
       sample_rate: ASR_RATE,
-      language_hints: [lang(this.opts.lang).codes.dashscope],
+      language_hints: [...new Set([this.opts.lang, ...(this.opts.alsoLangs ?? [])].map((l) => lang(l).codes.dashscope))],
       max_sentence_silence: 800,
       heartbeat: true,
     };

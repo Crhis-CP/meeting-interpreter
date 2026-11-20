@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.application'
+}
+
+def pkg = new groovy.json.JsonSlurper().parse(file('../../package.json'))
+def (major, minor, patch) = pkg.version.tokenize('.').collect { it.toInteger() }
+
+android {
+    namespace 'io.github.crhiscp.meetinginterpreter'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'io.github.crhiscp.meetinginterpreter'
+        minSdk 26
+        targetSdk 35
+        versionCode major * 10000 + minor * 100 + patch
+        versionName pkg.version
+    }
+
+    signingConfigs {
+        // Builds are signed with the project's public "community" key unless a private keystore is
+        // provided (MI_KEYSTORE / MI_KEYSTORE_PASSWORD), so every release can update the last one.
+        release {
+            def ks = System.getenv('MI_KEYSTORE')
+            storeFile ks ? file(ks) : file('community.keystore')
+            storePassword System.getenv('MI_KEYSTORE_PASSWORD') ?: 'meeting-interpreter'
+            keyAlias System.getenv('MI_KEY_ALIAS') ?: 'community'
+            keyPassword System.getenv('MI_KEYSTORE_PASSWORD') ?: 'meeting-interpreter'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    lint {
+        checkReleaseBuilds false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

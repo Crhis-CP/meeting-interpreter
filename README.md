@@ -101,6 +101,14 @@
 | **高级版** | 一个阿里云百炼 Key（准确度最高、声音最自然） | 新用户有免费额度，之后约 2–4 元/小时 |
 | Azure / 自己组合 | 对应服务的 Key | 按服务计费 |
 
+## 安卓手机：面对面对话
+
+在 [下载网站](https://crhis-cp.github.io/meeting-interpreter/) 用安卓手机打开，点“下载安卓版”安装。把手机放在你们中间：
+
+- **免按键**：一直在听，谁说都行。听出是中文就用外语念出来，听出是外语就用中文念出来；手机念的时候自动不收音，不会把自己的声音再翻一遍。
+- **按住说话**：按住大按钮说，松开就翻（周围吵的时候用）。
+- 需要一个阿里云百炼 Key（设置里点“去获取 Key”）。苹果手机请用电脑上的“现场房间”扫码使用。
+
 ## 手机怎么用
 
 手机系统不允许任何 App 把声音送进别的会议 App，所以手机上的同传是通过 **现场房间** 网页实现的：
@@ -148,9 +156,12 @@ npm test             # 单元测试
 npm run typecheck    # 类型检查
 npm run build && xvfb-run -a npx playwright test   # 端到端测试（Linux）
 npm run dist         # 打包当前平台的安装包
+npm run build:mobile && (cd android && ./gradlew assembleRelease)   # 安卓 APK（需要 Android SDK）
 ```
 
 发布新版本：在 `CHANGELOG.md` 写好更新内容，把 `package.json` 的 `version` 改成新版本号并推送到 main，GitHub Actions 会自动打标签、构建 macOS / Windows / Linux 安装包并发布到 Releases（也可以推送 `v版本号` 标签触发）。
+
+安卓 APK 默认用仓库里公开的 `android/app/community.keystore` 签名（这样每个新版本都能覆盖安装旧版本）；正式分发可以设置环境变量 `MI_KEYSTORE`、`MI_KEYSTORE_PASSWORD`、`MI_KEY_ALIAS` 换成自己的私有签名。
 
 项目结构和设计见 [docs/superpowers/specs](docs/superpowers/specs/2026-11-20-meeting-interpreter-design.md)。
 

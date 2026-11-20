@@ -89,8 +89,39 @@ jobs:
             release/*.AppImage
           if-no-files-found: error
 
+  android:
+    needs: version
+    name: Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci --ignore-scripts
+      - name: Build the app's web part
+        run: node scripts/build-mobile.mjs
+      - name: Build the APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+      - name: Name it
+        run: |
+          mkdir -p release
+          cp android/app/build/outputs/apk/release/app-release.apk "release/meeting-interpreter-android-$(node -p "require('./package.json').version").apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-android
+          path: release/*.apk
+          if-no-files-found: error
+
   publish:
-    needs: [version, build]
+    needs: [version, build, android]
     if: always() && needs.version.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:

@@ -57,6 +57,11 @@ export interface AsrStartOptions {
   hotwords: string[];
   /** PCM pushed is always 16 kHz mono Int16. */
   sampleRate: 16000;
+  /**
+   * Other languages that may be spoken in the same stream (conversation mode). Providers that
+   * accept several language hints use them; the text tells which language was spoken.
+   */
+  alsoLangs?: LangCode[];
 }
 
 export type AsrEvents = {

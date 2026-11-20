@@ -18,15 +18,16 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p extension/tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p extension/tsconfig.json && tsc --noEmit -p mobile/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "npm run build && node scripts/build-extension.mjs && playwright test",
+    "test:e2e": "npm run build && node scripts/build-extension.mjs && node scripts/build-mobile.mjs && playwright test",
     "cli": "tsx --tsconfig tsconfig.node.json src/cli/index.ts",
     "icons": "node scripts/make-icons.mjs",
     "dist": "npm run build && electron-builder",
     "postinstall": "electron-builder install-app-deps",
-    "build:extension": "node scripts/build-extension.mjs --zip"
+    "build:extension": "node scripts/build-extension.mjs --zip",
+    "build:mobile": "node scripts/build-mobile.mjs"
   },
   "dependencies": {
     "microsoft-cognitiveservices-speech-sdk": "^1.53.0",
