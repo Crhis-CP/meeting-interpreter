@@ -545,7 +545,7 @@ if (!webOnly) {
     h('div', { class: 'group' },
       row('演示模式', h('input', { type: 'checkbox', class: 'switch', checked: settings.provider === 'demo', disabled: webOnly, onchange: (e: Event) => (settings.provider = (e.target as HTMLInputElement).checked ? 'demo' : 'dashscope') }), '不用 Key，只看效果'),
     ),
-    h('p', { class: 'foot' }, '多人现场开会：在电脑上打开“现场房间”，大家用手机扫码加入。', h('br'), '免费开源 · Key 只保存在这部手机上'),
+    h('p', { class: 'foot' }, '多人现场开会：在电脑上打开“现场房间”，大家用手机扫码加入。', h('br'), h('a', { href: '#', onclick: (e: Event) => (e.preventDefault(), openExternal('https://crhis-cp.github.io/meeting-interpreter/guide.html#face')) }, '新手上手'), ' · 免费开源 · Key 只保存在这部手机上'),
     ].filter(Boolean) as Node[]),
   );
   document.body.append(sheet);

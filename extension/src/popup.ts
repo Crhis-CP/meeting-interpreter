@@ -118,6 +118,7 @@ async function render() {
       onMeeting ? '' : h('div', { class: 'hint-line' }, '先在浏览器里打开会议、入会，再点开始'),
       h('div', { class: 'row between small', style: 'margin-top:12px' },
         h('a', { onclick: () => openOptions('#test') }, '测试一下'),
+        h('a', { href: 'https://crhis-cp.github.io/meeting-interpreter/guide.html#web', target: '_blank' }, '新手上手'),
         h('a', { onclick: () => openOptions('#glossary') }, '术语表'),
         h('a', { onclick: () => openOptions(st.lastMeetingId ? `#meeting=${st.lastMeetingId}` : '#meetings') }, '会议记录'),
       ),

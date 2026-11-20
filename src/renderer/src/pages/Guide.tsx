@@ -14,6 +14,9 @@ export function GuidePage() {
   return (
     <div>
       <h1 className="page-title">使用指南</h1>
+      <div className="callout info" style={{ marginBottom: 16 }}>
+        第一次用？按你的开会方式看 <a href="#" onClick={(e) => { e.preventDefault(); void api.app.openExternal('https://crhis-cp.github.io/meeting-interpreter/guide.html'); }}>新手上手</a>（三四步就能用）。
+      </div>
       <p className="page-sub">原理：本应用把外语（西语/英语）译音送进一个“虚拟麦克风”，会议软件把它当成你的麦克风；同时听会议声音，把中文译音播到你的耳机。所以支持任何会议软件。</p>
 
       <div className="card">

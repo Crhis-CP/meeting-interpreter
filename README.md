@@ -40,7 +40,7 @@
 
 ## 下载安装
 
-**下载网站：<https://crhis-cp.github.io/meeting-interpreter/>**（自动识别你的电脑，点一下就下载）。也可以到 [Releases 页面](https://github.com/Crhis-CP/meeting-interpreter/releases/latest) 下载对应的文件：
+**下载网站：<https://crhis-cp.github.io/meeting-interpreter/>** · **[新手上手（按场景，三四步就能用）](https://crhis-cp.github.io/meeting-interpreter/guide.html)**（自动识别你的电脑，点一下就下载）。也可以到 [Releases 页面](https://github.com/Crhis-CP/meeting-interpreter/releases/latest) 下载对应的文件：
 
 | 电脑 | 下载哪个 |
 |---|---|
