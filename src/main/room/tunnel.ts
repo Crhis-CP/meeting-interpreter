@@ -25,6 +25,7 @@ export class TunnelManager {
   constructor(
     private readonly dir: string,
     private readonly log: Logger,
+    private readonly fetchImpl: typeof fetch = (input, init) => globalThis.fetch(input, init),
   ) {}
 
   private binPath(): string {
@@ -38,7 +39,7 @@ export class TunnelManager {
     if (!a) throw new Error('当前系统不支持公网链接');
     mkdirSync(this.dir, { recursive: true });
     this.log.info(`downloading ${a.file}`);
-    const res = await fetch(BASE + a.file, { redirect: 'follow' });
+    const res = await this.fetchImpl(BASE + a.file, { redirect: 'follow' });
     if (!res.ok) throw new Error(`下载 cloudflared 失败（HTTP ${res.status}）`);
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length < 1_000_000) throw new Error('下载的 cloudflared 文件不完整');

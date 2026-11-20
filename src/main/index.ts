@@ -63,8 +63,11 @@ const glossaries = new GlossaryStore(dataDir);
 const recordsDir = () => settings.get().recording.dir || join(app.getPath('documents'), 'MeetingInterpreter');
 const meetings = new MeetingsStore(recordsDir);
 const modelsDir = join(dataDir, 'models');
-const models = new ModelManager(modelsDir);
-const ctx = createNodeContext(createLogger('provider'));
+// In mainland China huggingface.co is usually unreachable: try the mirror first there.
+const inChina = /^Asia\/(Shanghai|Chongqing|Harbin|Urumqi)$/.test(Intl.DateTimeFormat().resolvedOptions().timeZone ?? '');
+const proxiedFetch: typeof fetch = (input, init) => net.fetch(input as string, init as RequestInit);
+const models = new ModelManager(modelsDir, proxiedFetch, inChina ? { baseUrls: ['https://hf-mirror.com', 'https://huggingface.co'] } : {});
+const ctx = createNodeContext(createLogger('provider'), proxiedFetch);
 
 let mainWindow: BrowserWindow | null = null;
 let audioWindow: BrowserWindow | null = null;
@@ -131,6 +134,7 @@ const room = new RoomHost({
   dataDir,
   staticDir: () => join(__dirname, '../renderer'),
   devUrl: () => process.env['ELECTRON_RENDERER_URL'],
+  fetch: proxiedFetch,
 });
 
 // ------------------------------------------------------------------ IPC
@@ -484,7 +488,7 @@ app.whenReady().then(() => {
   log.info(`started ${app.getVersion()} on ${process.platform} ${process.arch}`);
   // A quiet check for a newer release on GitHub (no auto-install: unsigned builds).
   setTimeout(() => {
-    void checkForUpdate(app.getVersion(), log).then((u) => {
+    void checkForUpdate(app.getVersion(), log, proxiedFetch).then((u) => {
       if (u) broadcast('toast', { level: 'info', message: `有新版本 ${u.version} 可以下载：设置 › 关于 › GitHub Releases` });
     });
   }, 8000);

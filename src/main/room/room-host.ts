@@ -31,6 +31,8 @@ export interface RoomDeps {
   devUrl: () => string | undefined;
   /** Test hook: plain HTTP instead of HTTPS. */
   insecure?: boolean;
+  /** Used to download cloudflared (the app passes Electron's proxy-aware net.fetch). */
+  fetch?: typeof fetch;
 }
 
 interface Participant {
@@ -79,7 +81,7 @@ export class RoomHost {
   hostListen = true;
 
   constructor(private readonly d: RoomDeps) {
-    this.tunnel = new TunnelManager(join(d.dataDir, 'bin'), d.log.child('tunnel'));
+    this.tunnel = new TunnelManager(join(d.dataDir, 'bin'), d.log.child('tunnel'), d.fetch);
   }
 
   get active(): boolean {

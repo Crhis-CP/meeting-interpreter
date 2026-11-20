@@ -37,9 +37,13 @@ export function wrapWs(url: string, opts: OpenWebSocketOptions = {}): WebSocketL
   return like;
 }
 
-export function createNodeContext(log: Logger): ProviderContext {
+/**
+ * `fetchImpl`: the app passes Electron's `net.fetch`, which follows the system proxy settings (so
+ * overseas services work behind Clash and similar); the CLI and tests use Node's fetch.
+ */
+export function createNodeContext(log: Logger, fetchImpl: typeof fetch = (input, init) => globalThis.fetch(input, init)): ProviderContext {
   return {
-    fetch: (input, init) => globalThis.fetch(input, init),
+    fetch: fetchImpl,
     openWebSocket: wrapWs,
     log,
     now: () => Date.now(),
