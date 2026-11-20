@@ -40,6 +40,15 @@ export function confusionOf(a: string, b: string): string | null {
   return null;
 }
 
+/** Sound pairs that Chinese regional accents really merge (anything else is noise, not an accent). */
+export const ACCENT_PAIRS: ReadonlySet<string> = new Set(['l-n', 'f-h', 'z-zh', 'c-ch', 's-sh', 'l-r', 'in-ing', 'en-eng', 'an-ang', 'ian-iang', 'uan-uang', 'eng-ong']);
+
+/** `confusionOf`, but only for real accent pairs. */
+export function accentPairOf(a: string, b: string): string | null {
+  const c = confusionOf(a, b);
+  return c && ACCENT_PAIRS.has(c) ? c : null;
+}
+
 /**
  * Pinyin syllables close enough to be a mis-hearing: identical, differing only by common
  * confusions, or by one of this user's own accent patterns (`extra`, e.g. "l-r").

@@ -10,6 +10,7 @@ import { ExternalLink, Field, Toggle } from '../components/ui';
 import { DRIVER_GUIDES, guessMeetingDevice, guessVirtualMic } from '../content/guides';
 import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../../browser/voice-sample';
 import { DriverInstaller } from '../components/DriverInstaller';
+import { AccentCalibrationCard, MyCorrectionsCard } from '../components/AccentCard';
 
 type Tab = 'providers' | 'devices' | 'interp' | 'record' | 'overlay' | 'shortcuts' | 'about';
 
@@ -674,6 +675,8 @@ function InterpTab({ s, update }: TabProps) {
           </Field>
         </div>
       </div>
+      <AccentCalibrationCard s={s} update={update} />
+      <MyCorrectionsCard s={s} update={update} />
       <div className="card">
         <h3>对方的发言</h3>
         <div className="stack">

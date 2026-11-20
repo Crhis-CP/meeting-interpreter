@@ -4,7 +4,8 @@ import { appendFileSync } from 'node:fs';
 import type { AppSettings } from '../../core/config/schema';
 import { Emitter } from '../../core/events';
 import type { GlossaryEntry } from '../../core/glossary/types';
-import { baseOf, otherLanguage } from '../../core/lang/languages';
+import { baseOf, otherLanguage, type LangBase } from '../../core/lang/languages';
+import type { CorrectionRule } from '../../core/profile/profile';
 import type { Logger } from '../../core/log';
 import { DirectionPipeline } from '../../core/pipeline/pipeline';
 import type { Llm, StreamingAsr, Translator, Tts } from '../../core/providers/types';
@@ -32,6 +33,8 @@ export interface ProviderSet {
 export interface SessionDeps {
   settings: () => AppSettings;
   glossary: () => GlossaryEntry[];
+  /** The user's voice profile for a source language (learned corrections, accent patterns, hot words). */
+  personal?: (base: LangBase) => { rules: readonly CorrectionRule[]; pairs: readonly string[]; hotwords: readonly string[] };
   providers: () => ProviderSet;
   /** The fast offline translator for drafts (null when its models are not downloaded). */
   draftTranslator?: () => Promise<Translator | null>;
@@ -240,6 +243,7 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
           tts: chosen[dir]!.tts,
           voice: cfg.voice || undefined,
           glossary: this.d.glossary,
+          personal: this.d.personal ? () => this.d.personal!(baseOf(src)) : undefined,
           pinyinFuzzy: settings.interpretation.pinyinFuzzy,
           lowLatency: settings.interpretation.lowLatency,
           clock: () => this.clock(),
@@ -479,17 +483,7 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     meta.endedAt = new Date(this.now()).toISOString();
     const segs = this.transcript?.list() ?? [];
     try {
-      const f = foreignOf(meta);
-      writeFileSync(join(folder, 'transcript.md'), toMarkdown(segs, meta, 'zh'));
-      writeFileSync(join(folder, 'transcript.zh.srt'), toSrt(segs, 'zh'));
-      writeFileSync(join(folder, `transcript.${f}.srt`), toSrt(segs, 'foreign'));
-      writeFileSync(join(folder, 'transcript.bilingual.srt'), toSrt(segs, 'bilingual'));
-      Object.assign(meta.files, {
-        markdown: 'transcript.md',
-        srtZh: 'transcript.zh.srt',
-        srtForeign: `transcript.${f}.srt`,
-        srtBilingual: 'transcript.bilingual.srt',
-      });
+      writeTranscriptFiles(folder, meta, segs);
       // Subtitles aligned to the screen recording, which starts a little after the meeting.
       const screenOffset = this.recStartedAt.screen;
       if (meta.files.screen && screenOffset !== undefined) {
@@ -541,4 +535,19 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     this.d.broadcast('summary-progress', { id: meta.id, done: 1, total: 1 });
     return summary;
   }
+}
+
+/** transcript.md and the .srt subtitles of a meeting (at the end, and again after a correction). */
+export function writeTranscriptFiles(folder: string, meta: MeetingMeta, segs: TranscriptSegment[]): void {
+  const f = foreignOf(meta);
+  writeFileSync(join(folder, 'transcript.md'), toMarkdown(segs, meta, 'zh'));
+  writeFileSync(join(folder, 'transcript.zh.srt'), toSrt(segs, 'zh'));
+  writeFileSync(join(folder, `transcript.${f}.srt`), toSrt(segs, 'foreign'));
+  writeFileSync(join(folder, 'transcript.bilingual.srt'), toSrt(segs, 'bilingual'));
+  Object.assign(meta.files, {
+    markdown: 'transcript.md',
+    srtZh: 'transcript.zh.srt',
+    srtForeign: `transcript.${f}.srt`,
+    srtBilingual: 'transcript.bilingual.srt',
+  });
 }

@@ -6,7 +6,8 @@ import QRCode from 'qrcode';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { AppSettings } from '../../core/config/schema';
 import type { GlossaryEntry } from '../../core/glossary/types';
-import { baseOf, lang, LANGUAGES, otherLanguage } from '../../core/lang/languages';
+import { baseOf, lang, LANGUAGES, otherLanguage, type LangBase } from '../../core/lang/languages';
+import type { CorrectionRule } from '../../core/profile/profile';
 import type { Logger } from '../../core/log';
 import { DirectionPipeline } from '../../core/pipeline/pipeline';
 import type { Providers } from '../../core/providers/registry';
@@ -22,6 +23,7 @@ export interface RoomDeps {
   session: SessionManager;
   providers: () => Providers;
   glossary: () => GlossaryEntry[];
+  personal?: (base: LangBase) => { rules: readonly CorrectionRule[]; pairs: readonly string[]; hotwords: readonly string[] };
   toAudio: (msg: ToAudio) => void;
   broadcast: <K extends keyof RendererEvents>(event: K, payload: RendererEvents[K]) => void;
   log: Logger;
@@ -408,6 +410,7 @@ export class RoomHost {
       tts: providers.tts(dir),
       voice: (dir === 'out' ? s.out.voice : s.in.voice) || undefined,
       glossary: this.d.glossary,
+      personal: this.d.personal ? () => this.d.personal!(baseOf(p.lang)) : undefined,
       pinyinFuzzy: s.interpretation.pinyinFuzzy,
       lowLatency: s.interpretation.lowLatency,
       clock: () => this.d.session.clock(),

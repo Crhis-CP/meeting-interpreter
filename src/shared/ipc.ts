@@ -3,6 +3,8 @@ import type { Glossary } from '../core/glossary/types';
 import type { PipelineState } from '../core/pipeline/pipeline';
 import type { VoiceInfo } from '../core/providers/types';
 import type { MeetingSummary, SummaryTemplate } from '../core/session/summary';
+import type { CalibrationResult, ProfileCorrection } from '../core/profile/profile';
+import type { ReviewSuggestion } from '../core/profile/review';
 import type { Direction, MeetingMeta, TranscriptSegment } from '../core/types';
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : DeepPartial<T[K]>) : T[K] };
@@ -68,6 +70,31 @@ export interface MeetingDetail {
   summary: MeetingSummary | null;
   folder: string;
   files: { name: string; rel: string; size: number }[];
+  /** Words the after-meeting review thinks were mis-heard, and what the user decided. */
+  review: StoredReview | null;
+}
+
+export interface StoredReview {
+  at: number;
+  suggestions: (ReviewSuggestion & { decision?: 'accepted' | 'ignored' })[];
+}
+
+/** The voice profile as the settings page shows it. */
+export interface ProfileView {
+  file: string;
+  corrections: ProfileCorrection[];
+  /** The user's own accent patterns (seen at least twice), e.g. "l-n". */
+  pairs: string[];
+  calibrations: CalibrationResult[];
+}
+
+export interface CalibrationOutcome {
+  results: { asr: string; name: string; accuracy: number; ms: number; error?: string }[];
+  best: string | null;
+  current: string;
+  learnedTerms: { heard: string; meant: string }[];
+  pairs: string[];
+  profile: ProfileView;
 }
 
 export interface ProviderTestStep {
@@ -139,6 +166,23 @@ export interface RendererApi {
     openFolder(id: string): Promise<void>;
     openFile(id: string, rel: string): Promise<void>;
     fileUrl(id: string, rel: string): Promise<string>;
+    /** Corrects what was recognised for one sentence; re-translates it and learns from the fix. */
+    editSegment(id: string, segId: string, srcText: string): Promise<{ segment: TranscriptSegment; learned: { heard: string; meant: string }[] }>;
+    /** Asks the LLM which of my words were likely mis-heard (needs an LLM key). */
+    review(id: string): Promise<StoredReview>;
+    decide(id: string, segId: string, heard: string, accept: boolean): Promise<MeetingDetail | null>;
+  };
+  /** The personal voice profile (accent calibration and learned corrections), kept in a local file. */
+  profile: {
+    get(): Promise<ProfileView>;
+    script(): Promise<string[]>;
+    calibrate(audio: Int16Array[]): Promise<CalibrationOutcome>;
+    addCorrection(lang: 'zh' | 'es' | 'en', heard: string, meant: string): Promise<ProfileView>;
+    removeCorrection(lang: 'zh' | 'es' | 'en', heard: string): Promise<ProfileView>;
+    exportFile(): Promise<boolean>;
+    importFile(): Promise<ProfileView | null>;
+    reset(): Promise<ProfileView>;
+    openFolder(): Promise<void>;
   };
   providers: {
     test(scope: 'out' | 'in' | 'llm'): Promise<ProviderTestStep[]>;
@@ -189,6 +233,9 @@ export interface RendererEvents {
   'summary-progress': { id: string; done: number; total: number };
   'model-progress': { id: string; file: string; received: number; total: number };
   'driver-progress': { text: string };
+  'calibration-progress': { done: number; total: number };
+  /** The after-meeting review found words to confirm (History opens them). */
+  'review-ready': { id: string; count: number };
   room: RoomState;
   toast: { level: 'info' | 'warn' | 'error'; message: string };
   settings: AppSettings;

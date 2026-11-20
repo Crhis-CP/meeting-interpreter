@@ -2,7 +2,7 @@
  * Comparing what was said with what was recognised: accuracy, accent patterns, and the personal
  * corrections worth keeping ("how the recogniser hears me" → "what I meant").
  */
-import { confusionOf, syllables } from '../glossary/correct';
+import { accentPairOf, confusionOf, similarSyllable, syllables } from '../glossary/correct';
 
 export { confusionOf };
 import type { LangBase } from '../lang/languages';
@@ -92,7 +92,7 @@ export function learnFromReading(reference: string, recognised: string, base: La
   if (base === 'zh') {
     for (const o of ops) {
       if (o.op !== 'sub' || !HAN.test(o.r) || !HAN.test(o.h)) continue;
-      const c = confusionOf(syllables(o.h)[0] ?? '', syllables(o.r)[0] ?? '');
+      const c = accentPairOf(syllables(o.h)[0] ?? '', syllables(o.r)[0] ?? '');
       if (c) confusions.push(c);
     }
   }
@@ -123,7 +123,7 @@ export function soundsAlike(heard: string[], meant: string[], base: LangBase): b
     if (heard.length !== meant.length || !heard.every((c) => HAN.test(c)) || !meant.every((c) => HAN.test(c))) return false;
     const ph = syllables(heard.join(''));
     const pm = syllables(meant.join(''));
-    return ph.every((s, k) => s === pm[k] || confusionOf(s, pm[k] ?? '') !== null);
+    return ph.every((s, k) => similarSyllable(s, pm[k] ?? '') || accentPairOf(s, pm[k] ?? '') !== null);
   }
   const h = fold(heard.join(' '));
   const m = fold(meant.join(' '));

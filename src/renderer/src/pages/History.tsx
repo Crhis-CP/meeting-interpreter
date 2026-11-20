@@ -3,7 +3,8 @@ import { baseOf } from '@core/lang/languages';
 import { summaryToMarkdown, TEMPLATE_NAMES, type SummaryTemplate } from '@core/session/summary';
 import type { MeetingDetail, MeetingListItem } from '@shared/ipc';
 import { api, errMsg, useEvent } from '../api';
-import { Markdown, SegmentView } from '../components/ui';
+import { Markdown } from '../components/ui';
+import { EditableSegment, ReviewPanel } from '../components/TranscriptFixes';
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -160,10 +161,11 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
 
       {tab === 'transcript' && (
         <div className="card">
+          <ReviewPanel d={d} onChange={setD} />
           <div className="segments">
             {d.segments.length === 0 && <div className="empty">这场会议没有记录到发言。</div>}
             {d.segments.map((s) => (
-              <SegmentView key={s.id} seg={s} />
+              <EditableSegment key={s.id} meetingId={id} seg={s} onSaved={(seg) => setD({ ...d, segments: d.segments.map((x) => (x.id === seg.id ? seg : x)) })} />
             ))}
           </div>
         </div>

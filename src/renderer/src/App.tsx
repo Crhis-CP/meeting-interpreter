@@ -26,6 +26,8 @@ interface Toast {
   id: number;
   level: 'info' | 'warn' | 'error';
   message: string;
+  /** A meeting to open when the toast is clicked. */
+  meetingId?: string;
 }
 
 export function App() {
@@ -48,6 +50,11 @@ export function App() {
     setTimeout(() => setToasts((x) => x.filter((y) => y.id !== id)), t.level === 'error' ? 9000 : 6000);
   });
   useEvent('navigate', ({ page }) => setPage(page as Page));
+  useEvent('review-ready', ({ id, count }) => {
+    const tid = Date.now() + Math.random();
+    setToasts((x) => [...x, { id: tid, level: 'info', message: `会后检查：刚才的会议里可能有 ${count} 处听错了，点这里去确认（确认后以后会自动改对）`, meetingId: id }]);
+    setTimeout(() => setToasts((x) => x.filter((y) => y.id !== tid)), 15000);
+  });
   useEvent('model-progress', (p) => {
     const pct = p.total ? Math.round((p.received / p.total) * 100) : 0;
     setDownload(pct >= 100 ? null : { file: p.file, pct });
@@ -99,7 +106,17 @@ export function App() {
       </main>
       <div className="toasts">
         {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.level}`}>
+          <div
+            key={t.id}
+            className={`toast ${t.level}`}
+            style={t.meetingId ? { cursor: 'pointer' } : undefined}
+            onClick={() => {
+              if (!t.meetingId) return;
+              setPage('history');
+              setOpenMeeting(t.meetingId);
+              setToasts((x) => x.filter((y) => y.id !== t.id));
+            }}
+          >
             {t.message}
           </div>
         ))}

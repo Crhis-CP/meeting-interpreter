@@ -1,21 +1,27 @@
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, protocol, safeStorage, session, shell, systemPreferences, Tray, utilityProcess } from 'electron';
-import { mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { release } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { PresetId } from '../core/config/presets';
-import type { AppSettings, SecretName } from '../core/config/schema';
+import { parseSettings, type AppSettings, type SecretName } from '../core/config/schema';
 import { glossaryToCsv, parseGlossaryCsv } from '../core/glossary/csv';
 import type { Glossary } from '../core/glossary/types';
-import { baseOf } from '../core/lang/languages';
+import { baseOf, type LangBase } from '../core/lang/languages';
+import { findHits, hotwordsFor } from '../core/glossary/match';
+import { calibrationScript } from '../core/profile/calibration';
+import { runCalibration } from '../core/profile/calibrate';
+import { learnFromEdit } from '../core/profile/learn';
+import { addCalibration, addCorrections, mergeProfiles, personalFor, profileHotwords, ProfileSchema, recordConfusions, removeCorrection, userPairs } from '../core/profile/profile';
+import { reviewTranscript } from '../core/profile/review';
 import { createLogger, setLogSink } from '../core/log';
 import { createProviders, makeLlm, type Providers } from '../core/providers/registry';
 import { azureVoicesFor } from '../core/providers/azure';
 import { DashscopeTts, createClonedVoice, deleteClonedVoice, waitForVoice } from '../core/providers/dashscope';
 import type { SummaryTemplate } from '../core/session/summary';
-import type { Direction } from '../core/types';
-import { IPC, type FromAudio, type RendererEvents, type ToAudio } from '../shared/ipc';
+import type { Direction, TranscriptSegment } from '../core/types';
+import { IPC, type FromAudio, type ProfileView, type RendererEvents, type StoredReview, type ToAudio } from '../shared/ipc';
 import { detectMeetingApps } from './platform/meeting-apps';
 import { installVirtualAudio } from './platform/virtual-audio';
 import { createNodeContext } from './platform/node-context';
@@ -31,9 +37,10 @@ import manifest from '../browser/offline-mt/manifest.json';
 
 const OFFLINE_MT_TOTAL = manifest.files.reduce((n, f) => n + f.size, 0);
 import { DesktopBridge } from './bridge/desktop-bridge';
-import { audioConfig, SessionManager } from './session/session-manager';
+import { audioConfig, SessionManager, writeTranscriptFiles } from './session/session-manager';
 import { GlossaryStore } from './stores/glossary-store';
 import { MeetingsStore } from './stores/meetings-store';
+import { ProfileStore } from './stores/profile-store';
 import { SecretStore } from './stores/secret-store';
 import { SettingsStore } from './stores/settings-store';
 import { createAudioWindow, createMainWindow, createOverlayWindow } from './windows';
@@ -91,6 +98,9 @@ const secrets = new SecretStore(dataDir, safeStorage);
 const glossaries = new GlossaryStore(dataDir);
 const recordsDir = () => settings.get().recording.dir || join(app.getPath('documents'), 'MeetingInterpreter');
 const meetings = new MeetingsStore(recordsDir);
+/** The voice profile (accent calibration, learned corrections): a file in the records folder. */
+const profileStore = new ProfileStore(recordsDir);
+const personal = (base: LangBase) => personalFor(profileStore.get(), base);
 const modelsDir = join(dataDir, 'models');
 // In mainland China huggingface.co is usually unreachable: try the mirror first there.
 const inChina = /^Asia\/(Shanghai|Chongqing|Harbin|Urumqi)$/.test(Intl.DateTimeFormat().resolvedOptions().timeZone ?? '');
@@ -172,6 +182,7 @@ function providers(): Providers {
 const sessionManager = new SessionManager({
   settings: () => settings.get(),
   glossary: () => glossaries.active(),
+  personal,
   providers,
   draftTranslator: async () => ((await offlineMt.missingBytes().catch(() => 1)) === 0 ? new OfflineTranslator(offlineMt) : null),
   recordsDir,
@@ -185,6 +196,7 @@ const room = new RoomHost({
   session: sessionManager,
   providers,
   glossary: () => glossaries.active(),
+  personal,
   toAudio,
   broadcast,
   log: createLogger('room'),
@@ -297,6 +309,108 @@ const handlers: Record<string, Handler> = {
   'meetings.openFile': (id: string, rel: string) => shell.openPath(meetings.filePath(id, rel)),
   'meetings.fileUrl': (id: string, rel: string) => `mi-media://file/${encodeURIComponent(id)}/${rel.split('/').map(encodeURIComponent).join('/')}`,
 
+  'meetings.editSegment': (id: string, segId: string, srcText: string) => editSegment(id, segId, srcText),
+  'meetings.review': async (id: string) => reviewMeeting(id),
+  'meetings.decide': async (id: string, segId: string, heard: string, accept: boolean) => {
+    const detail = meetings.get(id);
+    const review = detail?.review;
+    const item = review?.suggestions.find((s) => s.segId === segId && s.heard === heard);
+    if (!detail || !review || !item) return detail;
+    item.decision = accept ? 'accepted' : 'ignored';
+    meetings.saveReview(id, review);
+    const seg = detail.segments.find((s) => s.id === segId);
+    if (accept && seg) {
+      const base = baseOf(seg.srcLang);
+      profileStore.update((p) => addCorrections(p, [{ heard: item.heard, meant: item.meant }], base, 'review'));
+      if (seg.srcText.includes(item.heard)) await editSegment(id, segId, seg.srcText.split(item.heard).join(item.meant));
+    }
+    return meetings.get(id);
+  },
+
+  'profile.get': () => profileView(),
+  'profile.script': () => calibrationScript(glossaries.active().map((e) => e.zh)),
+  'profile.calibrate': async (audio: Int16Array[]) => {
+    if (!Array.isArray(audio) || !audio.length || audio.length > 12) throw new Error('录音无效');
+    const pcm = audio.map((a) => (a instanceof Int16Array ? a : new Int16Array(a as ArrayLike<number>)));
+    const total = pcm.reduce((n, a) => n + a.length, 0);
+    if (total < 16000 * 3 || total > 16000 * 600) throw new Error('录音太短或太长，请重新校准');
+    const s = settings.get();
+    const terms = glossaries.active().map((e) => e.zh).filter(Boolean);
+    const sentences = calibrationScript(terms);
+    if (sentences.length !== pcm.length) throw new Error('术语表在校准时变了，请重新校准');
+    const status = secrets.status();
+    const zhLocalReady = modelsForLang('zh', s.local.esModel).every((m) => models.status(m) === 'ready');
+    const ids = [
+      ...(zhLocalReady ? ['local'] : []),
+      ...(status.dashscope ? ['dashscope'] : []),
+      ...(status.azure ? ['azure'] : []),
+      ...(s.out.asr === 'demo' ? ['demo'] : []),
+    ];
+    const names: Record<string, string> = { local: '本机离线识别（免费）', dashscope: '阿里云百炼', azure: 'Azure', demo: '演示' };
+    const hotwords = [...new Set([...hotwordsFor('zh', glossaries.active()), ...profileHotwords(profileStore.get(), 'zh')])];
+    const candidates = ids.map((id) => ({
+      id,
+      name: names[id] ?? id,
+      hotwords,
+      asr: createProviders(parseSettings({ ...s, out: { ...s.out, asr: id } }), secrets.all(), ctx, () => glossaries.active(), { systemTts, localAsr, offlineMt }).asr('out'),
+    }));
+    const run = await runCalibration({ sentences, audio: pcm, lang: 'zh-CN', terms, current: s.out.asr }, candidates, {
+      onProgress: (done, all) => broadcast('calibration-progress', { done, total: all }),
+    });
+    profileStore.update((p) =>
+      addCalibration(recordConfusions(addCorrections(p, run.corrections, 'zh', 'calibration'), run.confusions), {
+        at: Date.now(),
+        lang: 'zh',
+        results: run.results.map(({ asr, accuracy, ms, error }) => ({ asr, accuracy, ms, ...(error ? { error } : {}) })),
+      }),
+    );
+    return {
+      results: run.results.map(({ asr, name, accuracy, ms, error }) => ({ asr, name, accuracy, ms, ...(error ? { error } : {}) })),
+      best: run.best,
+      current: s.out.asr,
+      learnedTerms: run.corrections,
+      pairs: [...new Set(run.confusions)].filter((c) => run.confusions.filter((x) => x === c).length >= 2),
+      profile: profileView(),
+    };
+  },
+  'profile.addCorrection': (lang: LangBase, heard: string, meant: string) => {
+    if (!['zh', 'es', 'en'].includes(lang)) throw new Error('语言无效');
+    profileStore.update((p) => addCorrections(p, [{ heard: String(heard), meant: String(meant) }], lang, 'manual'));
+    return profileView();
+  },
+  'profile.removeCorrection': (lang: LangBase, heard: string) => {
+    profileStore.update((p) => removeCorrection(p, lang, String(heard)));
+    return profileView();
+  },
+  'profile.exportFile': async () => {
+    const res = await dialog.showSaveDialog(mainWindow!, { title: '导出口音档案', defaultPath: 'voice-profile.json', filters: [{ name: '口音档案', extensions: ['json'] }] });
+    if (res.canceled || !res.filePath) return false;
+    writeFileSync(res.filePath, JSON.stringify(profileStore.get(), null, 2), { encoding: 'utf8', mode: 0o600 });
+    return true;
+  },
+  'profile.importFile': async () => {
+    const res = await dialog.showOpenDialog(mainWindow!, { title: '导入口音档案', filters: [{ name: '口音档案', extensions: ['json'] }], properties: ['openFile'] });
+    if (res.canceled || !res.filePaths[0]) return null;
+    const raw = readFileSync(res.filePaths[0], 'utf8');
+    if (raw.length > 5_000_000) throw new Error('文件太大，不是口音档案');
+    const other = ProfileSchema.safeParse((() => { try { return JSON.parse(raw); } catch { return null; } })());
+    if (!other.success) throw new Error('这个文件不是会议同传的口音档案');
+    profileStore.update((p) => mergeProfiles(p, other.data));
+    return profileView();
+  },
+  'profile.reset': () => {
+    profileStore.reset();
+    return profileView();
+  },
+  'profile.openFolder': () => {
+    const f = profileStore.file();
+    if (existsSync(f)) shell.showItemInFolder(f);
+    else {
+      mkdirSync(recordsDir(), { recursive: true });
+      void shell.openPath(recordsDir());
+    }
+  },
+
   'voice.create': async (wav: Uint8Array) => {
     const s = settings.get();
     const key = secrets.all().dashscope;
@@ -391,6 +505,68 @@ const handlers: Record<string, Handler> = {
     overlayWindow?.setIgnoreMouseEvents(on, { forward: true });
   },
 };
+
+/** After a meeting, quietly look for mis-heard words when the user has an LLM key (never in the demo). */
+function autoReview(id: string): void {
+  const s = settings.get();
+  if (!s.interpretation.autoReview || s.preset === 'demo' || !makeLlm(s, secrets.all(), ctx, false)) return;
+  const mine = meetings.get(id)?.segments.filter((x) => x.dir === 'out' && x.srcText).length ?? 0;
+  if (mine < 3) return;
+  void reviewMeeting(id)
+    .then((r) => {
+      const n = r.suggestions.length;
+      if (n) broadcast('review-ready', { id, count: n });
+    })
+    .catch((err) => log.warn('after-meeting review failed', err instanceof Error ? err.message : String(err)));
+}
+
+/** Corrects one recognised sentence: re-translate, rewrite the transcript files, learn from the fix. */
+async function editSegment(id: string, segId: string, srcText: string): Promise<{ segment: TranscriptSegment; learned: { heard: string; meant: string }[] }> {
+  const detail = meetings.get(id);
+  const seg = detail?.segments.find((s) => s.id === segId);
+  if (!detail || !seg) throw new Error('找不到这句话');
+  const text = String(srcText ?? '').trim().slice(0, 2000);
+  if (!text || text === seg.srcText) return { segment: seg, learned: [] };
+  const base = baseOf(seg.srcLang);
+  const learned = learnFromEdit(seg.srcText, text, base);
+  let dstText = seg.dstText;
+  try {
+    const entries = glossaries.active();
+    const dir: Direction = seg.dir === 'in' ? 'in' : 'out';
+    dstText = await providers().mt(dir).translate({ text, from: seg.srcLang, to: seg.dstLang, hits: findHits(text, base, entries, baseOf(seg.dstLang)), context: [] });
+  } catch (err) {
+    log.warn('re-translation after a correction failed', err instanceof Error ? err.message : String(err));
+  }
+  const segment: TranscriptSegment = { ...seg, srcText: text, dstText, status: dstText ? 'done' : seg.status, draft: undefined };
+  meetings.updateSegment(id, segment);
+  const segs = detail.segments.map((s) => (s.id === segId ? segment : s));
+  try {
+    writeTranscriptFiles(detail.folder, detail.meta, segs);
+    meetings.saveMeta(id, detail.meta);
+  } catch (err) {
+    log.warn('could not rewrite transcript files', err instanceof Error ? err.message : String(err));
+  }
+  if (learned.length) profileStore.update((p) => addCorrections(p, learned, base, 'edit'));
+  return { segment, learned };
+}
+
+function profileView(): ProfileView {
+  const p = profileStore.get();
+  return { file: profileStore.file(), corrections: p.corrections, pairs: userPairs(p), calibrations: p.calibrations };
+}
+
+/** The after-meeting review of my own sentences (needs the user's LLM key). */
+async function reviewMeeting(id: string): Promise<StoredReview> {
+  const detail = meetings.get(id);
+  if (!detail) throw new Error('会议不存在');
+  const llm = makeLlm(settings.get(), secrets.all(), ctx, false);
+  if (!llm) throw new Error('需要先在 设置 › 翻译服务 里填写大模型 Key（例如免费的智谱），才能自动找出听错的地方');
+  const terms = glossaries.active().map((e) => e.zh).filter(Boolean);
+  const suggestions = await reviewTranscript(llm, detail.segments, { terms });
+  const review: StoredReview = { at: Date.now(), suggestions };
+  meetings.saveReview(id, review);
+  return review;
+}
 
 function usesOfflineMt(): boolean {
   const s = settings.get();
@@ -656,7 +832,10 @@ app.whenReady().then(() => {
   updateTray();
   registerShortcuts();
   settings.on('changed', () => updateTray());
-  sessionManager.on('ended', () => updateTray());
+  sessionManager.on('ended', (meta) => {
+    updateTray();
+    autoReview(meta.id);
+  });
   log.info(`started ${app.getVersion()} on ${process.platform} ${process.arch}`);
   void desktopBridge.start().catch((err) => log.warn('desktop bridge unavailable', err instanceof Error ? err.message : String(err)));
   // A quiet check for a newer release on GitHub (no auto-install: unsigned builds).

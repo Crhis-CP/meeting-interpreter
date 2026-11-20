@@ -838,3 +838,8 @@ textarea:focus {
   color: var(--accent);
 }
 .seg .dst.draft { opacity: 0.55; font-style: italic; }
+
+/* Saved meeting: fix a recognised sentence */
+.editable-seg { position: relative; }
+.editable-seg .fix-btn { position: absolute; right: 0; top: 4px; opacity: 0; transition: opacity 0.15s; }
+.editable-seg:hover .fix-btn, .editable-seg .fix-btn:focus { opacity: 1; }

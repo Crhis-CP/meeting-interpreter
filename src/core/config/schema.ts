@@ -70,6 +70,8 @@ export const SettingsSchema = z.object({
       outMode: z.enum(['continuous', 'push-to-talk']).default('continuous'),
       lowLatency: z.boolean().default(true),
       pinyinFuzzy: z.boolean().default(true),
+      /** After each meeting (only with the user's own LLM key): find words the recogniser likely mis-heard. */
+      autoReview: z.boolean().default(true),
       /** Volume (0..1) of my original voice mixed under the Spanish translation. */
       originalMixOut: z.number().min(0).max(1).default(0),
       /** Volume (0..1) of the meeting's original audio while a Chinese translation plays. */
@@ -79,7 +81,7 @@ export const SettingsSchema = z.object({
       /** Volume of the original meeting audio when nothing is being translated. */
       originalInVolume: z.number().min(0).max(1).default(1),
     })
-    .default({ outMode: 'continuous', lowLatency: true, pinyinFuzzy: true, originalMixOut: 0, duckLevel: 0.25, playOriginalIn: true, originalInVolume: 1 }),
+    .default({ outMode: 'continuous', lowLatency: true, pinyinFuzzy: true, autoReview: true, originalMixOut: 0, duckLevel: 0.25, playOriginalIn: true, originalInVolume: 1 }),
   devices: z
     .object({
       mic: z.string().default(''),

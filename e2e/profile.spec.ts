@@ -1,0 +1,64 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { expect, test } from '@playwright/test';
+import { launchApp, mainWindow } from './helpers';
+
+test('accent calibration, then correcting a sentence teaches the profile', async () => {
+  const { app, recordsDir } = await launchApp();
+  const win = await mainWindow(app);
+  await win.waitForLoadState('domcontentloaded');
+
+  // 1. Calibration: read each sentence (the fake microphone supplies the voice).
+  await win.locator('.nav-item', { hasText: '设置' }).click();
+  await win.getByRole('button', { name: '同传与语言' }).click();
+  await win.getByRole('button', { name: '开始校准' }).click();
+  // The first sentence starts with a button; each next one starts recording by itself.
+  await win.getByRole('button', { name: '开始录音' }).click();
+  for (let i = 0; i < 8; i++) {
+    const done = win.getByRole('button', { name: /^读完了/ });
+    if (!(await done.waitFor({ timeout: 8000 }).then(() => true, () => false))) break;
+    await win.waitForTimeout(2200);
+    await done.click();
+  }
+  const result = win.getByTestId('calibration-result');
+  await expect(result).toBeVisible({ timeout: 60_000 });
+  await expect(result.getByText('演示')).toBeVisible();
+  await expect(result.getByText('%').first()).toBeVisible();
+  await win.screenshot({ path: 'test-results/calibration.png' });
+  const profile = JSON.parse(readFileSync(join(recordsDir, 'voice-profile.json'), 'utf8'));
+  expect(profile.calibrations).toHaveLength(1);
+  expect(profile.calibrations[0].results[0]).toMatchObject({ asr: 'demo' });
+
+  // 2. A short demo meeting.
+  await win.locator('.nav-item', { hasText: '会议同传' }).click();
+  await win.getByRole('button', { name: '开始同传' }).click();
+  await expect(win.getByText('大家好，欢迎参加今天的会议。')).toBeVisible({ timeout: 30_000 });
+  await win.getByRole('button', { name: '结束会议' }).click();
+  await expect(win.getByText('会议已结束')).toBeVisible({ timeout: 20_000 });
+
+  // 3. Correct a recognised sentence in the record: re-translated, files rewritten, and learned.
+  await win.getByRole('button', { name: '查看会议记录' }).click();
+  await win.locator('.list-item').first().click();
+  await expect(win.getByTestId('review-panel')).toBeVisible();
+  const seg = win.locator('.editable-seg', { hasText: '欢迎参加今天的' }).first();
+  await seg.getByRole('button', { name: '✎ 改正' }).click();
+  await seg.getByLabel('改正识别的文字').fill('大家好，欢迎参加今天的会意。');
+  await seg.getByRole('button', { name: '保存并重新翻译' }).click();
+  await expect(seg.getByText('已记住')).toBeVisible({ timeout: 15_000 });
+  await expect(seg.locator('.src')).toHaveText('大家好，欢迎参加今天的会意。');
+  await win.screenshot({ path: 'test-results/corrected.png' });
+
+  const folder = join(recordsDir, readdirSync(recordsDir).find((f) => f !== 'voice-profile.json')!);
+  expect(readFileSync(join(folder, 'transcript.md'), 'utf8')).toContain('大家好，欢迎参加今天的会意。');
+  const learned = JSON.parse(readFileSync(join(recordsDir, 'voice-profile.json'), 'utf8'));
+  expect(learned.corrections).toContainEqual(expect.objectContaining({ heard: '会议', meant: '会意', source: 'edit' }));
+
+  // 4. The correction list shows it, and it can be removed.
+  await win.locator('.nav-item', { hasText: '设置' }).click();
+  await win.getByRole('button', { name: '同传与语言' }).click();
+  const row = win.locator('tr', { hasText: '会意' });
+  await expect(row).toBeVisible();
+  await row.getByRole('button', { name: '删除' }).click();
+  await expect(row).toHaveCount(0);
+  await app.close();
+});

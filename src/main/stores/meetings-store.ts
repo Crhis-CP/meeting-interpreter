@@ -1,9 +1,9 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import type { MeetingSummary } from '../../core/session/summary';
 import { Transcript } from '../../core/session/transcript';
-import type { MeetingMeta } from '../../core/types';
-import type { MeetingDetail, MeetingListItem } from '../../shared/ipc';
+import type { MeetingMeta, TranscriptSegment } from '../../core/types';
+import type { MeetingDetail, MeetingListItem, StoredReview } from '../../shared/ipc';
 import { readJson, writeJson } from './json-file';
 
 /** Meeting folders under the records directory. */
@@ -64,7 +64,8 @@ export class MeetingsStore {
       }
     };
     walk(folder);
-    return { meta: { ...meta, id }, segments, summary, folder, files };
+    const review = readJson<StoredReview | null>(join(folder, 'review.json'), null);
+    return { meta: { ...meta, id }, segments, summary, folder, files, review };
   }
 
   folder(id: string): string {
@@ -76,6 +77,20 @@ export class MeetingsStore {
     const p = resolve(folder, rel);
     if (!p.startsWith(folder + sep)) throw new Error('无效的文件路径');
     return p;
+  }
+
+  /** Saves a changed sentence (the transcript is append-only: the last line for an id wins). */
+  updateSegment(id: string, seg: TranscriptSegment): void {
+    const folder = this.folderOf(id);
+    appendFileSync(join(folder, 'transcript.jsonl'), `${JSON.stringify(seg)}\n`);
+  }
+
+  saveMeta(id: string, meta: MeetingMeta): void {
+    writeJson(join(this.folderOf(id), 'meeting.json'), meta);
+  }
+
+  saveReview(id: string, review: StoredReview): void {
+    writeJson(join(this.folderOf(id), 'review.json'), review);
   }
 
   rename(id: string, title: string): void {
