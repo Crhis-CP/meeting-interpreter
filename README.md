@@ -63,7 +63,7 @@
    - **阿里云百炼（效果最好）**：一个 Key 搞定识别、翻译、自然人声、纪要，国内直连，延迟低。[获取 Key](https://bailian.console.aliyun.com/?tab=model#/api-key)，新用户有免费额度。
    - **Azure**：微软语音和翻译，支持 Azure 中国区。
    - **演示模式**：不填任何 Key，先看看界面和流程。
-2. **安装虚拟声卡**（让会议软件“听到”译音）
+2. **安装虚拟声卡**（让会议软件“听到”译音）：软件里点 **“一键安装虚拟麦克风”** 即可自动下载安装。也可以手动安装：
    - Mac：安装 [BlackHole 2ch](https://existential.audio/blackhole/)（或终端 `brew install blackhole-2ch`）
    - Windows：安装 [VB-CABLE](https://vb-audio.com/Cable/)（解压后以管理员身份运行安装程序，重启电脑）
 3. **在会议软件里改麦克风**：把 Teams / 飞书 / 腾讯会议的麦克风选成 **BlackHole 2ch**（Mac）或 **CABLE Output**（Windows）。扬声器保持你的耳机。

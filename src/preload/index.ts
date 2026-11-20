@@ -21,7 +21,7 @@ const api: RendererApi = {
   providers: ns('providers', ['test', 'voices']),
   voice: ns('voice', ['create', 'remove']),
   local: ns('local', ['status', 'download']),
-  audio: ns('audio', ['testTone']),
+  audio: ns('audio', ['testTone', 'installDriver']),
   room: ns('room', ['start', 'stop', 'state', 'setPublic']),
   app: ns('app', ['info', 'openExternal', 'detectMeetingApps', 'screenSources', 'chooseRecordsDir', 'showWindow', 'setOverlayClickThrough']),
   on<K extends keyof RendererEvents>(event: K, fn: (payload: RendererEvents[K]) => void) {

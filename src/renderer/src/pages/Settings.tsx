@@ -9,6 +9,7 @@ import { api, errMsg, useDevices, useEvent, useSettings } from '../api';
 import { ExternalLink, Field, Toggle } from '../components/ui';
 import { DRIVER_GUIDES, guessMeetingDevice, guessVirtualMic } from '../content/guides';
 import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../../browser/voice-sample';
+import { DriverInstaller } from '../components/DriverInstaller';
 
 type Tab = 'providers' | 'devices' | 'interp' | 'record' | 'overlay' | 'shortcuts' | 'about';
 
@@ -471,24 +472,21 @@ function DevicesTab({ s, update }: TabProps) {
 
   return (
     <div>
-      {!hasVirtual && guide && (
+      {!hasVirtual && (
         <div className="card">
-          <h3>⚠️ {guide.title}</h3>
-          <ol className="steps">
-            {guide.steps.map((x) => (
-              <li key={x}>{x}</li>
-            ))}
-          </ol>
-          <div className="row">
-            {guide.links.map((l) => (
-              <button key={l.url} className="btn" onClick={() => void api.app.openExternal(l.url)}>
-                {l.label}
-              </button>
-            ))}
-            <button className="btn" onClick={refresh}>
-              刷新设备
-            </button>
-          </div>
+          <h3>还没有虚拟麦克风</h3>
+          <p className="hint" style={{ marginTop: 0 }}>用会议软件的电脑客户端开会时需要它，让对方听到译音。</p>
+          <DriverInstaller onDone={refresh} />
+          {guide && (
+            <details style={{ marginTop: 10 }}>
+              <summary className="muted small">手动安装方法</summary>
+              <ol className="steps">
+                {guide.steps.map((x) => (
+                  <li key={x}>{x}</li>
+                ))}
+              </ol>
+            </details>
+          )}
         </div>
       )}
       <div className="card">

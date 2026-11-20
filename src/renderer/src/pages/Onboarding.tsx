@@ -7,6 +7,7 @@ import { api, useDevices, useSettings } from '../api';
 import { ExternalLink } from '../components/ui';
 import { DRIVER_GUIDES, guessMeetingDevice, guessVirtualMic } from '../content/guides';
 import { TestPanel } from './Settings';
+import { DriverInstaller } from '../components/DriverInstaller';
 
 const KEY_INFO: Record<SecretName, { label: string; url: string; help: string }> = {
   llm: { label: '智谱 GLM（免费）API Key', url: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys', help: '注册智谱开放平台后在“API Keys”创建，GLM-4.7-Flash 免费。也可以在设置里换成 DeepSeek、通义或本机 Ollama。' },
@@ -147,27 +148,15 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         <div className="card">
           <h3>③ 让会议软件听到译音：安装虚拟声卡</h3>
           {vm ? (
-            <div className="callout info">已检测到虚拟声卡：{vm.label}。在会议软件里把“麦克风”选成它的另一端即可（详见“使用指南”）。</div>
+            <div className="callout info">✅ 已装好虚拟麦克风：{vm.label}</div>
           ) : (
             <>
-              <p className="muted">{guide.title}</p>
-              <ol className="steps">
-                {guide.steps.map((x) => (
-                  <li key={x}>{x}</li>
-                ))}
-              </ol>
-              <div className="row">
-                {guide.links.map((l) => (
-                  <button key={l.url} className="btn" onClick={() => void api.app.openExternal(l.url)}>
-                    {l.label}
-                  </button>
-                ))}
-                <button className="btn" onClick={refresh}>
-                  我装好了，重新检测
-                </button>
-              </div>
-              <p className="hint">只想用“现场房间”（手机扫码）或只看字幕，可以先跳过这一步。</p>
+              <p className="muted" style={{ marginTop: 0 }}>用 Teams、飞书、腾讯会议等<b>电脑客户端</b>开会时需要它。只用网页版会议（装 Chrome 插件）或现场房间，可以跳过。</p>
+              <DriverInstaller onDone={refresh} />
             </>
+          )}
+          {vm && (
+            <p className="hint">最后一步：开会时在会议软件的“音频设置”里，把<b>麦克风</b>选成 <b>{os === 'mac' ? 'BlackHole 2ch' : os === 'win' ? 'CABLE Output' : 'MI_Translated_Mic'}</b>。</p>
           )}
           <div className="row" style={{ marginTop: 16, justifyContent: 'space-between' }}>
             <button className="btn" onClick={() => setStep(p.needs.length ? 1 : 0)}>

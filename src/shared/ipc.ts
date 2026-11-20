@@ -155,6 +155,8 @@ export interface RendererApi {
   };
   audio: {
     testTone(target: 'virtualMic' | 'headphones'): Promise<void>;
+    /** Downloads (from the vendor) and installs the virtual audio device for this OS. */
+    installDriver(): Promise<{ ok: boolean; message: string }>;
   };
   room: {
     start(): Promise<RoomState>;
@@ -181,6 +183,7 @@ export interface RendererEvents {
   levels: { mic: number; meeting: number };
   'summary-progress': { id: string; done: number; total: number };
   'model-progress': { id: string; file: string; received: number; total: number };
+  'driver-progress': { text: string };
   room: RoomState;
   toast: { level: 'info' | 'warn' | 'error'; message: string };
   settings: AppSettings;

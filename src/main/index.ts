@@ -16,6 +16,7 @@ import type { SummaryTemplate } from '../core/session/summary';
 import type { Direction } from '../core/types';
 import { IPC, type FromAudio, type RendererEvents, type ToAudio } from '../shared/ipc';
 import { detectMeetingApps } from './platform/meeting-apps';
+import { installVirtualAudio } from './platform/virtual-audio';
 import { createNodeContext } from './platform/node-context';
 import { testDirection, testLlm } from './provider-test';
 import { LocalAsr } from './providers/local-asr/client';
@@ -320,6 +321,7 @@ const handlers: Record<string, Handler> = {
     await models.ensureFor(base, settings.get().local.esModel, (p) => broadcast('model-progress', p));
   },
 
+  'audio.installDriver': () => installVirtualAudio(proxiedFetch, log.child('driver'), (text) => broadcast('driver-progress', { text })),
   'audio.testTone': (target: 'virtualMic' | 'headphones') => {
     toAudio({ type: 'testTone', target, config: audioConfig(settings.get(), 'meeting') });
   },
