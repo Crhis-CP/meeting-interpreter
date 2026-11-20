@@ -18,6 +18,7 @@ import { createProviders } from '@core/providers/registry';
 import type { TranscriptSegment } from '@core/types';
 import { createMobileContext, keepAwake, native, nativeFetchLarge, openExternal } from './native';
 import { OFFLINE_MT_BYTES, OfflineMt } from '../../src/browser/offline-mt/engine';
+import { OfflineTranslator } from '@core/providers/offline-translator';
 import { checkForUpdate } from '../../src/main/update-check';
 
 declare const __APP_VERSION__: string;
@@ -149,6 +150,7 @@ if (!webOnly) {
     const providers = createProviders(s, secrets, pctx, () => [], { offlineMt: { translate: (text, from, to) => offline.translate(text, from, to) } });
     const shared = new SharedAsr(providers.asr('out'), 'zh-CN', settings.remote);
     const t0 = Date.now();
+    const draft = settings.mt !== 'offline' && settings.provider !== 'demo' && !(await offline.missingBytes().catch(() => 1)) ? new OfflineTranslator({ translate: (t, f, to) => offline.translate(t, f, to) }) : undefined;
     const make = (side: 'zh' | 'foreign') =>
       new DirectionPipeline({
         dir: side === 'zh' ? 'out' : 'in',
@@ -158,6 +160,7 @@ if (!webOnly) {
         dstLang: side === 'zh' ? settings.remote : 'zh-CN',
         asr: shared.view(side),
         translator: providers.mt(side === 'zh' ? 'out' : 'in'),
+        draft,
         tts: providers.tts(side === 'zh' ? 'out' : 'in'),
         voice: (side === 'zh' ? settings.voiceForeign : settings.voiceChinese) || undefined,
         glossary: () => [],
@@ -365,7 +368,7 @@ function renderPartial() {
 function bubble(s: TranscriptSegment) {
   const mine = s.speaker === 'me';
   const main = s.dstText ?? (s.status === 'failed' ? '（翻译失败）' : '…');
-  return h('div', { class: `turn ${mine ? 'me' : 'them'}` }, h('div', { class: 'main' }, main), h('div', { class: 'src' }, s.srcText));
+  return h('div', { class: `turn ${mine ? 'me' : 'them'}` }, h('div', { class: 'main', style: s.draft ? 'opacity:.65' : undefined }, main), h('div', { class: 'src' }, s.srcText));
 }
 
 function render() {

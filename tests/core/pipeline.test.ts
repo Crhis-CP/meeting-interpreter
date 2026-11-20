@@ -224,3 +224,31 @@ describe('DirectionPipeline', () => {
   });
 });
 
+
+describe('offline draft in front of a slow or failing translator', () => {
+  const quick = (text: string): Translator => ({ id: 'draft', translate: async () => text });
+
+  it('shows the draft first, then the final translation, and speaks the final one', async () => {
+    const { p, asr, translator, tts, segments } = make({ draft: quick('Borrador rápido.') });
+    translator.results['你好。'] = 'Hola, versión final.';
+    translator.delays['你好。'] = 60;
+    await p.start();
+    asr.last.final('你好。');
+    await waitFor(() => tts.calls.length === 1);
+    const texts = segments.filter((s) => s.dstText).map((s) => `${s.draft ? 'draft' : 'final'}:${s.dstText}`);
+    expect(texts[0]).toBe('draft:Borrador rápido.');
+    expect(texts.at(-1)).toBe('final:Hola, versión final.');
+    expect(tts.calls[0]!.text).toBe('Hola, versión final.');
+  });
+
+  it('uses the draft when the main translator fails', async () => {
+    const failing: Translator = { id: 'x', translate: async () => { throw Object.assign(new Error('429 rate limited'), { retryable: true }); } };
+    const { p, asr, tts, segments } = make({ translator: failing, draft: quick('Hola desde el borrador.') });
+    await p.start();
+    asr.last.final('你好。');
+    await waitFor(() => tts.calls.length === 1);
+    const last = segments.filter((s) => s.id === 'out-1').at(-1)!;
+    expect(last).toMatchObject({ status: 'done', dstText: 'Hola desde el borrador.' });
+    expect(last.draft).toBeUndefined();
+  });
+});

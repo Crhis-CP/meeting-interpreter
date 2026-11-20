@@ -33,6 +33,8 @@ export interface SessionDeps {
   settings: () => AppSettings;
   glossary: () => GlossaryEntry[];
   providers: () => ProviderSet;
+  /** The fast offline translator for drafts (null when its models are not downloaded). */
+  draftTranslator?: () => Promise<Translator | null>;
   recordsDir: () => string;
   toAudio: (msg: ToAudio) => void;
   broadcast: <K extends keyof RendererEvents>(event: K, payload: RendererEvents[K]) => void;
@@ -166,6 +168,9 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
       out: { asr: providers.asr('out'), mt: providers.mt('out'), tts: providers.tts('out') },
     };
     if (withIn) chosen.in = { asr: providers.asr('in'), mt: providers.mt('in'), tts: providers.tts('in') };
+    // A cloud or LLM translator gets an offline draft in front of it, when the models are there.
+    const needsDraft = settings.out.mt !== 'offline' || settings.in.mt !== 'offline';
+    const draft = needsDraft && !settings.preset.startsWith('demo') ? ((await this.d.draftTranslator?.()) ?? undefined) : undefined;
 
     const gen = ++this.startGen;
     const startedAt = new Date(this.now());
@@ -231,6 +236,7 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
           dstLang: dst || otherLanguage(src, remoteLang),
           asr: chosen[dir]!.asr,
           translator: chosen[dir]!.mt,
+          draft: cfg.mt === 'offline' || cfg.mt === 'demo' ? undefined : draft,
           tts: chosen[dir]!.tts,
           voice: cfg.voice || undefined,
           glossary: this.d.glossary,

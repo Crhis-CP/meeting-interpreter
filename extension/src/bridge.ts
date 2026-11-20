@@ -220,7 +220,9 @@ function ensureOverlay(): Overlay {
       }
       // For the other side: Chinese first, original below. For me: what they hear, my words below.
       const main = seg.dstText ?? (seg.status === 'failed' ? `（翻译失败${seg.error ? `：${seg.error.slice(0, 80)}` : ''}）` : '翻译中…');
-      (row.querySelector('.zh') as HTMLDivElement).textContent = mine ? `→ ${main}` : main;
+      const zhEl = row.querySelector('.zh') as HTMLDivElement;
+      zhEl.textContent = mine ? `→ ${main}` : main;
+      zhEl.style.opacity = seg.draft ? '0.6' : '';
       (row.querySelector('.src') as HTMLDivElement).textContent = seg.srcText;
       if (seg.dir === 'in') partialEl.remove();
       scroll();

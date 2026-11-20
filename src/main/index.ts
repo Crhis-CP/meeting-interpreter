@@ -25,6 +25,7 @@ import { modelsForLang, modelsSize, type ModelId } from './providers/local-asr/m
 import { SystemTts } from './providers/system-tts';
 import { RoomHost } from './room/room-host';
 import { AudioWindowMt } from './offline-mt';
+import { OfflineTranslator } from '../core/providers/offline-translator';
 import manifest from '../browser/offline-mt/manifest.json';
 
 const OFFLINE_MT_TOTAL = manifest.files.reduce((n, f) => n + f.size, 0);
@@ -165,6 +166,7 @@ const sessionManager = new SessionManager({
   settings: () => settings.get(),
   glossary: () => glossaries.active(),
   providers,
+  draftTranslator: async () => ((await offlineMt.missingBytes().catch(() => 1)) === 0 ? new OfflineTranslator(offlineMt) : null),
   recordsDir,
   toAudio,
   broadcast,

@@ -24,6 +24,8 @@ export interface TranscriptSegment {
   dstText: string | null;
   status: SegmentStatus;
   error?: string;
+  /** The translation shown is the fast offline draft; the final one is on its way. */
+  draft?: boolean;
   /** Glossary corrections applied to the recognised text. */
   edits?: { from: string; to: string }[];
 }

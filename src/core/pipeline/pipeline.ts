@@ -29,6 +29,11 @@ export interface PipelineOptions {
   dstLang: LangCode;
   asr: StreamingAsr;
   translator: Translator;
+  /**
+   * A fast (offline) translator: its draft is shown at once while `translator` works, and it stands
+   * in when `translator` fails or times out, so a slow or rate-limited service never leaves a gap.
+   */
+  draft?: Translator;
   tts: Tts | null;
   voice?: string;
   glossary: () => GlossaryEntry[];
@@ -300,27 +305,59 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
       context: this.context.slice(-3),
       signal: this.abort.signal,
     };
+    // The fast draft: shown while the main translation is on its way, used if that fails.
+    let draft: string | null = null;
+    let final = false;
+    const draftDone = this.o.draft
+      ? this.o.draft
+          .translate(req)
+          .then((raw) => {
+            const out = cleanTranslation(raw);
+            if (!isValidTranslation(out, this.o.dstLang, job.seg.srcText)) return;
+            draft = out;
+            if (!final) this.emit('segment', { ...job.seg, dstText: out, draft: true });
+          })
+          .catch(() => undefined)
+      : Promise.resolve();
+    const useDraft = async (why: string): Promise<string | null> => {
+      await Promise.race([draftDone, sleep(3000)]);
+      if (!draft) return null;
+      this.log.warn(`using the offline draft: ${why}`);
+      final = true;
+      job.seg = { ...job.seg, dstText: draft, draft: undefined, status: job.skipped ? 'skipped' : 'done' };
+      this.context.push({ src: job.seg.srcText, dst: draft });
+      if (this.context.length > 6) this.context.shift();
+      this.emit('segment', job.seg);
+      return draft;
+    };
     let lastError = '';
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const raw = await this.withTimeout(this.o.translateTimeoutMs ?? 20000, (signal) => this.o.translator.translate({ ...req, signal }));
+        // With a draft to fall back on, do not wait long for a slow service.
+        const timeout = this.o.draft ? Math.min(this.o.translateTimeoutMs ?? 20000, 8000) : (this.o.translateTimeoutMs ?? 20000);
+        const raw = await this.withTimeout(timeout, (signal) => this.o.translator.translate({ ...req, signal }));
         const out = cleanTranslation(raw);
         if (!isValidTranslation(out, this.o.dstLang, job.seg.srcText)) {
           lastError = '译文无效（语言不对或为空），已丢弃';
           break;
         }
-        job.seg = { ...job.seg, dstText: out, status: job.skipped ? 'skipped' : 'done' };
+        final = true;
+        job.seg = { ...job.seg, dstText: out, draft: undefined, status: job.skipped ? 'skipped' : 'done' };
         this.context.push({ src: job.seg.srcText, dst: out });
         if (this.context.length > 6) this.context.shift();
         this.emit('segment', job.seg);
         return out;
       } catch (err) {
-        if (isAbortError(err)) return null;
+        if (isAbortError(err) && this.abort.signal.aborted) return null;
         lastError = err instanceof Error ? err.message : String(err);
         const retryable = (err as { retryable?: boolean }).retryable ?? true;
-        if (!retryable || attempt === 1) break;
+        if (this.o.draft || !retryable || attempt === 1) break;
         await sleep(400, this.abort.signal).catch(() => undefined);
       }
+    }
+    if (this.o.draft) {
+      const used = await useDraft(lastError);
+      if (used !== null) return used;
     }
     job.seg = { ...job.seg, status: 'failed', error: lastError };
     this.log.warn('translation failed', lastError);

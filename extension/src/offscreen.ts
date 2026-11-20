@@ -11,7 +11,8 @@ import { DirectionPipeline } from '@core/pipeline/pipeline';
 import { Transcript } from '@core/session/transcript';
 import type { Direction, MeetingMeta, TranscriptSegment } from '@core/types';
 import { consoleLogger, createBrowserContext } from './browser-context';
-import { buildProviders } from './engine-providers';
+import { buildProviders, offlineMt } from './engine-providers';
+import { OfflineTranslator } from '@core/providers/offline-translator';
 import { PORT_NAME, toAppSettings, type EngineToPage, type FromOffscreen, type PageToEngine, type SavedMeeting, type SessionState, type StoredData, type ToOffscreen, type DOmit } from './shared';
 
 const log = consoleLogger('engine');
@@ -152,6 +153,8 @@ async function start(msg: Extract<ToOffscreen, { type: 'start' }>) {
     };
     const warnings: string[] = [];
 
+    // An offline draft in front of a cloud / LLM translator, when the models are in this browser.
+    const draft = (await offlineMt().missingBytes().catch(() => 1)) === 0 ? new OfflineTranslator({ translate: (t, f, to) => offlineMt().translate(t, f, to) }) : undefined;
     for (const dir of ['out', 'in'] as const) {
       const src = dir === 'out' ? settings.languages.self : settings.languages.remote;
       const dst = otherLanguage(src, settings.languages.remote);
@@ -164,6 +167,7 @@ async function start(msg: Extract<ToOffscreen, { type: 'start' }>) {
         dstLang: dst,
         asr: providers.asr(dir),
         translator: providers.mt(dir),
+        draft: cfg.mt === 'offline' || cfg.mt === 'demo' ? undefined : draft,
         tts: providers.tts(dir),
         voice: cfg.voice || undefined,
         glossary: () => data.glossary,

@@ -59,7 +59,7 @@ export function SegmentView({ seg, onClick }: { seg: TranscriptSegment; onClick?
       <div className="avatar">{name.slice(0, 1)}</div>
       <div className="bubble">
         <div className="src">{seg.srcText}</div>
-        <div className="dst">
+        <div className={seg.draft ? 'dst draft' : 'dst'}>
           {seg.status === 'translating' && <span className="muted">翻译中…</span>}
           {seg.status === 'failed' && <span>翻译失败{seg.error ? `：${seg.error}` : ''}</span>}
           {(seg.status === 'done' || seg.status === 'skipped') && seg.dstText}
