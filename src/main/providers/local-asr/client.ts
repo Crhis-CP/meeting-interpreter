@@ -21,6 +21,7 @@ export type WorkerRequest =
 export type WorkerReply =
   | { type: 'ready' }
   | { type: 'final'; text: string; start: number; end: number }
+  | { type: 'partial'; text: string }
   | { type: 'error'; message: string }
   | { type: 'ended' };
 
@@ -42,7 +43,7 @@ const PROVIDER = 'local';
 
 /**
  * Free offline speech recognition (sherpa-onnx in a separate process, so a native crash or a slow
- * decode never takes the app down). Emits `final` events only; hot words are not supported by these models.
+ * decode never takes the app down). Emits `partial` results while Chinese is spoken and `final` per sentence; hot words are not supported by these models.
  */
 export class LocalAsr implements StreamingAsr {
   readonly id = 'local';
@@ -154,6 +155,9 @@ class LocalAsrSession implements AsrSession {
         break;
       case 'final':
         if (m.text) this.events.emit('final', { text: m.text, start: m.start, end: m.end });
+        break;
+      case 'partial':
+        if (m.text) this.events.emit('partial', { text: m.text });
         break;
       case 'error':
         this.fail(new ProviderError(m.message || '本机识别出错', PROVIDER));

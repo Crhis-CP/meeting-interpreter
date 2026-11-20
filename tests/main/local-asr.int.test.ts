@@ -382,6 +382,20 @@ describe.skipIf(!MODELS_DIR)('offline recognition with real sherpa-onnx models',
     expect(got.closed).toEqual([{ reason: 'ended' }]);
   }, 120_000);
 
+  it('reports the Chinese sentence while it is being spoken (partials before the final)', async () => {
+    const pcm = read16k(join(MODELS_DIR!, 'test_wavs', 'zh.wav'));
+    const asr = new LocalAsr({ modelsDir: MODELS_DIR!, spawn: () => createInProcessWorker() });
+    const session = await asr.start({ lang: 'zh-CN', hotwords: [], sampleRate: 16000 });
+    const events: string[] = [];
+    session.events.on('partial', ({ text }) => events.push(`p:${text}`));
+    session.events.on('final', ({ text }) => events.push(`f:${text}`));
+    feedChunks(pcm, (c) => session.push(c));
+    await session.end();
+    console.log(events.join('\n'));
+    const firstFinal = events.findIndex((e) => e.startsWith('f:'));
+    expect(events.slice(0, firstFinal).filter((e) => e.startsWith('p:')).length).toBeGreaterThan(0);
+  }, 120_000);
+
   // Whisper downloads are big (base ≈ 161 MB, small ≈ 375 MB): opt in with MI_WHISPER=whisper-base|whisper-small.
   it.skipIf(!process.env.MI_WHISPER)(
     'transcribes Spanish speech with Silero VAD + Whisper',

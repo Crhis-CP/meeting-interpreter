@@ -38,6 +38,8 @@ export interface SherpaVad {
   pop(): void;
   flush(): void;
   reset(): void;
+  /** Whether speech is going on right now (sherpa-onnx ≥ 1.10). */
+  isDetected?(): boolean;
 }
 
 export interface SherpaOfflineRecognizerConfig {
@@ -109,6 +111,13 @@ export interface LocalRecognizerOptions {
   models: ModelLocator;
   /** One finished sentence; times are seconds since the first sample fed. */
   onFinal: (text: string, startSec: number, endSec: number) => void;
+  /**
+   * The sentence so far, while it is being spoken (Chinese / SenseVoice: cheap enough to decode
+   * again every `partialEverySec`), so translation can start on its first clauses.
+   */
+  onPartial?: (text: string) => void;
+  /** Default 0.8 s; 0 turns partial results off. */
+  partialEverySec?: number;
   /** Whisper model for Spanish. Default whisper-small; falls back to the other Whisper model when only that one is downloaded. */
   esModel?: WhisperModelId;
   /** Threads for the recogniser. Default 2. */
@@ -158,6 +167,10 @@ export class LocalRecognizer {
   /** Recent audio by absolute sample index (what the VAD has seen), for the pre-roll. */
   private readonly history: Float32Array;
   private historyEnd = 0;
+  /** Where the speech now going on started (absolute sample), or null in silence. */
+  private speechFrom: number | null = null;
+  private lastPartialAt = 0;
+  private lastPartial = '';
 
   constructor(private readonly opts: LocalRecognizerOptions) {
     this.lang = baseOf(opts.lang);
@@ -216,6 +229,31 @@ export class LocalRecognizer {
     for (; off + VAD_WINDOW <= buf.length; off += VAD_WINDOW) this.accept(buf.subarray(off, off + VAD_WINDOW));
     this.pending = buf.slice(off);
     this.drain();
+    this.partial();
+  }
+
+  /** Decodes the sentence being spoken, at most every `partialEverySec`. */
+  private partial(): void {
+    const every = this.opts.partialEverySec ?? 0.8;
+    if (!this.opts.onPartial || every <= 0 || this.model !== 'sensevoice' || !this.vad.isDetected) return;
+    if (!this.vad.isDetected()) {
+      this.speechFrom = null;
+      return;
+    }
+    // The VAD notices speech after minSpeechDuration: start a little earlier (with the pre-roll).
+    this.speechFrom ??= Math.max(0, this.historyEnd - Math.round((this.tuning.minSpeechDuration + PRE_ROLL_SECONDS + 0.1) * ASR_RATE));
+    if (this.historyEnd - this.lastPartialAt < every * ASR_RATE) return;
+    this.lastPartialAt = this.historyEnd;
+    const samples = this.recall(this.speechFrom, this.historyEnd);
+    if (samples.length < 0.5 * ASR_RATE) return;
+    const stream = this.recognizer.createStream();
+    stream.acceptWaveform({ samples, sampleRate: ASR_RATE });
+    this.recognizer.decode(stream);
+    const text = cleanText(this.recognizer.getResult(stream).text ?? '', this.lang);
+    if (text && text !== this.lastPartial) {
+      this.lastPartial = text;
+      this.opts.onPartial(text);
+    }
   }
 
   /** End of the stream: decodes the sentence still open. */
@@ -252,6 +290,8 @@ export class LocalRecognizer {
     while (!this.vad.isEmpty()) {
       const segment = this.vad.front(false);
       this.vad.pop();
+      this.speechFrom = null;
+      this.lastPartial = '';
       this.decode(segment);
     }
   }

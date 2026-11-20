@@ -60,6 +60,7 @@ export function attachWorker(port: ParentPortLike, deps: WorkerDeps = {}): { dis
             esModel: msg.esModel,
             numThreads: msg.numThreads,
             onFinal: (text, start, end) => send({ type: 'final', text, start, end }),
+            onPartial: (text) => send({ type: 'partial', text }),
           });
           send({ type: 'ready' });
           break;
