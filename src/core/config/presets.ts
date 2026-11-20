@@ -21,12 +21,12 @@ export const PRESETS: ProviderPreset[] = [
   {
     id: 'free',
     name: '免费方案',
-    description: '本机离线识别 + 离线翻译 + 系统自带语音。不用任何 Key，不联网也能用（第一次自动下载模型）。',
+    description: '本机离线识别 + 本机 AI 翻译 + 系统自带语音。不用任何 Key，不联网也能用（第一次自动下载模型）。',
     cost: '免费',
     quality: 2,
     needs: [],
-    out: { asr: 'local', mt: 'offline', tts: 'system' },
-    in: { asr: 'local', mt: 'offline', tts: 'system' },
+    out: { asr: 'local', mt: 'local-ai', tts: 'system' },
+    in: { asr: 'local', mt: 'local-ai', tts: 'system' },
     llmPreset: 'zhipu-free',
   },
   {

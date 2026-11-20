@@ -9,11 +9,12 @@
  *                                    | {"t":"final",text,start?,end?} | {"t":"error",message,fatal} | {"t":"closed"}
  *   POST /tts {text,lang,voice?,rate} → raw Int16 LE PCM, header X-Sample-Rate
  *   GET  /voices?lang=es-MX        → VoiceInfo[]
+ *   POST /mt {text,from,to,terms}  → {text}  (the desktop app's local AI translation, when downloaded)
  */
 import { Emitter } from '../events';
 import { bytesToInt16, int16ToBytes } from '../audio/pcm';
 import type { LangCode, PcmChunk } from '../types';
-import { ProviderError, type AsrEvents, type AsrSession, type AsrStartOptions, type ProviderContext, type StreamingAsr, type Tts, type TtsRequest, type VoiceInfo } from '../providers/types';
+import { ProviderError, type AsrEvents, type AsrSession, type AsrStartOptions, type ProviderContext, type StreamingAsr, type TranslateRequest, type Translator, type Tts, type TtsRequest, type VoiceInfo } from '../providers/types';
 
 export const DESKTOP_BRIDGE_PORT = 47811;
 export const DESKTOP_BRIDGE_APP = 'meeting-interpreter';
@@ -31,6 +32,34 @@ export interface BridgePing {
   app: string;
   version: string;
   models: Record<'zh' | 'es' | 'en', boolean>;
+  /** Whether the local AI translation model is downloaded (desktop 0.8+). */
+  ai?: boolean;
+}
+
+/** The desktop app's local AI translation (Hy-MT2), for the extension. */
+export class DesktopBridgeTranslator implements Translator {
+  readonly id = 'local-ai';
+  constructor(
+    private readonly ctx: ProviderContext,
+    private readonly base = `127.0.0.1:${DESKTOP_BRIDGE_PORT}`,
+  ) {}
+
+  async translate(req: TranslateRequest): Promise<string> {
+    let res: Response;
+    try {
+      res = await this.ctx.fetch(`http://${this.base}/mt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: req.text, from: req.from, to: req.to, terms: req.hits.map((h) => ({ source: h.source, target: h.target })) }),
+        signal: req.signal,
+      });
+    } catch (err) {
+      if (req.signal?.aborted) throw err;
+      throw new ProviderError(NOT_RUNNING, 'local-ai', { retryable: true, cause: err });
+    }
+    if (!res.ok) throw new ProviderError(`${NAME}：本机 AI 翻译失败（${res.status} ${await res.text().catch(() => '')}）`, 'local-ai', { retryable: res.status >= 500 });
+    return ((await res.json()) as { text: string }).text;
+  }
 }
 
 /** Origins allowed to use the bridge: the browser extension (and local tools without an Origin). */

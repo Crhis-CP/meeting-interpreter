@@ -1,5 +1,5 @@
 import type { Secrets } from '@core/config/schema';
-import { DesktopBridgeAsr, DesktopBridgeTts } from '@core/bridge/desktop';
+import { DesktopBridgeAsr, DesktopBridgeTranslator, DesktopBridgeTts } from '@core/bridge/desktop';
 import type { GlossaryEntry } from '@core/glossary/types';
 import { createProviders, type Providers } from '@core/providers/registry';
 import type { ProviderContext } from '@core/providers/types';
@@ -18,12 +18,19 @@ export function offlineMt(): OfflineMt {
 }
 
 /** The engine's providers; "本机" recognition and voices come from the desktop app (free tier). */
-export function buildProviders(settings: ExtSettings, secrets: Secrets, ctx: ProviderContext, glossary: () => GlossaryEntry[]): Providers {
+export function buildProviders(settings: ExtSettings, secrets: Secrets, ctx: ProviderContext, glossary: () => GlossaryEntry[], opts: { desktopAi?: boolean } = {}): Providers {
   return createProviders(toAppSettings(settings), secrets, ctx, glossary, {
     localAsr: () => new DesktopBridgeAsr(ctx),
     systemTts: () => new DesktopBridgeTts(ctx),
     offlineMt: { translate: (text, from, to) => offlineMt().translate(text, from, to) },
+    // "本机 AI 翻译" runs in the desktop app; without it the in-browser offline models translate.
+    localAiTranslator: () => (opts.desktopAi ? new DesktopBridgeTranslator(ctx) : null),
   });
+}
+
+/** Whether the settings ask for the desktop app's AI translation. */
+export function usesLocalAi(s: ExtSettings): boolean {
+  return s.out.mt === 'local-ai' || s.in.mt === 'local-ai';
 }
 
 /** Whether the settings use the desktop app. */

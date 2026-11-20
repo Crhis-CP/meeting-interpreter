@@ -8,10 +8,20 @@ files:
   - out/**
   - package.json
   - "!**/*.map"
+  # Local AI translation runs on the CPU (Metal on Apple silicon): leave out the large CUDA /
+  # Vulkan builds of llama.cpp, and its source/cmake tree (never compiled on users' computers).
+  - "!node_modules/@node-llama-cpp/*-cuda*/**"
+  - "!node_modules/@node-llama-cpp/*-vulkan/**"
+  - "!node_modules/@node-llama-cpp/linux-armv7l/**"
+  - "!node_modules/node-llama-cpp/llama/llama.cpp/**"
+  - "!node_modules/node-llama-cpp/llama/gitRelease.bundle"
 asarUnpack:
   # Native recogniser and its shared libraries must live outside the asar archive.
   - node_modules/sherpa-onnx-*/**
   - node_modules/sherpa-onnx-node/**
+  # Native llama.cpp (local AI translation), likewise.
+  - node_modules/node-llama-cpp/**
+  - node_modules/@node-llama-cpp/**
 afterPack: build/after-pack.cjs
 mac:
   target:

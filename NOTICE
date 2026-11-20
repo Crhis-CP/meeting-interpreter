@@ -17,6 +17,9 @@ Third-party components used at runtime:
 
 - sherpa-onnx / sherpa-onnx-node (Apache License 2.0), with Silero VAD (MIT), SenseVoice
   (FunASR model license) and Whisper (MIT) models downloaded on first use.
+- Tencent Hy-MT2-1.8B translation model (Apache License 2.0), GGUF downloaded on first use,
+  run with node-llama-cpp (MIT) / llama.cpp (MIT).
+- Mozilla Firefox Translations models and bergamot-translator (MPL-2.0), downloaded on first use.
 - Microsoft Cognitive Services Speech SDK for JavaScript (MIT).
 - pinyin-pro (MIT), zod (MIT), ws (MIT), qrcode (MIT), selfsigned (MIT), React (MIT), Electron (MIT).
 - cloudflared (Apache License 2.0), downloaded on demand for public room links.

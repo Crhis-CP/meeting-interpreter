@@ -49,8 +49,8 @@ export interface ExtSettings {
 export const DEFAULT_SETTINGS: ExtSettings = {
   remote: 'es-MX',
   providers: 'free',
-  out: { asr: 'local', mt: 'offline', tts: 'system', voice: '' },
-  in: { asr: 'local', mt: 'offline', tts: 'system', voice: '' },
+  out: { asr: 'local', mt: 'local-ai', tts: 'system', voice: '' },
+  in: { asr: 'local', mt: 'local-ai', tts: 'system', voice: '' },
   llm: { preset: 'zhipu-free', baseUrl: '', model: '' },
   dashscopeRegion: 'cn',
   azureRegion: 'eastasia',
@@ -67,7 +67,7 @@ export const DEFAULT_SETTINGS: ExtSettings = {
 
 /** Provider choices per preset; `custom` keeps the user's own per-direction choices. */
 export const PROVIDER_SETS: Record<Exclude<ProviderSet, 'custom'>, { asr: string; mt: string; tts: string }> = {
-  free: { asr: 'local', mt: 'offline', tts: 'system' },
+  free: { asr: 'local', mt: 'local-ai', tts: 'system' },
   dashscope: { asr: 'dashscope', mt: 'qwen-mt', tts: 'dashscope' },
   azure: { asr: 'azure', mt: 'azure-translator', tts: 'azure' },
   demo: { asr: 'demo', mt: 'demo', tts: 'demo' },

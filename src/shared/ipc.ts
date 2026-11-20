@@ -198,6 +198,11 @@ export interface RendererApi {
     status(): Promise<{ missingBytes: number; totalBytes: number }>;
     download(): Promise<void>;
   };
+  /** Local AI translation (Hy-MT2): whether its model is downloaded, and downloading it. */
+  ai: {
+    status(): Promise<{ ready: boolean; sizeMb: number; downloading: boolean }>;
+    download(): Promise<void>;
+  };
   local: {
     status(): Promise<LocalModelStatus[]>;
     download(lang: 'zh' | 'es' | 'en'): Promise<void>;

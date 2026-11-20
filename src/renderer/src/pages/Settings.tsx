@@ -222,6 +222,61 @@ function OfflineMtCard() {
   );
 }
 
+/** Local AI translation (Hy-MT2): status, one-click download, and using it. */
+function AiMtCard({ s, update }: TabProps) {
+  const [st, setSt] = useState<{ ready: boolean; sizeMb: number; downloading: boolean } | null>(null);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const load = () => void api.ai.status().then((x) => { setSt(x); if (x.downloading) setBusy('下载中…'); }).catch((e) => setError(errMsg(e)));
+  useEffect(load, []);
+  useEvent('model-progress', (p) => {
+    if (p.id !== 'hy-mt2-1.8b') return;
+    const pct = p.total ? Math.round((p.received / p.total) * 100) : 0;
+    setBusy(pct >= 100 ? '' : `下载中 ${pct}%`);
+    if (pct >= 100) load();
+  });
+  const download = async () => {
+    setError('');
+    setBusy('下载中…');
+    try {
+      await api.ai.download();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy('');
+      load();
+    }
+  };
+  const using = s.out.mt === 'local-ai' && s.in.mt === 'local-ai';
+  return (
+    <div className="card">
+      <h3>本机 AI 翻译（免费，推荐）</h3>
+      <p className="hint" style={{ marginTop: 0 }}>
+        腾讯开源的翻译模型 Hy-MT2，在你自己电脑上运行：不联网、不用 Key、会议内容不出电脑。实测会议用语完全正确率 92%，和云端大模型一样（离线翻译是 67%），每句约 1 秒。
+        每句话先显示离线翻译（灰色），AI 译文随后替换。术语表照样生效。
+      </p>
+      {st?.ready ? (
+        <div className="callout info row between">
+          <span>✅ 已下载（{st.sizeMb} MB）{using ? '，正在使用' : ''}</span>
+          {!using && (
+            <button className="btn primary sm" onClick={() => void update({ out: { mt: 'local-ai' }, in: { mt: 'local-ai' }, ...(s.preset === 'free' ? {} : { preset: 'custom' }) })}>
+              我的发言和对方的发言都用它翻译
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="row">
+          <button className="btn primary" disabled={!!busy} onClick={() => void download()}>
+            {busy || `下载本机 AI 翻译（约 ${st?.sizeMb ?? 1133} MB）`}
+          </button>
+          <span className="muted small">只需下载一次；没下载好之前先用离线翻译</span>
+        </div>
+      )}
+      {error && <div className="callout err" style={{ marginTop: 8 }}>{error}</div>}
+    </div>
+  );
+}
+
 /** “用我的声音”: record a sample, clone it with 百炼, speak my translations in my own voice. */
 function MyVoiceCard({ s, update }: TabProps) {
   const [consent, setConsent] = useState(false);
@@ -436,7 +491,8 @@ function ProvidersTab({ s, update }: TabProps) {
         </div>
       )}
 
-      {(s.out.mt === 'offline' || s.in.mt === 'offline') && <OfflineMtCard />}
+      {(s.preset === 'free' || s.out.mt === 'local-ai' || s.in.mt === 'local-ai') && <AiMtCard s={s} update={update} />}
+      {(s.out.mt === 'offline' || s.in.mt === 'offline' || s.out.mt === 'local-ai' || s.in.mt === 'local-ai') && <OfflineMtCard />}
       {s.out.tts === 'dashscope' && <MyVoiceCard s={s} update={update} />}
 
       <div className="card">
@@ -465,7 +521,8 @@ function ProvidersTab({ s, update }: TabProps) {
                 <Field label="翻译">
                   <select value={c.mt} onChange={(e) => void update({ [d]: { mt: e.target.value }, preset: 'custom' })}>
                     <option value="qwen-mt">通义 Qwen-MT（百炼）</option>
-                    <option value="offline">离线翻译（免费，不用 Key）</option>
+                    <option value="local-ai">本机 AI 翻译（免费，准确率接近大模型）</option>
+                    <option value="offline">离线翻译（免费，最快）</option>
                     <option value="llm">大模型（上面配置的）</option>
                     <option value="deepl">DeepL</option>
                     <option value="azure-translator">Azure 翻译</option>

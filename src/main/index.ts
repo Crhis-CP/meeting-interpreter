@@ -1,7 +1,7 @@
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, protocol, safeStorage, session, shell, systemPreferences, Tray, utilityProcess } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { release } from 'node:os';
+import { cpus, release } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { PresetId } from '../core/config/presets';
@@ -41,6 +41,9 @@ import { audioConfig, SessionManager, writeTranscriptFiles } from './session/ses
 import { GlossaryStore } from './stores/glossary-store';
 import { MeetingsStore } from './stores/meetings-store';
 import { ProfileStore } from './stores/profile-store';
+import { AI_MT_FILE, AI_MT_ID, AI_MT_MODEL } from './providers/local-ai/model';
+import { LocalAiClient } from './providers/local-ai/client';
+import { createInProcessAiWorker } from './providers/local-ai/worker';
 import { SecretStore } from './stores/secret-store';
 import { SettingsStore } from './stores/settings-store';
 import { createAudioWindow, createMainWindow, createOverlayWindow } from './windows';
@@ -108,6 +111,28 @@ const inChina = /^Asia\/(Shanghai|Chongqing|Harbin|Urumqi)$/.test(Intl.DateTimeF
 const proxiedFetch: typeof fetch = (input, init) => net.fetch(input as string, init as RequestInit);
 const models = new ModelManager(modelsDir, proxiedFetch, inChina ? { baseUrls: ['https://hf-mirror.com', 'https://huggingface.co'] } : {});
 const ctx = createNodeContext(createLogger('provider'), proxiedFetch);
+/** The local AI translation model (Hy-MT2), downloaded like the recognition models and checked by SHA-256. */
+const aiModels = new ModelManager(modelsDir, proxiedFetch, { models: { [AI_MT_ID]: AI_MT_MODEL }, ...(inChina ? { baseUrls: ['https://hf-mirror.com', 'https://huggingface.co'] } : {}) });
+let aiClient: LocalAiClient | null = null;
+/** The model's worker, started on first use; null while the model is not downloaded. */
+const localAi = (): LocalAiClient | null => {
+  if (aiModels.status(AI_MT_ID) !== 'ready') return null;
+  aiClient ??= new LocalAiClient({
+    modelPath: aiModels.pathOf(AI_MT_ID, AI_MT_FILE),
+    threads: Math.max(2, Math.min(6, Math.floor(cpus().length / 2))),
+    // Its own process on macOS / Windows; in the main process on Linux, where node-llama-cpp
+    // checks its binaries with a helper process that only the main process may start.
+    spawn: () =>
+      process.platform === 'linux'
+        ? createInProcessAiWorker()
+        : utilityProcess.fork(join(__dirname, 'local-ai-worker.js'), [], {
+            serviceName: 'local-ai',
+            ...(process.platform === 'darwin' ? { allowLoadingUnsignedLibraries: true } : {}),
+          }),
+    onLoaded: (gpu) => log.info(`local AI translation loaded (gpu: ${gpu})`),
+  });
+  return aiClient;
+};
 
 let mainWindow: BrowserWindow | null = null;
 let audioWindow: BrowserWindow | null = null;
@@ -164,6 +189,7 @@ const desktopBridge = new DesktopBridge({
       broadcast('model-progress', p);
     }),
   onClients: (n) => log.info(`extension recognition sessions: ${n}`),
+  localAi: () => localAi(),
 });
 
 /** Offline translation (Mozilla models), run in the hidden audio window. */
@@ -177,7 +203,7 @@ const offlineMt = new AudioWindowMt(
 );
 
 function providers(): Providers {
-  return createProviders(settings.get(), secrets.all(), ctx, () => glossaries.active(), { systemTts, localAsr, offlineMt });
+  return createProviders(settings.get(), secrets.all(), ctx, () => glossaries.active(), { systemTts, localAsr, offlineMt, localAi });
 }
 
 const sessionManager = new SessionManager({
@@ -232,6 +258,7 @@ const handlers: Record<string, Handler> = {
     broadcast('settings', s);
     if (usesLocalAsr()) void prefetchModels();
     if (usesOfflineMt()) void prefetchOfflineMt();
+    if (usesLocalAi()) void prefetchAi();
     return s;
   },
   'secrets.status': () => secrets.status(),
@@ -265,6 +292,11 @@ const handlers: Record<string, Handler> = {
     if (process.platform === 'darwin') await systemPreferences.askForMediaAccess('microphone').catch(() => false);
     await requireLocalModels(opts?.mode ?? 'meeting');
     await requireOfflineMt();
+    // Until the AI model is downloaded, the Mozilla models translate; fetch it in the background.
+    if (usesLocalAi() && aiModels.status(AI_MT_ID) !== 'ready' && !aiPrefetch) {
+      void prefetchAi();
+      broadcast('toast', { level: 'info', message: '正在后台下载本机 AI 翻译模型（约 1.1 GB）：这场先用离线翻译，下载好以后会更准。' });
+    }
     const state = await sessionManager.start(opts ?? {});
     updateTray();
     if (settings.get().ui.overlay.enabled && opts?.mode !== 'room') showOverlay();
@@ -473,6 +505,11 @@ const handlers: Record<string, Handler> = {
   },
 
   'mt.status': async () => ({ missingBytes: await offlineMt.missingBytes(), totalBytes: OFFLINE_MT_TOTAL }),
+  'ai.status': async () => {
+    if (aiModels.status(AI_MT_ID) !== 'ready' && aiModels.missingBytes([AI_MT_ID]) === 0) await aiModels.verifyExisting([AI_MT_ID]);
+    return { ready: aiModels.status(AI_MT_ID) === 'ready', sizeMb: Math.round(AI_MT_MODEL.files[0]!.size / 1_000_000), downloading: !!aiPrefetch };
+  },
+  'ai.download': () => prefetchAi(),
   'mt.download': () => offlineMt.download(),
   'audio.installDriver': () => installVirtualAudio(proxiedFetch, log.child('driver'), (text) => broadcast('driver-progress', { text })),
   'audio.testTone': (target: 'virtualMic' | 'headphones') => {
@@ -580,9 +617,26 @@ async function reviewMeeting(id: string): Promise<StoredReview> {
   return review;
 }
 
+/** The Mozilla models are needed for 'offline', and as the instant draft / fallback of 'local-ai'. */
 function usesOfflineMt(): boolean {
   const s = settings.get();
-  return s.out.mt === 'offline' || s.in.mt === 'offline';
+  return [s.out.mt, s.in.mt].some((m) => m === 'offline' || m === 'local-ai');
+}
+
+function usesLocalAi(): boolean {
+  const s = settings.get();
+  return s.out.mt === 'local-ai' || s.in.mt === 'local-ai';
+}
+
+let aiPrefetch: Promise<void> | null = null;
+/** Downloads the local AI translation model in the background, once (about 1.1 GB). */
+function prefetchAi(): Promise<void> {
+  aiPrefetch ??= aiModels
+    .ensure([AI_MT_ID], (p) => broadcast('model-progress', p))
+    .then(() => broadcast('toast', { level: 'info', message: '本机 AI 翻译模型已下载完成：翻译更准了（和大模型差不多），还是免费、不联网。' }))
+    .catch((err) => broadcast('toast', { level: 'warn', message: `本机 AI 翻译模型下载失败：${err instanceof Error ? err.message : String(err)}（可在 设置 › 翻译服务 里重试）` }))
+    .finally(() => (aiPrefetch = null));
+  return aiPrefetch;
 }
 
 let mtPrefetch: Promise<void> | null = null;
@@ -598,7 +652,14 @@ function prefetchOfflineMt(): Promise<void> {
 
 /** Before a meeting with offline translation, make sure its models are there. */
 async function requireOfflineMt(): Promise<void> {
-  if (!usesOfflineMt()) return;
+  // Needed to start only when it is the translator: 'offline', or 'local-ai' before its model is there
+  // (with the AI model ready, the Mozilla models are just the instant draft).
+  const s = settings.get();
+  const aiReady = aiModels.status(AI_MT_ID) === 'ready';
+  if (![s.out.mt, s.in.mt].some((m) => m === 'offline' || (m === 'local-ai' && !aiReady))) {
+    if (usesOfflineMt()) void prefetchOfflineMt();
+    return;
+  }
   const missing = await offlineMt.missingBytes().catch(() => 0);
   if (!missing) return;
   void prefetchOfflineMt();

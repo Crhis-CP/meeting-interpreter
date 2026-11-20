@@ -11,7 +11,8 @@ import { DirectionPipeline } from '@core/pipeline/pipeline';
 import { Transcript } from '@core/session/transcript';
 import type { Direction, MeetingMeta, TranscriptSegment } from '@core/types';
 import { consoleLogger, createBrowserContext } from './browser-context';
-import { buildProviders, offlineMt } from './engine-providers';
+import { buildProviders, offlineMt, usesLocalAi } from './engine-providers';
+import { pingDesktop } from '@core/bridge/desktop';
 import { OfflineTranslator } from '@core/providers/offline-translator';
 import { personalFor } from '@core/profile/profile';
 import { baseOf } from '@core/lang/languages';
@@ -127,7 +128,8 @@ async function start(msg: Extract<ToOffscreen, { type: 'start' }>) {
     const { data } = msg;
     const settings = toAppSettings(data.settings);
     const pctx = createBrowserContext(log, addHeaders);
-    const providers = buildProviders(data.settings, data.secrets, pctx, () => data.glossary); // throws when a key is missing
+    const desktopAi = usesLocalAi(data.settings) && !!(await pingDesktop(pctx))?.ai;
+    const providers = buildProviders(data.settings, data.secrets, pctx, () => data.glossary, { desktopAi }); // throws when a key is missing
     const now = Date.now();
     const meta: MeetingMeta = {
       id: new Date(now).toISOString().replace(/[:.]/g, '-'),
@@ -159,6 +161,7 @@ async function start(msg: Extract<ToOffscreen, { type: 'start' }>) {
 
     // An offline draft in front of a cloud / LLM translator, when the models are in this browser.
     const draft = (await offlineMt().missingBytes().catch(() => 1)) === 0 ? new OfflineTranslator({ translate: (t, f, to) => offlineMt().translate(t, f, to) }) : undefined;
+    const translators = { out: providers.mt('out'), in: providers.mt('in') };
     for (const dir of ['out', 'in'] as const) {
       const src = dir === 'out' ? settings.languages.self : settings.languages.remote;
       const dst = otherLanguage(src, settings.languages.remote);
@@ -170,8 +173,8 @@ async function start(msg: Extract<ToOffscreen, { type: 'start' }>) {
         srcLang: src,
         dstLang: dst,
         asr: providers.asr(dir),
-        translator: providers.mt(dir),
-        draft: cfg.mt === 'offline' || cfg.mt === 'demo' ? undefined : draft,
+        translator: translators[dir],
+        draft: translators[dir].id === 'offline' || translators[dir].id === 'demo' ? undefined : draft,
         personal: () => personalFor(data.profile, baseOf(src)),
         tts: providers.tts(dir),
         voice: cfg.voice || undefined,

@@ -28,7 +28,7 @@ export interface ModelFile {
 }
 
 export interface ModelSpec {
-  id: ModelId;
+  id: string;
   /** Name shown in the Chinese UI. */
   label: string;
   /** Hugging Face repository the files come from. */

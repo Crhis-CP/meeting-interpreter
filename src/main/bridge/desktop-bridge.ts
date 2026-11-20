@@ -5,7 +5,8 @@ import { bytesToInt16, int16ToBytes, concatInt16 } from '../../core/audio/pcm';
 import { bridgeOriginAllowed, DESKTOP_BRIDGE_APP, DESKTOP_BRIDGE_PORT, type BridgeAsrServerMessage, type BridgePing } from '../../core/bridge/desktop';
 import { baseOf, LANGUAGES } from '../../core/lang/languages';
 import type { Logger } from '../../core/log';
-import type { AsrSession, StreamingAsr, Tts } from '../../core/providers/types';
+import type { AsrSession, StreamingAsr, TranslateRequest, Tts } from '../../core/providers/types';
+import { LocalAiTranslator, type LocalAiEngine } from '../../core/providers/local-ai-translator';
 
 export interface DesktopBridgeDeps {
   version: string;
@@ -20,6 +21,8 @@ export interface DesktopBridgeDeps {
   ensureModels: (base: 'zh' | 'es' | 'en', onStatus: (text: string) => void) => Promise<void>;
   /** Called when the extension starts or stops using the bridge. */
   onClients?: (n: number) => void;
+  /** The local AI translation model, or null while it is not downloaded. */
+  localAi?: () => LocalAiEngine | null;
 }
 
 /**
@@ -35,6 +38,7 @@ export class DesktopBridge {
   private wss: WebSocketServer | null = null;
   private clients = new Set<WebSocket>();
   private ttsBusy = 0;
+  private mtBusy = 0;
 
   /** Only our own address is accepted as the Host (blocks DNS rebinding). */
   private hostAllowed(host: string | undefined): boolean {
@@ -116,6 +120,7 @@ export class DesktopBridge {
         app: DESKTOP_BRIDGE_APP,
         version: this.d.version,
         models: { zh: this.d.modelsReady('zh'), es: this.d.modelsReady('es'), en: this.d.modelsReady('en') },
+        ai: !!this.d.localAi?.(),
       };
       return void res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
     }
@@ -123,6 +128,27 @@ export class DesktopBridge {
       const l = url.searchParams.get('lang') ?? '';
       const voices = LANGUAGES[l] ? this.d.tts().voices(l) : [];
       return void res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(voices));
+    }
+    if (req.method === 'POST' && url.pathname === '/mt') {
+      const engine = this.d.localAi?.();
+      if (!engine) return void res.writeHead(503).end('本机 AI 翻译模型还没有下载');
+      const body = JSON.parse(await readBody(req, 64 * 1024)) as { text?: unknown; from?: unknown; to?: unknown; terms?: unknown };
+      const text = typeof body.text === 'string' ? body.text.slice(0, 2000) : '';
+      const from = typeof body.from === 'string' && LANGUAGES[body.from] ? body.from : '';
+      const to = typeof body.to === 'string' && LANGUAGES[body.to] ? body.to : '';
+      if (!text.trim() || !from || !to) return void res.writeHead(400).end('bad request');
+      const terms = (Array.isArray(body.terms) ? body.terms : [])
+        .slice(0, 50)
+        .filter((t): t is { source: string; target: string } => !!t && typeof t.source === 'string' && typeof t.target === 'string')
+        .map((t) => ({ source: t.source.slice(0, 80), target: t.target.slice(0, 80) }));
+      if (this.mtBusy >= MAX_TTS_AT_ONCE * 2) return void res.writeHead(429).end('busy');
+      this.mtBusy++;
+      try {
+        const out = await new LocalAiTranslator(engine).translate({ text, from, to, hits: terms as TranslateRequest['hits'], context: [] });
+        return void res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ text: out }));
+      } finally {
+        this.mtBusy--;
+      }
     }
     if (req.method === 'POST' && url.pathname === '/tts') {
       const body = JSON.parse(await readBody(req, 64 * 1024)) as { text?: string; lang?: string; voice?: string; rate?: number };

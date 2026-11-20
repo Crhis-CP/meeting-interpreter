@@ -10,6 +10,7 @@ export default defineConfig({
         input: {
           index: resolve(import.meta.dirname, 'src/main/index.ts'),
           'local-asr-worker': resolve(import.meta.dirname, 'src/main/providers/local-asr/worker.ts'),
+          'local-ai-worker': resolve(import.meta.dirname, 'src/main/providers/local-ai/worker.ts'),
         },
       },
     },

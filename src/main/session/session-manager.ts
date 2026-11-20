@@ -239,7 +239,7 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
           dstLang: dst || otherLanguage(src, remoteLang),
           asr: chosen[dir]!.asr,
           translator: chosen[dir]!.mt,
-          draft: cfg.mt === 'offline' || cfg.mt === 'demo' ? undefined : draft,
+          draft: chosen[dir]!.mt.id === 'offline' || chosen[dir]!.mt.id === 'demo' ? undefined : draft,
           tts: chosen[dir]!.tts,
           voice: cfg.voice || undefined,
           glossary: this.d.glossary,

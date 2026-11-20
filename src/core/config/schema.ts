@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const AsrProviderId = z.enum(['demo', 'dashscope', 'azure', 'local']);
-export const MtProviderId = z.enum(['demo', 'offline', 'llm', 'qwen-mt', 'deepl', 'azure-translator']);
+export const MtProviderId = z.enum(['demo', 'offline', 'local-ai', 'llm', 'qwen-mt', 'deepl', 'azure-translator']);
 export const TtsProviderId = z.enum(['demo', 'dashscope', 'azure', 'system', 'none']);
 export type AsrProviderId = z.infer<typeof AsrProviderId>;
 export type MtProviderId = z.infer<typeof MtProviderId>;

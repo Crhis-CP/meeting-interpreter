@@ -59,7 +59,7 @@
 ## 三分钟上手
 
 1. **选方案、填 Key**（首次启动的引导会带你做）
-   - **免费方案**：语音识别在本机离线完成（首次自动下载模型），翻译和纪要用免费的智谱 GLM-4.7-Flash（[注册拿免费 Key](https://bigmodel.cn/usercenter/proj-mgmt/apikeys)），语音用系统自带声音。
+   - **免费方案**：语音识别和翻译都在本机离线完成（首次自动下载模型；翻译用腾讯开源的 Hy-MT2，准确率和云端大模型一样），语音用系统自带声音。会议纪要可以用免费的智谱 GLM-4.7-Flash（[注册拿免费 Key](https://bigmodel.cn/usercenter/proj-mgmt/apikeys)）。
    - **阿里云百炼（效果最好）**：一个 Key 搞定识别、翻译、自然人声、纪要，国内直连，延迟低。[获取 Key](https://bailian.console.aliyun.com/?tab=model#/api-key)，新用户有免费额度。
    - **Azure**：微软语音和翻译，支持 Azure 中国区。
    - **演示模式**：不填任何 Key，先看看界面和流程。
@@ -125,7 +125,7 @@
 
 | 方案 | 费用 | 说明 |
 |---|---|---|
-| 免费方案 | 0 元 | 本机离线识别 + 智谱 GLM-4.7-Flash（免费，并发较低）+ 系统语音；也可把翻译换成本机 Ollama，完全离线 |
+| 免费方案 | 0 元 | 本机离线识别 + 本机 AI 翻译（Hy-MT2，准确率≈大模型，见 [实测](docs/translation-benchmark.md)）+ 系统语音，完全离线；纪要可用免费的智谱 GLM-4.7-Flash |
 | 阿里云百炼 | 约 2–4 元/小时（双向） | 新用户有免费额度；效果和延迟最好 |
 | Azure | 免费层 F0 每月有固定额度 | 免费层同一时间只能识别一路；双向同传用标准层 |
 
@@ -133,7 +133,7 @@
 
 - 会议记录、录音、录屏、术语表都只保存在你的电脑上（默认在“文稿/MeetingInterpreter”）。
 - API Key 用系统钥匙串加密保存，不会写进日志和导出文件。
-- 使用云服务时，语音或文字会发送给你选择的服务商；免费方案的语音识别完全在本机进行。
+- 使用云服务时，语音或文字会发送给你选择的服务商；免费方案的语音识别和翻译完全在本机进行。
 - 录音录屏前请征得参会者同意。
 
 ## 安全
@@ -181,7 +181,7 @@ npm run build:mobile && (cd android && ./gradlew assembleRelease)   # 安卓 APK
 
 ## 致谢
 
-设计参考了这些优秀的开源项目：[知了 Cicada](https://github.com/wquguru/cicada)（Apache-2.0）、[Parrots](https://github.com/smitea/parrots)（MIT）、[会译 HuiYi](https://github.com/LingyiChen-AI/huiyi)（Apache-2.0）、[electron-audio-loopback](https://github.com/alectrocute/electron-audio-loopback)（MIT）。本机识别使用 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)（Apache-2.0）和 SenseVoice / Whisper 模型。详见 [NOTICE](NOTICE)。
+设计参考了这些优秀的开源项目：[知了 Cicada](https://github.com/wquguru/cicada)（Apache-2.0）、[Parrots](https://github.com/smitea/parrots)（MIT）、[会译 HuiYi](https://github.com/LingyiChen-AI/huiyi)（Apache-2.0）、[electron-audio-loopback](https://github.com/alectrocute/electron-audio-loopback)（MIT）。本机识别使用 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)（Apache-2.0）和 SenseVoice / Whisper 模型；本机 AI 翻译使用腾讯 [Hy-MT2](https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF)（Apache-2.0）和 [node-llama-cpp](https://github.com/withcatai/node-llama-cpp)（MIT）；离线翻译使用 Mozilla 的 Firefox Translations 模型（MPL-2.0）。详见 [NOTICE](NOTICE)。
 
 ## 开源协议
 

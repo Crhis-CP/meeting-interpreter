@@ -6,6 +6,7 @@ import { AzureTranslator } from './azure-translator';
 import { DashscopeAsr, DashscopeTts, QwenMtTranslator, type DashscopeConfig } from './dashscope';
 import { DeeplTranslator } from './deepl';
 import { OfflineTranslator, type OfflineMtEngine } from './offline-translator';
+import { LocalAiTranslator, type LocalAiEngine } from './local-ai-translator';
 import { DashscopeCloneTts, FallbackTts } from './dashscope/voice-clone';
 import { FallbackAsr } from './fallback-asr';
 import { LlmTranslator } from './llm-translator';
@@ -20,6 +21,10 @@ export interface ProviderExtras {
   localAsr?: (dir: Direction) => StreamingAsr;
   /** Offline translation engine (Mozilla models in a browser context). */
   offlineMt?: OfflineMtEngine;
+  /** The local AI translation model, or null while it is not downloaded (desktop, or via the desktop app). */
+  localAi?: () => LocalAiEngine | null;
+  /** The same, as a finished translator elsewhere (the Chrome extension, through the desktop app). */
+  localAiTranslator?: () => Translator | null;
 }
 
 export interface Providers {
@@ -133,6 +138,15 @@ export function createProviders(
       case 'offline':
         if (!extras.offlineMt) throw new ProviderError('离线翻译需要先下载翻译模型（设置里点“下载离线翻译”）', 'offline');
         return new OfflineTranslator(extras.offlineMt);
+      case 'local-ai': {
+        // Until the AI model is there (or where it cannot run), the Mozilla models translate.
+        const remote = extras.localAiTranslator?.();
+        if (remote) return remote;
+        const engine = extras.localAi?.();
+        if (engine) return new LocalAiTranslator(engine);
+        if (extras.offlineMt) return new OfflineTranslator(extras.offlineMt);
+        throw new ProviderError('本机 AI 翻译需要先在电脑版下载模型', 'local-ai');
+      }
       case 'llm': {
         const llm = makeLlm(settings, secrets, ctx);
         if (!llm) throw new ProviderError('请先在“服务设置”里填写大模型的 Key（例如免费的智谱 GLM）', 'llm');

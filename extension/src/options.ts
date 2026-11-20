@@ -152,14 +152,17 @@ async function renderSettings(body: HTMLElement) {
     const st = h('div', { class: 'muted small' }, '正在检查桌面客户端…');
     main.append(st);
     void pingDesktop(ctx()).then((p) => {
-      if (p) st.replaceChildren(`✅ 桌面客户端已连接（${p.version}）`);
+      if (p) {
+        st.replaceChildren(`✅ 桌面客户端已连接（${p.version}）`);
+        if (uses('local-ai')) st.append(h('div', {}, p.ai ? '✅ 本机 AI 翻译可用（翻译更准，和大模型差不多）' : '本机 AI 翻译：在桌面客户端 设置 › 翻译服务 里下载后，这里会自动用上；在那之前用离线翻译。'));
+      }
       else {
         st.className = 'callout warn';
         st.replaceChildren('没检测到桌面客户端：请在电脑上打开它 ', h('a', { href: DESKTOP_DOWNLOAD, target: '_blank' }, '下载 ↗'));
       }
     });
   }
-  if (uses('offline')) main.append(offlineMtRow());
+  if (uses('offline') || uses('local-ai')) main.append(offlineMtRow());
   if (problem && !missingKey(s, secrets)) main.append(h('div', { class: 'callout warn' }, problem));
 
   const results = h('div', { class: 'stack' });
@@ -246,7 +249,7 @@ async function renderSettings(body: HTMLElement) {
         h('b', {}, d === 'out' ? '我说话' : '对方说话'),
         h('div', { class: 'grid2' },
           field('识别', select(c.asr, [['local', '本机（桌面客户端，免费）'], ['dashscope', '阿里云百炼'], ['azure', 'Azure'], ['demo', '演示']], (v) => upd({ asr: v }))),
-          field('翻译', select(c.mt, [['llm', '大模型'], ['qwen-mt', '百炼翻译'], ['deepl', 'DeepL'], ['azure-translator', 'Azure 翻译'], ['demo', '演示']], (v) => upd({ mt: v }))),
+          field('翻译', select(c.mt, [['local-ai', '本机 AI 翻译（桌面客户端，免费）'], ['offline', '离线翻译（免费）'], ['llm', '大模型'], ['qwen-mt', '百炼翻译'], ['deepl', 'DeepL'], ['azure-translator', 'Azure 翻译'], ['demo', '演示']], (v) => upd({ mt: v }))),
           field('发音', select(c.tts, [['system', '电脑自带声音（免费）'], ['dashscope', '阿里云百炼'], ['azure', 'Azure'], ['none', '不发音'], ['demo', '演示']], (v) => upd({ tts: v }))),
         ),
       );
