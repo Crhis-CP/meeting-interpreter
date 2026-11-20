@@ -1,0 +1,60 @@
+{
+  "name": "meeting-interpreter",
+  "productName": "MeetingInterpreter",
+  "version": "0.1.0",
+  "description": "会议同传助手：Teams / 飞书 / 腾讯会议等任意会议软件里的中文⇄西班牙语实时语音同传，支持手机扫码加入现场会议房间",
+  "license": "MIT",
+  "author": {
+    "name": "Crhis-CP",
+    "email": "278651942+Crhis-CP@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/Crhis-CP/meeting-interpreter",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Crhis-CP/meeting-interpreter.git"
+  },
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run build && playwright test",
+    "cli": "tsx src/cli/index.ts",
+    "fixtures": "tsx scripts/make-fixtures.ts",
+    "icons": "tsx scripts/make-icons.ts",
+    "dist": "npm run build && electron-builder",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "microsoft-cognitiveservices-speech-sdk": "^1.53.0",
+    "pinyin-pro": "^3.29.5",
+    "qrcode": "^1.5.4",
+    "selfsigned": "^5.5.0",
+    "ws": "^8.23.0",
+    "zod": "^4.6.7"
+  },
+  "optionalDependencies": {
+    "sherpa-onnx-node": "^2.0.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^24.9.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  }
+}

@@ -1,0 +1,83 @@
+import type { LangCode } from '../types';
+
+export type LangBase = 'zh' | 'es';
+
+export interface LanguageInfo {
+  code: LangCode;
+  base: LangBase;
+  /** Name shown in the Chinese UI. */
+  nameZh: string;
+  /** Name in the language itself (shown to room participants). */
+  nameNative: string;
+  /** English name, used inside LLM prompts. */
+  englishName: string;
+  script: 'han' | 'latin';
+  /** Codes per provider family. */
+  codes: {
+    azure: string;
+    dashscope: string;
+    qwenMt: string;
+    deeplSource: string;
+    deeplTarget: string;
+    openai: string;
+  };
+}
+
+const zh: LanguageInfo = {
+  code: 'zh-CN',
+  base: 'zh',
+  nameZh: '中文（普通话）',
+  nameNative: '中文',
+  englishName: 'Simplified Chinese (Mandarin)',
+  script: 'han',
+  codes: { azure: 'zh-CN', dashscope: 'zh', qwenMt: 'Chinese', deeplSource: 'ZH', deeplTarget: 'ZH-HANS', openai: 'zh' },
+};
+
+function spanish(code: string, region: string, regionNative: string, deeplTarget = 'ES'): LanguageInfo {
+  return {
+    code,
+    base: 'es',
+    nameZh: `西班牙语（${region}）`,
+    nameNative: `Español (${regionNative})`,
+    englishName: 'Spanish',
+    script: 'latin',
+    codes: { azure: code, dashscope: 'es', qwenMt: 'Spanish', deeplSource: 'ES', deeplTarget, openai: 'es' },
+  };
+}
+
+export const LANGUAGES: Record<LangCode, LanguageInfo> = {
+  'zh-CN': zh,
+  'es-ES': spanish('es-ES', '西班牙', 'España'),
+  'es-MX': spanish('es-MX', '墨西哥', 'México', 'ES-419'),
+  'es-US': spanish('es-US', '美国', 'Estados Unidos', 'ES-419'),
+  'es-AR': spanish('es-AR', '阿根廷', 'Argentina', 'ES-419'),
+  'es-CO': spanish('es-CO', '哥伦比亚', 'Colombia', 'ES-419'),
+  'es-CL': spanish('es-CL', '智利', 'Chile', 'ES-419'),
+  'es-PE': spanish('es-PE', '秘鲁', 'Perú', 'ES-419'),
+};
+
+export const SELF_LANGUAGES: LangCode[] = ['zh-CN'];
+export const REMOTE_LANGUAGES: LangCode[] = ['es-ES', 'es-MX', 'es-US', 'es-AR', 'es-CO', 'es-CL', 'es-PE'];
+
+export function lang(code: LangCode): LanguageInfo {
+  const info = LANGUAGES[code];
+  if (info) return info;
+  // Accept bare or unknown regional tags by their base language.
+  const base = code.split('-')[0]?.toLowerCase();
+  if (base === 'zh') return zh;
+  if (base === 'es') return LANGUAGES['es-ES']!;
+  throw new Error(`不支持的语言：${code}`);
+}
+
+export function baseOf(code: LangCode): LangBase {
+  return lang(code).base;
+}
+
+/** The other side's language in a zh⇄es pair. */
+export function otherLanguage(code: LangCode, remote: LangCode = 'es-ES'): LangCode {
+  return baseOf(code) === 'zh' ? remote : 'zh-CN';
+}
+
+export function sameBase(a: LangCode, b: LangCode): boolean {
+  return baseOf(a) === baseOf(b);
+}
