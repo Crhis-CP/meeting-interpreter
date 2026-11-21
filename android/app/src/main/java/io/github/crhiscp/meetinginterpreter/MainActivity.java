@@ -31,6 +31,17 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         web = new WebView(this);
         setContentView(web);
+        // Android 15 draws apps under the status and navigation bars, and older WebViews do not
+        // report that to the page: keep the page clear of the bars (title and buttons stay visible).
+        boolean night = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        web.setBackgroundColor(night ? 0xFF000000 : 0xFFF2F2F7); // the page's own background (app.css --bg)
+        web.setOnApplyWindowInsetsListener(new android.view.View.OnApplyWindowInsetsListener() {
+            @Override
+            public android.view.WindowInsets onApplyWindowInsets(android.view.View v, android.view.WindowInsets insets) {
+                v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(), insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+                return insets;
+            }
+        });
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);

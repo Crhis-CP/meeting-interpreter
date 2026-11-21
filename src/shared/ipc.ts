@@ -252,6 +252,8 @@ export interface RendererApi {
     installDriver(): Promise<{ ok: boolean; message: string }>;
     /** Windows: the default devices from before the VB-CABLE install are known and can be put back. */
     canRestoreSystemDefaults(): Promise<boolean>;
+    /** Windows: the classic Sound control panel's 通信 tab (where calls turn other sounds down by 80 %). */
+    openCommunicationsSettings(): Promise<void>;
     restoreSystemDefaults(): Promise<string>;
   };
   room: {
@@ -372,6 +374,12 @@ export interface AudioConfig {
   record: { audio: boolean; screen: boolean; screenSourceId: string };
   /** The other side's language, for messages ("西语" / "英语"). */
   foreignName: string;
+  /**
+   * Whether the microphone is needed: my speech is translated, the meeting is recorded (my voice is
+   * part of it), or a room. Only listening: it stays closed (no microphone indicator, and Bluetooth
+   * headphones keep their music quality instead of dropping to call quality).
+   */
+  micWanted: boolean;
 }
 
 /** main → audio window */

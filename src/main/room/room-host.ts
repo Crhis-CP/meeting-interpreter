@@ -195,7 +195,14 @@ export class RoomHost {
         }
       }
     }, 20000);
-    this.port = await this.listen(s.room.port);
+    try {
+      this.port = await this.listen(s.room.port);
+    } catch (err) {
+      // Nothing half-open is left behind: no meeting with the microphone on, no timer, no server.
+      await this.stop().catch(() => undefined);
+      const code = (err as NodeJS.ErrnoException).code;
+      throw new Error(`现场房间没能开始：电脑不让本软件使用网络端口（${code ?? (err instanceof Error ? err.message : String(err))}）。可以重启电脑后再试。`);
+    }
     this.offs.push(
       this.d.session.on('segment', (seg) => this.send('*', { t: 'segment', seg })),
       this.d.session.on('tts', ({ dir, segmentId, samples, sampleRate }) => {
@@ -218,7 +225,8 @@ export class RoomHost {
       const tryPort = (port: number, fallback: boolean) => {
         const onError = (err: NodeJS.ErrnoException) => {
           srv.off('listening', onListening);
-          if (err.code === 'EADDRINUSE' && fallback) tryPort(0, false);
+          // In use, or in a range Windows reserves (Hyper-V, WSL2, Docker: EACCES): any free port.
+          if ((err.code === 'EADDRINUSE' || err.code === 'EACCES') && fallback) tryPort(0, false);
           else reject(err);
         };
         const onListening = () => {

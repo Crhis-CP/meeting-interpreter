@@ -37,7 +37,7 @@ import { testDirection, testLlm } from './provider-test';
 import { LocalAsr } from './providers/local-asr/client';
 import { ModelManager } from './providers/local-asr/model-manager';
 import { modelsForLang, modelsSize, type ForeignModelId, type ModelId } from './providers/local-asr/models';
-import { SystemTts } from './providers/system-tts';
+import { stopSpeechHost, SystemTts } from './providers/system-tts';
 import { RoomHost } from './room/room-host';
 import { AudioWindowMt } from './offline-mt';
 import { OfflineTranslator } from '../core/providers/offline-translator';
@@ -707,6 +707,9 @@ const handlers: Record<string, Handler> = {
     return installVirtualAudio(proxiedFetch, log.child('driver'), app.getPath('userData'), (text) => broadcast('driver-progress', { text }));
   },
   'audio.canRestoreSystemDefaults': () => process.platform === 'win32' && !!savedAudioDefaults(app.getPath('userData')),
+  'audio.openCommunicationsSettings': () => {
+    if (process.platform === 'win32') execFile('control.exe', ['mmsys.cpl,,3'], () => undefined);
+  },
   'audio.restoreSystemDefaults': async () => {
     const back = await restoreAudioDefaults(app.getPath('userData'));
     return back.length ? `已改回：${back.join('、')}` : '默认设备已经是原来的了';
@@ -1522,6 +1525,8 @@ app.whenReady().then(() => {
     syncShortcuts();
     // The subtitles belong to the meeting: they go away with it.
     if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.hide();
+    // Windows: no hidden voice process between meetings (the next meeting starts it again).
+    stopSpeechHost();
     autoReview(meta.id);
   });
   log.info(`started ${app.getVersion()} on ${process.platform} ${process.arch}`);

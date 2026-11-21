@@ -1,6 +1,7 @@
 import { OrderedPlayer } from '../../../browser/ordered-player';
 import { useEffect, useRef, useState } from 'react';
 import { decodeFrame, encodeAudioUp, ROOM_PROTOCOL_VERSION, type RoomPeer, type ServerMessage } from '@core/room/protocol';
+import { floatToInt16, resampleLinear } from '@core/audio/pcm';
 import type { TranscriptSegment } from '@core/types';
 import { openHttp, openWebSocket, type RoomSocket } from './transport';
 
@@ -23,6 +24,7 @@ const T = {
     reconnecting: '连接断开，正在重连…',
     ended: '房间已关闭。',
     micDenied: '无法使用麦克风：请在浏览器设置中允许本网页使用麦克风。',
+    micFailed: '这个浏览器打不开麦克风录音，可以换系统自带的浏览器或 Chrome 试试；听和看字幕不受影响。',
     translating: '翻译中…',
     failed: '（翻译失败）',
     host: '主持人',
@@ -45,6 +47,7 @@ const T = {
     reconnecting: 'Conexión perdida, reconectando…',
     ended: 'La sala se ha cerrado.',
     micDenied: 'No se puede usar el micrófono: permite el acceso al micrófono en el navegador.',
+    micFailed: 'Este navegador no puede grabar el micrófono; prueba con el navegador del sistema o con Chrome. Escuchar y leer los subtítulos sigue funcionando.',
     translating: 'Traduciendo…',
     failed: '(traducción fallida)',
     host: 'Anfitrión',
@@ -67,6 +70,7 @@ const T = {
     reconnecting: 'Connection lost, reconnecting…',
     ended: 'The room has been closed.',
     micDenied: 'Cannot use the microphone: allow microphone access for this page in your browser.',
+    micFailed: 'This browser cannot record the microphone; try the system browser or Chrome. Listening and subtitles still work.',
     translating: 'Translating…',
     failed: '(translation failed)',
     host: 'Host',
@@ -110,7 +114,7 @@ export function RoomClient() {
   /** Attempts in a row that never got through. */
   const failures = useRef(0);
   const ctx = useRef<AudioContext | null>(null);
-  const micNode = useRef<AudioWorkletNode | null>(null);
+  const micNode = useRef<AudioNode | null>(null);
   const micStream = useRef<MediaStream | null>(null);
   const workletLoaded = useRef(false);
   const talkingRef = useRef(false);
@@ -138,6 +142,8 @@ export function RoomClient() {
         void setTalkRef.current(false);
       }
       void ctx.current?.resume().catch(() => undefined);
+      // Back in front while in the room: the screen lock the system dropped is asked for again.
+      if (document.visibilityState === 'visible' && ws.current && !leaving.current && !wake.current) void keepScreenOn();
     };
     document.addEventListener('visibilitychange', resume);
     window.addEventListener('pointerdown', resume);
@@ -212,6 +218,7 @@ export function RoomClient() {
           break;
         case 'ended':
           leaving.current = true;
+          letScreenSleep();
           setStatus('ended');
           break;
       }
@@ -250,11 +257,7 @@ export function RoomClient() {
     // Worklet modules belong to one AudioContext; a new one (re-join) must load it again.
     workletLoaded.current = false;
     await ctx.current.resume().catch(() => undefined);
-    try {
-      await (navigator as Navigator & { wakeLock?: { request(t: 'screen'): Promise<unknown> } }).wakeLock?.request('screen');
-    } catch {
-      /* not supported */
-    }
+    await keepScreenOn();
     leaving.current = false;
     connect();
   };
@@ -263,24 +266,63 @@ export function RoomClient() {
     if (micNode.current) return true;
     const c = ctx.current!;
     setAudioSession('play-and-record');
+    const send = (pcm: Int16Array) => {
+      if (talkingRef.current && ws.current?.readyState === 1) ws.current.send(encodeAudioUp(pcm));
+    };
     try {
       micStream.current = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-      if (!workletLoaded.current) {
-        await c.audioWorklet.addModule(new URL('./pcm-worklet.js', document.baseURI).toString());
-        workletLoaded.current = true;
-      }
-      const node = new AudioWorkletNode(c, 'pcm-capture', { numberOfInputs: 1, numberOfOutputs: 0 });
-      node.port.onmessage = (e: MessageEvent<{ pcm: ArrayBuffer }>) => {
-        if (!talkingRef.current || ws.current?.readyState !== 1) return;
-        ws.current.send(encodeAudioUp(new Int16Array(e.data.pcm)));
-      };
-      c.createMediaStreamSource(micStream.current).connect(node);
-      micNode.current = node;
-      return true;
     } catch {
+      setAudioSession('playback');
       setError(t.micDenied);
       return false;
     }
+    try {
+      const source = c.createMediaStreamSource(micStream.current);
+      try {
+        if (!workletLoaded.current) {
+          await c.audioWorklet.addModule(new URL('./pcm-worklet.js', document.baseURI).toString());
+          workletLoaded.current = true;
+        }
+        const node = new AudioWorkletNode(c, 'pcm-capture', { numberOfInputs: 1, numberOfOutputs: 0 });
+        node.port.onmessage = (e: MessageEvent<{ pcm: ArrayBuffer }>) => send(new Int16Array(e.data.pcm));
+        source.connect(node);
+        micNode.current = node;
+      } catch {
+        // No AudioWorklet (older iPhones, some in-app browsers): the older way, same 16 kHz frames.
+        const proc = c.createScriptProcessor(4096, 1, 1);
+        const mute = c.createGain();
+        mute.gain.value = 0;
+        proc.onaudioprocess = (e) => send(floatToInt16(resampleLinear(e.inputBuffer.getChannelData(0), c.sampleRate, 16000)));
+        source.connect(proc).connect(mute).connect(c.destination);
+        micNode.current = proc;
+      }
+      return true;
+    } catch {
+      // The microphone opened but cannot be recorded here: give it back (no lit microphone indicator).
+      micStream.current?.getTracks().forEach((tr) => tr.stop());
+      micStream.current = null;
+      setAudioSession('playback');
+      setError(t.micFailed);
+      return false;
+    }
+  };
+
+  /**
+   * The screen stays on while in the room (a locked iPhone suspends the page and drops the
+   * connection): the lock is kept to be released on leaving, and asked for again when the page
+   * comes back to the front (the system drops it when the page is hidden).
+   */
+  const wake = useRef<{ release(): Promise<void> } | null>(null);
+  const keepScreenOn = async () => {
+    try {
+      wake.current = ((await (navigator as Navigator & { wakeLock?: { request(t: 'screen'): Promise<{ release(): Promise<void> }> } }).wakeLock?.request('screen')) ?? null);
+    } catch {
+      /* not supported, or not allowed right now */
+    }
+  };
+  const letScreenSleep = () => {
+    void wake.current?.release().catch(() => undefined);
+    wake.current = null;
   };
 
   const releaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -323,6 +365,7 @@ export function RoomClient() {
     micStream.current?.getTracks().forEach((tr) => tr.stop());
     micNode.current = null;
     micStream.current = null;
+    letScreenSleep();
     setJoined(false);
   };
 

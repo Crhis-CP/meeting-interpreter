@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decodeWav, toMono } from '@core/audio/wav';
-import { POWERSHELL_ARGS } from './system-tts-args';
+import { POWERSHELL_ARGS, psJson } from './system-tts-args';
 import { NoVoiceError, WindowsSpeechHost } from './windows-speech-host';
 import { abortError, isAbortError } from '@core/events';
 import { baseOf, lang as langInfo } from '@core/lang/languages';
@@ -32,6 +32,11 @@ export interface SystemTtsOptions {
 
 /** Shared by every SystemTts on Windows, so System.Speech is loaded once per app run. */
 let sharedHost: WindowsSpeechHost | null = null;
+
+/** Windows: ends the long-running voice process (after a meeting); the next sentence starts it again. */
+export function stopSpeechHost(): void {
+  sharedHost?.dispose();
+}
 
 /** A voice installed on this computer. `id` is what `TtsRequest.voice` takes. */
 export interface SystemVoice {
@@ -167,18 +172,14 @@ export function parseEspeakVoices(stdout: string): SystemVoice[] {
   return out;
 }
 
-function b64(text: string): string {
-  return Buffer.from(text, 'utf8').toString('base64');
-}
-
 /**
  * The PowerShell script is piped on stdin, where each line runs on its own and stdin is read in the
  * OEM code page. So it is one ASCII line inside try/catch, and every value (paths may contain
- * Chinese user names) travels as Base64-encoded UTF-8 JSON.
+ * Chinese user names) travels as ASCII JSON (psJson).
  */
 function powershellLine(params: Record<string, unknown> | null, statements: string[]): string {
   const head = ["$ErrorActionPreference = 'Stop'", '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8'];
-  if (params) head.push(`$p = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${b64(JSON.stringify(params))}')) | ConvertFrom-Json`);
+  if (params) head.push(`$p = ConvertFrom-Json ${psJson(params)}`);
   const body = [...head, 'Add-Type -AssemblyName System.Speech', '$s = New-Object System.Speech.Synthesis.SpeechSynthesizer', ...statements].join('; ');
   return `try { ${body} } catch { [Console]::Error.WriteLine('MI_ERROR ' + $_.Exception.Message); exit 1 }\n`;
 }

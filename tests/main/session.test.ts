@@ -8,7 +8,7 @@ import { decodeWav } from '@core/audio/wav';
 import { concatInt16, silence, tone } from '@core/audio/pcm';
 import { createLogger } from '@core/log';
 import { MockAsr, MockLlm, MockTranslator, MockTts } from '@core/providers/mock';
-import { SessionManager, type ProviderSet } from '../../src/main/session/session-manager';
+import { audioConfig, SessionManager, type ProviderSet } from '../../src/main/session/session-manager';
 import { WavFileWriter } from '../../src/main/session/wav-writer';
 import { SettingsStore } from '../../src/main/stores/settings-store';
 import { SecretStore } from '../../src/main/stores/secret-store';
@@ -161,6 +161,25 @@ describe('SessionManager start/stop edge cases', () => {
     const sent: ToAudio[] = [];
     return { dir, settings, sent };
   };
+
+  it('only listening: the microphone stays closed, and opens when my speech is to be translated', async () => {
+    const { dir, settings, sent } = base();
+    settings.recording.audio = false;
+    settings.out.enabled = false;
+    const providers = (): ProviderSet => ({ asr: (d) => new MockAsr(d === 'out' ? 'self' : 'remote'), mt: () => new MockTranslator(), tts: () => new MockTts(), llm: () => null, describe: () => ({}) });
+    const sm = new SessionManager({ settings: () => settings, glossary: () => [], providers, recordsDir: () => dir, toAudio: (m) => sent.push(m), broadcast: () => {}, log: createLogger('t') });
+    await sm.start({});
+    const configs = () => sent.filter((m): m is Extract<ToAudio, { config: unknown }> => m.type === 'start' || m.type === 'config').map((m) => m.config.micWanted);
+    expect(configs()).toEqual([false]);
+    sm.setOut(true);
+    sm.setOut(true); // no change, no restart
+    sm.setOut(false);
+    expect(configs()).toEqual([false, true, false]);
+    await sm.stop();
+    // Recording the meeting keeps it open (my voice is part of the recording).
+    expect(audioConfig({ ...settings, recording: { ...settings.recording, audio: true } }, 'meeting', false).micWanted).toBe(true);
+    expect(audioConfig(settings, 'room', false).micWanted).toBe(true);
+  });
 
   it('a missing key fails the start without leaving the meeting active', async () => {
     const { dir, settings, sent } = base();

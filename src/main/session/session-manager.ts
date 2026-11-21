@@ -48,7 +48,7 @@ export interface SessionDeps {
 }
 
 /** Audio-window settings derived from the app settings. */
-export function audioConfig(s: AppSettings, mode: 'meeting' | 'room'): AudioConfig {
+export function audioConfig(s: AppSettings, mode: 'meeting' | 'room', outOn = s.out.enabled): AudioConfig {
   return {
     mode,
     mic: s.devices.mic,
@@ -65,6 +65,7 @@ export function audioConfig(s: AppSettings, mode: 'meeting' | 'room'): AudioConf
     originalInVolume: s.interpretation.originalInVolume,
     record: { audio: s.recording.audio, screen: s.recording.screen, screenSourceId: s.recording.screenSourceId },
     foreignName: baseOf(s.languages.remote) === 'en' ? '英语' : '西语',
+    micWanted: mode === 'room' || outOn || s.recording.audio,
   };
 }
 
@@ -447,8 +448,11 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
   }
 
   setOut(enabled: boolean): void {
+    const changed = this.s.out.enabled !== enabled;
     this.s.out.enabled = enabled;
     this.applyOutGate();
+    // The microphone opens when my speech is to be translated, and closes when only listening.
+    if (changed && this.s.active && this.s.mode) this.d.toAudio({ type: 'config', config: audioConfig(this.d.settings(), this.s.mode, enabled) });
   }
 
   private pttDown = false;
@@ -498,12 +502,12 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
       w?.close();
       delete this.rec[kind as keyof typeof this.rec];
     }
-    this.d.toAudio({ type: 'start', config: audioConfig(this.d.settings(), this.s.mode) });
+    this.d.toAudio({ type: 'start', config: audioConfig(this.d.settings(), this.s.mode, this.s.out.enabled) });
   }
 
   /** Re-sends device/volume settings to the audio window during a meeting. */
   refreshAudio(): void {
-    if (this.s.active && this.s.mode) this.d.toAudio({ type: 'config', config: audioConfig(this.d.settings(), this.s.mode) });
+    if (this.s.active && this.s.mode) this.d.toAudio({ type: 'config', config: audioConfig(this.d.settings(), this.s.mode, this.s.out.enabled) });
   }
 
   segments(): TranscriptSegment[] {

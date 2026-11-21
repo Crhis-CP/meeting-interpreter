@@ -46,9 +46,19 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   const post = (m: DOmit<MainToBridge, typeof PAGE_TAG>) => window.postMessage({ [PAGE_TAG]: 'main', ...m }, '*');
 
-  const audioContext = (): AudioContext => {
+  /**
+   * The context runs at the microphone's own sample rate: by default it would take the default
+   * output's, which for Bluetooth headphones in call mode is 16 or 8 kHz — the other side would
+   * hear a muffled voice even with interpretation off.
+   */
+  const audioContext = (mic?: MediaStreamTrack): AudioContext => {
     if (!ctx) {
-      ctx = new AudioContext({ latencyHint: 'interactive' });
+      const rate = mic?.getSettings().sampleRate;
+      try {
+        ctx = new AudioContext({ latencyHint: 'interactive', ...(rate && rate >= 16000 ? { sampleRate: rate } : {}) });
+      } catch {
+        ctx = new AudioContext({ latencyHint: 'interactive' });
+      }
       ttsBus = ctx.createGain();
       const resume = () => {
         if (ctx?.state === 'suspended') void ctx.resume().catch(() => undefined);
@@ -81,7 +91,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   /** Our track in place of `real`: the real voice (passthrough) or the translation, switchable. */
   const makeHook = (real: MediaStreamTrack, owned: boolean): Hook => {
-    const ac = audioContext();
+    const ac = audioContext(real);
     const src = ac.createMediaStreamSource(new MediaStream([real]));
     const dest = ac.createMediaStreamDestination();
     dest.channelCount = 1;
@@ -141,8 +151,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   };
 
   /** Starts our audio context if the page allows it now; never waits long. */
-  const running = async (): Promise<boolean> => {
-    const ac = audioContext();
+  const running = async (mic?: MediaStreamTrack): Promise<boolean> => {
+    const ac = audioContext(mic);
     if (ac.state !== 'running') await Promise.race([ac.resume().catch(() => undefined), sleep(150)]);
     return ac.state === 'running';
   };
@@ -185,7 +195,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   /** Interpretation started while the call sends a microphone we do not control: take it over. */
   const takeOver = async () => {
-    if (!replace || !(await running())) return;
+    if (!replace || !(await running([...senders].map((s) => s.track).find((t) => t?.kind === 'audio') ?? undefined))) return;
     for (const s of senders) {
       const t = s.track;
       if (!active || !t || t.kind !== 'audio' || t.readyState !== 'live' || hooks.some((h) => h.out === t)) continue;
@@ -218,7 +228,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     if (!constraints?.audio) return stream;
     try {
       // A suspended context would hand the meeting a silent microphone: give it the real one.
-      if (!(await running())) return stream;
+      if (!(await running(stream.getAudioTracks()[0]))) return stream;
       return hook(stream);
     } catch (err) {
       console.warn('[会议同传] 无法接管麦克风，使用原始麦克风', err);
@@ -229,7 +239,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   // Read-only state for diagnostics (tests, support): nothing private in it.
   try {
     Object.defineProperty(window, '__meetingInterpreterMic', {
-      get: () => ({ active, passthrough, context: ctx?.state ?? null, senders: senders.size, hooks: hooks.map((h) => ({ sender: !!h.sender, live: h.out.readyState === 'live' })), switches }),
+      get: () => ({ active, passthrough, context: ctx?.state ?? null, sampleRate: ctx?.sampleRate ?? null, senders: senders.size, hooks: hooks.map((h) => ({ sender: !!h.sender, live: h.out.readyState === 'live' })), switches }),
     });
   } catch {
     // Diagnostics only.

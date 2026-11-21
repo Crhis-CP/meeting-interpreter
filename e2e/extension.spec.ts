@@ -245,6 +245,9 @@ test('extension: a meeting that asks for the mic before any click keeps its real
     return { senders: w.pc1.getSenders().map((x) => ({ same: x.track === w.localTrack, kind: x.track?.kind })), mic: (window as unknown as { __meetingInterpreterMic?: unknown }).__meetingInterpreterMic };
   });
   expect(s.after.hi, `${JSON.stringify(s)} senders: ${JSON.stringify(sending)}`).toBeLessThan(-75);
+  // The microphone keeps its own sample rate through the takeover (not the output device's).
+  const rates = await page.evaluate(() => ({ mic: (window as unknown as { localTrack: MediaStreamTrack }).localTrack.getSettings().sampleRate, ours: (window as unknown as { __meetingInterpreterMic: { sampleRate: number } }).__meetingInterpreterMic.sampleRate }));
+  expect(rates.ours).toBe(rates.mic ?? rates.ours);
 
   // Stop: the call sends the real microphone again.
   await ext.evaluate(() => chrome.runtime.sendMessage({ type: 'stop' }));

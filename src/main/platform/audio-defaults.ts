@@ -69,11 +69,11 @@ export const PRELUDE = `$ErrorActionPreference = 'Stop'\nAdd-Type -TypeDefinitio
 
 export type PsRunner = (script: string) => Promise<{ code: number; out: string }>;
 
-/** Runs a PowerShell script (passed encoded, so the C# needs no quoting). */
+/** Runs a PowerShell script (passed encoded, so the C# needs no quoting; an encoded command is not subject to the execution policy). */
 export const runPowerShell: PsRunner = (script) =>
   new Promise((resolve) => {
     const encoded = Buffer.from(script, 'utf16le').toString('base64');
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { timeout: 60_000, windowsHide: true }, (err, stdout, stderr) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { timeout: 60_000, windowsHide: true }, (err, stdout, stderr) => {
       resolve({ code: err ? 1 : 0, out: `${stdout ?? ''}${stderr ?? ''}` });
     });
   });

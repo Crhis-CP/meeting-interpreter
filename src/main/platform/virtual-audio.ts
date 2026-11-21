@@ -103,7 +103,7 @@ async function installWindows(fetchImpl: typeof fetch, log: Logger, dataDir: str
   const out = join(dir, 'VBCABLE');
   writeFileSync(zipPath, zip);
   onProgress('正在解压…');
-  const ps = (cmd: string) => run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd]);
+  const ps = (cmd: string) => run('powershell.exe', ['-NoProfile', '-Command', cmd]);
   const q = (s: string) => `'${s.replace(/'/g, "''")}'`;
   const x = await ps(`Expand-Archive -Force -LiteralPath ${q(zipPath)} -DestinationPath ${q(out)}`);
   if (x.code !== 0) throw new Error(`解压失败：${x.out.slice(0, 200)}`);

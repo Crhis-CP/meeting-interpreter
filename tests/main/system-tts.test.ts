@@ -62,9 +62,12 @@ function fakeExec(handler?: (call: Call) => ExecResult | undefined): { exec: Exe
       out = args[args.indexOf('-w') + 1];
       call.text = readFileSync(args[args.indexOf('-f') + 1]!, 'utf8');
     } else if (cmd === 'powershell.exe') {
-      const m = /FromBase64String\('([A-Za-z0-9+/=]+)'\)/.exec(input ?? '');
+      const m = /ConvertFrom-Json '((?:[^']|'')*)'/.exec(input ?? '');
       if (!m) return { stdout: `MI_JSON ${WINDOWS_JSON}\r\n`, stderr: '', code: 0 };
-      call.params = JSON.parse(Buffer.from(m[1]!, 'base64').toString('utf8'));
+      // Plain ASCII on the line (it is read in the OEM code page), no Base64.
+      expect(input).toMatch(/^[\x00-\x7f]*$/);
+      expect(input).not.toContain('FromBase64String');
+      call.params = JSON.parse(m[1]!.replace(/''/g, "'"));
       out = call.params!.out;
       call.text = readFileSync(call.params!.textFile, 'utf8');
     }
@@ -182,7 +185,7 @@ describe('SystemTts on Windows (PowerShell + System.Speech)', () => {
     expect(chunks.length).toBe(3);
     const { cmd, args, input, params, text } = calls[0]!;
     expect(cmd).toBe('powershell.exe');
-    expect(args).toEqual(['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', '-']);
+    expect(args).toEqual(['-NoProfile', '-NonInteractive', '-Command', '-']);
     expect(args).toEqual(POWERSHELL_ARGS);
     expect(params).toMatchObject({ voice: 'Microsoft Sabina Desktop', culture: 'es-MX', rate: 4 });
     expect(text).toBe('Buenos días, ¿cómo están?');
@@ -326,7 +329,7 @@ describe('Windows voices through one long-running PowerShell', () => {
   let perSentence = 0;
   const perSentenceExec: ExecFn = async (_cmd, _args, input) => {
     perSentence++;
-    const p = JSON.parse(Buffer.from(input!.match(/FromBase64String\('([^']+)'\)/)![1]!, 'base64').toString('utf8')) as { out: string };
+    const p = JSON.parse(input!.match(/ConvertFrom-Json '((?:[^']|'')*)'/)![1]!.replace(/''/g, "'")) as { out: string };
     writeFileSync(p.out, encodeWav(new Int16Array(22050).fill(500), 22050));
     return { code: 0, stdout: '', stderr: '' };
   };
@@ -357,5 +360,15 @@ describe('Windows voices through one long-running PowerShell', () => {
     await say(tts, '谢谢');
     expect([perSentence, spawns, host.broken]).toEqual([1, 2, false]);
     host.dispose();
+  });
+});
+
+describe('values on a PowerShell stdin line', () => {
+  it('are ASCII JSON in a single-quoted literal: Chinese paths and quotes survive, no Base64', async () => {
+    const { psJson } = await import('../../src/main/providers/system-tts-args');
+    const value = { out: 'C:\\Users\\张伟\\AppData\\Local\\Temp\\o\'neil.wav', voice: 'Microsoft Sabina' };
+    const lit = psJson(value);
+    expect(lit).toMatch(/^'[\x20-\x7e]*'$/);
+    expect(JSON.parse(lit.slice(1, -1).replace(/''/g, "'"))).toEqual(value);
   });
 });

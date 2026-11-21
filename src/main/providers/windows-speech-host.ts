@@ -8,7 +8,7 @@
  */
 import { constants as osConstants, setPriority } from 'node:os';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { POWERSHELL_ARGS } from './system-tts-args';
+import { POWERSHELL_ARGS, psJson } from './system-tts-args';
 
 export interface SpeakJob {
   voice: string;
@@ -19,8 +19,6 @@ export interface SpeakJob {
 }
 
 export class NoVoiceError extends Error {}
-
-const b64 = (text: string) => Buffer.from(text, 'utf8').toString('base64');
 
 /** Loads System.Speech once; `$voices` and `$fmt` are reused by every job. One ASCII line (see system-tts). */
 export function hostInitLine(): string {
@@ -39,7 +37,7 @@ export function hostInitLine(): string {
 
 /** One sentence: choose the voice (only of the right language), render to a WAV file, report. */
 export function hostJobLine(id: number, job: SpeakJob): string {
-  const p = `$p = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${b64(JSON.stringify(job))}')) | ConvertFrom-Json`;
+  const p = `$p = ConvertFrom-Json ${psJson(job)}`;
   const body = [
     p,
     "$lang = $p.culture.Split('-')[0]",

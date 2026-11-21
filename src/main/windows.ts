@@ -92,6 +92,10 @@ export function createOverlayWindow(opts: { contentProtection: boolean; clickThr
     focusable: process.platform === 'linux',
     // macOS: the first click on ✕ acts instead of only bringing the app forward.
     acceptFirstMouse: true,
+    // macOS: a non-activating panel floats over full-screen apps and shows on every desktop by
+    // itself. (Asking an ordinary window for that turned the whole app into a background app: its
+    // Dock icon, Cmd+Tab entry and menu bar disappeared after the first meeting.)
+    ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),
     show: false,
     title: '同传字幕',
     webPreferences: {
@@ -105,7 +109,8 @@ export function createOverlayWindow(opts: { contentProtection: boolean; clickThr
   // Above normal windows (also a full-screen meeting), but below the system's menus, the meeting
   // app's share toolbar and notifications (the 'screen-saver' level covered all of those).
   win.setAlwaysOnTop(true, 'floating');
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (process.platform === 'darwin') win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  else win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   // Keep subtitles out of screen sharing and our own screen recording unless the user opts in.
   win.setContentProtection(opts.contentProtection);
   if (opts.clickThrough) win.setIgnoreMouseEvents(true, { forward: true });

@@ -23,7 +23,7 @@ process.stdin.on('data', (d) => {
     if (process.argv[2] === 'silent') continue;
     if (line.includes("WriteLine('MI_READY')")) { process.stdout.write('MI_READY\r\n'); continue; }
     const id = (line.match(/MI_DONE (\d+)/) || [])[1];
-    const p = JSON.parse(Buffer.from(line.match(/FromBase64String\('([^']+)'\)/)[1], 'base64').toString('utf8'));
+    const p = JSON.parse(line.match(/ConvertFrom-Json '((?:[^']|'')*)'/)[1].replace(/''/g, "'"));
     if (p.voice === 'none') { process.stdout.write(`MI_NO_VOICE ${id}\r\n`); continue; }
     fs.writeFileSync(p.out, encode(0.5));
     process.stdout.write(`MI_DONE ${id}\r\n`);

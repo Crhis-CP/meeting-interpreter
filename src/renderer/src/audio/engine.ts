@@ -118,8 +118,8 @@ export class AudioEngine {
     let devices = await listDevices();
     let route = safeRouting(devices, cfg, cfg.foreignName);
 
-    // Microphone → "out".
-    if (route.mic !== null) {
+    // Microphone → "out" (not opened when only listening).
+    if (route.mic !== null && cfg.micWanted !== false) {
       try {
         this.micStream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -290,7 +290,8 @@ export class AudioEngine {
       prev.echoCancellation !== cfg.echoCancellation ||
       prev.noiseSuppression !== cfg.noiseSuppression ||
       prev.autoGainControl !== cfg.autoGainControl ||
-      prev.playOriginalIn !== cfg.playOriginalIn;
+      prev.playOriginalIn !== cfg.playOriginalIn ||
+      prev.micWanted !== cfg.micWanted;
     if (devicesChanged) {
       // Recording continues in a new file only if restarted; keep it simple: restart capture & output.
       const rec = this.recorders.length > 0;

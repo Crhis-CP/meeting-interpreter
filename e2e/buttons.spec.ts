@@ -139,6 +139,8 @@ test('字幕窗: buttons always visible, ✕ hides it, and it goes away when the
     return a.y + a.height - (b.y + b.height);
   });
   expect(gap).toBeGreaterThanOrEqual(140);
+  // macOS: showing the subtitles must not turn the app into a background app (no Dock icon, no Cmd+Tab).
+  expect(await app.evaluate(({ app: a }) => process.platform !== 'darwin' || a.dock?.isVisible() !== false)).toBe(true);
   await expect.poll(() => app.windows().some((p) => p.url().includes('overlay'))).toBe(true);
   const overlay = app.windows().find((p) => p.url().includes('overlay'))!;
   await expect(overlay.getByRole('button', { name: '关闭字幕窗' })).toBeVisible(); // no hover needed

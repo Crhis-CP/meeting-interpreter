@@ -28,6 +28,13 @@ test('phone app: hands-free conversation translates what is said and speaks it',
   });
   const ctx = await browser.newContext({ ...devices['Pixel 7'], permissions: ['microphone'] });
   const page = await ctx.newPage();
+  // A WebView too old to run the app: instead of a white screen, it says to update the WebView.
+  const old = await ctx.newPage();
+  await old.route('**/app.js', (r) => r.fulfill({ contentType: 'text/javascript', body: 'class { syntax this old engine cannot read' }));
+  await old.goto(`http://localhost:${port}/`);
+  await expect(old.getByText('需要更新手机的网页组件')).toBeVisible({ timeout: 8000 });
+  await old.close();
+
   await page.goto(`http://localhost:${port}/`);
   await page.evaluate(() => localStorage.setItem('mi-settings', JSON.stringify({ provider: 'demo', mode: 'hands-free' })));
   await page.reload();

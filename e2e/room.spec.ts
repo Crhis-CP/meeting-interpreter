@@ -39,6 +39,10 @@ test('room: a Chinese phone speaks, a Spanish phone sees the translation', async
       close(): void {}
     }
     (globalThis as unknown as { WebSocket: unknown }).WebSocket = RefusedWebSocket;
+    // …and, like older iPhones and some in-app browsers, it has no AudioWorklet: recording falls
+    // back to the older ScriptProcessor (the Spanish phone below uses the worklet).
+    const AW = (globalThis as unknown as { AudioWorklet?: { prototype: { addModule: unknown } } }).AudioWorklet;
+    if (AW) AW.prototype.addModule = () => Promise.reject(new Error('AudioWorklet is not supported'));
   });
 
   for (const [page, lang, name] of [[zh, '中文', '王经理'], [es, 'Español', 'Carlos']] as const) {
@@ -61,6 +65,16 @@ test('room: a Chinese phone speaks, a Spanish phone sees the translation', async
 
   await expect(es.getByText('Hola a todos, bienvenidos a la reunión de hoy.').first()).toBeVisible({ timeout: 30_000 });
   await expect(zh.getByText('大家好，欢迎参加今天的会议。').first()).toBeVisible();
+  await expect(zh.getByRole('alert')).toHaveCount(0); // no "cannot use the microphone"
+
+  // The Spanish phone talks too (with the AudioWorklet): the Chinese phone sees its line.
+  const habla = es.getByRole('button', { name: 'Mantén pulsado para hablar' });
+  const hb = (await habla.boundingBox())!;
+  await es.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await es.mouse.down();
+  await es.waitForTimeout(5500);
+  await es.mouse.up();
+  await expect(zh.getByText(/Carlos/).first()).toBeVisible({ timeout: 30_000 });
   await es.screenshot({ path: 'test-results/room-phone-es.png' });
   await zh.screenshot({ path: 'test-results/room-phone-zh.png' });
   // The host window shows the participants and the transcript.

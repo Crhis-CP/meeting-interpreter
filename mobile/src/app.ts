@@ -30,6 +30,9 @@ declare const __APP_VERSION__: string;
 import { createClonedVoice, deleteClonedVoice, waitForVoice } from '@core/providers/dashscope/voice-clone';
 import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../src/browser/voice-sample';
 
+// The app runs (boot.js shows an "update your WebView" page otherwise).
+(window as unknown as { __miStarted?: boolean }).__miStarted = true;
+
 // ------------------------------------------------------------------ settings
 
 interface MobileSettings {

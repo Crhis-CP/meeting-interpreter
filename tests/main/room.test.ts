@@ -47,6 +47,21 @@ class Client {
 }
 
 describe('RoomHost', () => {
+  it('a room that cannot listen leaves nothing half-open: no meeting, no microphone, a clear message', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mi-room-'));
+    const settings = applyPreset(defaultSettings(), 'demo');
+    settings.room.port = 70000; // refused by the system
+    const providers: ProviderSet = { asr: (d) => new MockAsr(d === 'out' ? 'self' : 'remote'), mt: () => new MockTranslator(), tts: () => new MockTts(), llm: () => new MockLlm(), describe: () => ({}) };
+    const audio: ToAudio[] = [];
+    const log = createLogger('test');
+    const session = new SessionManager({ settings: () => settings, glossary: () => [], providers: () => providers, recordsDir: () => dir, toAudio: (m) => audio.push(m), broadcast: () => {}, log });
+    const room = new RoomHost({ settings: () => settings, session, providers: () => providers as never, glossary: () => [], toAudio: (m) => audio.push(m), broadcast: () => {}, log, dataDir: dir, staticDir: () => dir, devUrl: () => undefined, insecure: true });
+    await expect(room.start()).rejects.toThrow(/现场房间没能开始/);
+    expect(room.active).toBe(false);
+    expect(session.active).toBe(false);
+    expect(audio.at(-1)?.type).toBe('stop');
+  });
+
   it('relays a Chinese speaker to Spanish listeners and records the meeting', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mi-room-'));
     const staticDir = mkdtempSync(join(tmpdir(), 'mi-static-'));

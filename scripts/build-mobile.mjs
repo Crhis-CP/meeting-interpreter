@@ -22,7 +22,7 @@ await build({
   define: { 'process.env.NODE_ENV': '"production"', __APP_VERSION__: JSON.stringify(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version) },
   logLevel: 'warning',
 });
-for (const f of ['index.html', 'app.css']) cpSync(join(root, 'mobile/src', f), join(out, f));
+for (const f of ['index.html', 'app.css', 'boot.js']) cpSync(join(root, 'mobile/src', f), join(out, f));
 execFileSync(process.execPath, [join(root, 'scripts/copy-offline-mt.mjs'), out]);
 const assets = join(root, 'android/app/src/main/assets/www');
 rmSync(assets, { recursive: true, force: true });
