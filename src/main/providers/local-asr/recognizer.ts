@@ -109,6 +109,8 @@ export interface VadTuning {
   minSpeechDuration: number;
   /** Longer speech is cut (the VAD then splits at the next short pause). */
   maxSpeechDuration: number;
+  /** Audio added before each segment (default PRE_ROLL_SECONDS). */
+  preRoll?: number;
 }
 
 export const DEFAULT_VAD: VadTuning = { threshold: 0.5, minSilenceDuration: 0.5, minSpeechDuration: 0.25, maxSpeechDuration: 10 };
@@ -321,7 +323,7 @@ export class LocalRecognizer {
       return;
     }
     // The VAD notices speech after minSpeechDuration: start a little earlier (with the pre-roll).
-    this.speechFrom ??= Math.max(0, this.historyEnd - Math.round((this.tuning.minSpeechDuration + PRE_ROLL_SECONDS + 0.1) * ASR_RATE));
+    this.speechFrom ??= Math.max(0, this.historyEnd - Math.round((this.tuning.minSpeechDuration + (this.tuning.preRoll ?? PRE_ROLL_SECONDS) + 0.1) * ASR_RATE));
     if (this.historyEnd - this.lastPartialAt < every * ASR_RATE) return;
     this.lastPartialAt = this.historyEnd;
     const samples = this.recall(this.speechFrom, this.historyEnd);
@@ -378,7 +380,7 @@ export class LocalRecognizer {
 
   private decode(segment: SherpaSpeechSegment): void {
     if (!segment.samples.length) return;
-    const lead = this.recall(segment.start - Math.round(PRE_ROLL_SECONDS * ASR_RATE), segment.start);
+    const lead = this.recall(segment.start - Math.round((this.tuning.preRoll ?? PRE_ROLL_SECONDS) * ASR_RATE), segment.start);
     let samples = segment.samples;
     if (lead.length) {
       samples = new Float32Array(lead.length + segment.samples.length);

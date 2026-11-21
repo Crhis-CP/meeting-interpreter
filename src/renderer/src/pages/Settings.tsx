@@ -14,7 +14,6 @@ import { checkDevices } from '@core/audio/device-check';
 import { DeviceCheck } from '../components/DeviceCheck';
 import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../../browser/voice-sample';
 import { DriverInstaller } from '../components/DriverInstaller';
-import { AccentCalibrationCard, MyCorrectionsCard } from '../components/AccentCard';
 
 type Tab = 'providers' | 'devices' | 'interp' | 'record' | 'overlay' | 'shortcuts' | 'storage' | 'about';
 
@@ -732,12 +731,8 @@ function DevicesTab({ s, update }: TabProps) {
 
 // ------------------------------------------------------------------ interpretation
 
-function InterpTab({ s, update, go }: TabProps) {
+function InterpTab({ s, update }: TabProps) {
   const i = s.interpretation;
-  const [keys, setKeys] = useState<Record<string, boolean>>({});
-  useEffect(() => void api.secrets.status().then(setKeys), []);
-  const lp = llmPreset(s.llm.preset);
-  const llmReady = !!(lp?.noKey || keys.llm || (lp?.usesDashscopeKey && keys.dashscope));
   return (
     <div>
       <div className="card">
@@ -773,14 +768,11 @@ function InterpTab({ s, update, go }: TabProps) {
             </select>
           </Field>
           <Toggle checked={i.lowLatency} onChange={(v) => void update({ interpretation: { lowLatency: v } })} label="长句分句提前翻译" />
-          <Toggle checked={i.pinyinFuzzy} onChange={(v) => void update({ interpretation: { pinyinFuzzy: v } })} label="按拼音纠正术语" />
           <Field label={`对方听到我的原声：${Math.round(i.originalMixOut * 100)}%`}>
             <input type="range" min={0} max={0.5} step={0.05} value={i.originalMixOut} onChange={(e) => void update({ interpretation: { originalMixOut: Number(e.target.value) } })} />
           </Field>
         </div>
       </div>
-      <AccentCalibrationCard s={s} update={update} />
-      <MyCorrectionsCard s={s} update={update} llmReady={llmReady} setTab={(t) => go?.(t as Tab)} />
       {s.devices.meetingSource === 'device' && (
         <div className="card">
           <h3>对方的原声</h3>

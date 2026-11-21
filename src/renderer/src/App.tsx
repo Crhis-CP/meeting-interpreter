@@ -3,7 +3,7 @@ import logoUrl from './assets/logo.png';
 import { Icon } from './components/icons';
 import { errMsg, isCancellation, useEvent, useMeetingState, useSettings } from './api';
 import { UpdateBanner } from './components/UpdateBanner';
-import { GlossaryPage } from './pages/Glossary';
+import { WordsPage } from './pages/Glossary';
 import { HistoryPage } from './pages/History';
 import { MeetingPage } from './pages/Meeting';
 import { Onboarding } from './pages/Onboarding';
@@ -17,7 +17,7 @@ const NAV: { id: Page; label: string; icon: string }[] = [
   { id: 'meeting', label: '会议同传', icon: 'headphones' },
   { id: 'room', label: '现场房间', icon: 'people' },
   { id: 'history', label: '会议记录', icon: 'doc' },
-  { id: 'glossary', label: '术语表', icon: 'book' },
+  { id: 'glossary', label: '词库', icon: 'book' },
   { id: 'settings', label: '设置', icon: 'gear' },
   { id: 'guide', label: '使用指南', icon: 'help' },
 ];
@@ -118,7 +118,7 @@ export function App() {
         {page === 'meeting' && <MeetingPage settings={settings} state={meeting} go={go} />}
         {page === 'room' && <RoomPage settings={settings} state={meeting} go={go} />}
         {page === 'history' && <HistoryPage openId={openMeeting} setOpenId={setOpenMeeting} />}
-        {page === 'glossary' && <GlossaryPage />}
+        {page === 'glossary' && <WordsPage go={go} />}
         {page === 'settings' && <SettingsPage />}
         {page === 'guide' && <GuidePage />}
       </main>

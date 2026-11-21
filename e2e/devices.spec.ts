@@ -35,7 +35,7 @@ test('设备检查: after VB-CABLE took over the defaults, loops are shown with 
   await fakeDevices(win, WINDOWS_AFTER_CABLE);
   // Open the page again so the check reads the list afresh (not only on the change event).
   const nav = (name: RegExp) => win.getByRole('navigation').getByRole('button', { name });
-  await nav(/^术语表/).click();
+  await nav(/^词库/).click();
   await nav(/^会议同传/).click();
 
   const check = win.getByLabel('设备检查');

@@ -11,12 +11,12 @@ test('accent calibration, then correcting a sentence teaches the profile', async
   await win.waitForLoadState('domcontentloaded');
 
   // 1. Calibration: read each sentence (the fake microphone supplies the voice).
-  await win.locator('.nav-item', { hasText: '设置' }).click();
-  await win.getByRole('tab', { name: '同传与语言' }).click();
-  await win.getByRole('button', { name: '开始校准' }).click();
+  await win.locator('.nav-item', { hasText: '词库' }).click();
+  await win.getByRole('tab', { name: '口音校准' }).click();
+  await win.getByRole('button', { name: /^开始校准/ }).click();
   // The first sentence starts with a button; each next one starts recording by itself.
   await win.getByRole('button', { name: '开始录音' }).click();
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 20; i++) {
     const done = win.getByRole('button', { name: /^读完了/ });
     if (!(await done.waitFor({ timeout: 8000 }).then(() => true, () => false))) break;
     await win.waitForTimeout(2200);
@@ -69,8 +69,8 @@ test('accent calibration, then correcting a sentence teaches the profile', async
   expect(learned.corrections).toContainEqual(expect.objectContaining({ heard: '会议', meant: '会意', source: 'edit' }));
 
   // 4. The correction list shows it, and it can be removed.
-  await win.locator('.nav-item', { hasText: '设置' }).click();
-  await win.getByRole('tab', { name: '同传与语言' }).click();
+  await win.locator('.nav-item', { hasText: '词库' }).click();
+  await win.getByRole('tab', { name: '纠错' }).click();
   const row = win.locator('tr', { hasText: '会意' });
   await expect(row).toBeVisible();
   await row.getByRole('button', { name: '删除' }).click();
@@ -95,14 +95,14 @@ test('accent calibration: leaving the page mid-sentence gives the microphone bac
     (globalThis as unknown as { liveMics: () => number }).liveMics = () => tracks.filter((t) => t.readyState === 'live').length;
   });
   const liveMics = () => win.evaluate(() => (globalThis as unknown as { liveMics: () => number }).liveMics());
-  await win.locator('.nav-item', { hasText: '设置' }).click();
-  await win.getByRole('tab', { name: '同传与语言' }).click();
-  await win.getByRole('button', { name: '开始校准' }).click();
+  await win.locator('.nav-item', { hasText: '词库' }).click();
+  await win.getByRole('tab', { name: '口音校准' }).click();
+  await win.getByRole('button', { name: /^开始校准/ }).click();
   await win.getByRole('button', { name: '开始录音' }).click();
   await expect(win.getByRole('button', { name: /^读完了/ })).toBeVisible();
   await expect.poll(liveMics).toBe(1);
   // Off to another page while recording: the microphone (and its indicator) must go off.
-  await win.locator('.nav-item', { hasText: '术语表' }).click();
+  await win.locator('.nav-item', { hasText: '会议记录' }).click();
   await expect.poll(liveMics).toBe(0);
   await app.close();
 });

@@ -22,7 +22,7 @@ test('demo meeting: microphone audio becomes bilingual segments and a saved reco
   await win.screenshot({ path: 'test-results/main-meeting.png' });
   // Looking at another page mid-meeting does not lose the live transcript.
   const nav = (name: RegExp) => win.getByRole('navigation').getByRole('button', { name });
-  await nav(/^术语表/).click();
+  await nav(/^词库/).click();
   await nav(/^会议同传/).click();
   await expect(win.getByText('大家好，欢迎参加今天的会议。')).toBeVisible();
 

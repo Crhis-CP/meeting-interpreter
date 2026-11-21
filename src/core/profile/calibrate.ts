@@ -7,6 +7,7 @@ import { sleep } from '../events';
 import { baseOf } from '../lang/languages';
 import type { StreamingAsr } from '../providers/types';
 import type { LangCode } from '../types';
+import type { FeatureCount } from './accents';
 import { accuracy, learnFromReading, type LearnedCorrection } from './learn';
 
 export interface CalibrationCandidate {
@@ -24,6 +25,8 @@ export interface CalibrationRun {
   corrections: LearnedCorrection[];
   /** Accent patterns, from the recogniser in use (or the best one when it was not tried). */
   confusions: string[];
+  /** Per merge direction ("n→l"): chances in the reading and times heard merged (same recogniser). */
+  features: Record<string, FeatureCount>;
 }
 
 async function recognise(c: CalibrationCandidate, pcm: Int16Array, lang: LangCode, paceMs: number): Promise<string> {
@@ -78,11 +81,20 @@ export async function runCalibration(
   const best = working.length ? working.reduce((a, b) => (b.accuracy > a.accuracy ? b : a)).asr : null;
   const corrections: LearnedCorrection[] = [];
   let confusions: string[] = [];
+  const features: Record<string, FeatureCount> = {};
   const learnFrom = working.find((r) => r.asr === input.current) ?? working.find((r) => r.asr === best);
   for (const r of working) {
     const learned = input.sentences.map((s, i) => learnFromReading(s, r.texts[i] ?? '', base, input.terms));
     for (const l of learned) for (const c of l.corrections) if (!corrections.some((x) => x.heard === c.heard)) corrections.push(c);
-    if (r === learnFrom) confusions = learned.flatMap((l) => l.confusions);
+    if (r === learnFrom) {
+      confusions = learned.flatMap((l) => l.confusions);
+      for (const l of learned)
+        for (const [k, c] of Object.entries(l.features)) {
+          const t = (features[k] ??= { tested: 0, merged: 0 });
+          t.tested += c.tested;
+          t.merged += c.merged;
+        }
+    }
   }
-  return { results, best, corrections, confusions };
+  return { results, best, corrections, confusions, features };
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { newEntryId, type Glossary, type GlossaryEntry } from '@core/glossary/types';
-import { api, errMsg, useSettings } from '../api';
+import { api, errMsg, useLlmReady, useSettings } from '../api';
+import { AccentCalibrationCard, MyCorrectionsCard } from '../components/AccentCard';
 import { glossaryToCsv } from '@core/glossary/csv';
 import { lang } from '@core/lang/languages';
 import { Toggle } from '../components/ui';
@@ -30,6 +31,57 @@ function ListInput({ value, sep, label, onChange }: { value: string[]; sep: stri
         onChange(split(text));
       }}
     />
+  );
+}
+
+type WordsTab = 'terms' | 'fixes' | 'accent';
+const WORDS_TABS: [WordsTab, string][] = [
+  ['terms', '术语'],
+  ['fixes', '纠错'],
+  ['accent', '口音校准'],
+];
+
+/**
+ * 词库: everything the app learns or is told about words, in one place — terms (fixed
+ * translations, with what each is often heard as), corrections ("heard as → really"), and accent
+ * calibration. (Before 0.9 these were spread over the 术语表 page and two settings tabs.)
+ */
+export function WordsPage({ go }: { go?: (page: 'settings') => void }) {
+  const [s, update] = useSettings();
+  const llmReady = useLlmReady(s);
+  const [tab, setTab] = useState<WordsTab>(() => {
+    const asked = sessionStorage.getItem('words-tab') as WordsTab | null;
+    sessionStorage.removeItem('words-tab');
+    return asked && WORDS_TABS.some(([k]) => k === asked) ? asked : 'terms';
+  });
+  if (!s) return null;
+  const toKeys = () => {
+    sessionStorage.setItem('settings-tab', 'providers');
+    go?.('settings');
+  };
+  return (
+    <div>
+      <h1 className="page-title">词库</h1>
+      <div className="tabs" role="tablist" aria-label="词库">
+        {WORDS_TABS.map(([k, label]) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === 'terms' && <GlossaryPage />}
+      {tab === 'fixes' && (
+        <>
+          <div className="card">
+            <h3>按读音纠正</h3>
+            <Toggle checked={s.interpretation.pinyinFuzzy} onChange={(v) => void update({ interpretation: { pinyinFuzzy: v } })} label="听成读音相近的字时，改成术语表里的词" />
+            <div className="muted small" style={{ marginTop: 6 }}>会结合你的口音特点（口音校准和你的改正里学到的）。术语各自“常被听成”的写法在“术语”页里。</div>
+          </div>
+          <MyCorrectionsCard s={s} update={update} llmReady={llmReady ?? true} setTab={toKeys} />
+        </>
+      )}
+      {tab === 'accent' && <AccentCalibrationCard s={s} update={update} />}
+    </div>
   );
 }
 
@@ -137,7 +189,6 @@ export function GlossaryPage() {
 
   return (
     <div>
-      <h1 className="page-title">术语表</h1>
       <div className="row" style={{ marginBottom: 12 }}>
         <select value={selected} onChange={(e) => select(e.target.value)} aria-label="术语表">
           {list.map((g) => (

@@ -38,7 +38,7 @@ describe('learning from a reading (calibration)', () => {
   it('notes the accent pattern behind each mis-hearing', () => {
     const r = learnFromReading('南方市场的年轻客户', '蓝方市场的连轻客户', 'zh');
     expect(r.confusions).toEqual(['l-n', 'l-n']);
-    expect(confusionOf('fang', 'huang')).toBeNull(); // two components differ: not one simple pattern
+    expect(confusionOf('fang', 'huang')).toBe('f-hu'); // 方 / 荒: both parts differ, still one merge (0.9)
     expect(confusionOf('fa', 'ha')).toBe('f-h');
     expect(confusionOf('zhi', 'zi')).toBe('z-zh');
     expect(confusionOf('xin', 'xing')).toBe('in-ing');
@@ -109,7 +109,7 @@ describe('calibration script', () => {
     expect(s.join('')).toContain('星云平台');
     expect(s.join('')).toContain('量子计划');
     expect(s.join('')).not.toContain('Nébula');
-    expect(calibrationScript([]).length).toBe(4);
+    expect(calibrationScript([]).length).toBe(16);
   });
 });
 

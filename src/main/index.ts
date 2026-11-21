@@ -11,10 +11,11 @@ import { glossaryToCsv, parseGlossaryCsv } from '../core/glossary/csv';
 import type { Glossary } from '../core/glossary/types';
 import { baseOf, type LangBase } from '../core/lang/languages';
 import { findHits, hotwordsFor } from '../core/glossary/match';
-import { calibrationScript } from '../core/profile/calibration';
+import { calibrationScript, followUpScript } from '../core/profile/calibration';
+import { FEATURES, featureName, featureOfKey } from '../core/profile/accents';
 import { runCalibration } from '../core/profile/calibrate';
-import { learnFromEdit } from '../core/profile/learn';
-import { addCalibration, addCorrections, mergeProfiles, personalFor, profileHotwords, ProfileSchema, recordConfusions, removeCorrection, userPairs } from '../core/profile/profile';
+import { accentEvidence, learnFromEdit } from '../core/profile/learn';
+import { addCalibration, addCorrections, mergeProfiles, personalFor, profileHotwords, ProfileSchema, recordConfusions, removeCorrection, userPairs, weighFeatureEvidence } from '../core/profile/profile';
 import { reviewMeeting as reviewMeetingCore } from '../core/profile/review';
 import { createLogger, setLogSink, type Logger } from '../core/log';
 import { isAbortError } from '../core/events';
@@ -553,16 +554,17 @@ const handlers: Record<string, Handler> = {
   },
 
   'profile.get': () => profileView(),
-  'profile.script': () => calibrationScript(glossaries.active().map((e) => e.zh)),
-  'profile.calibrate': async (audio: Int16Array[]) => {
-    if (!Array.isArray(audio) || !audio.length || audio.length > 12) throw new Error('录音无效');
+  'profile.script': (followUp?: string[]) => (Array.isArray(followUp) && followUp.length ? followUpScript(followUp) : calibrationScript(glossaries.active().map((e) => e.zh))),
+  'profile.calibrate': async (audio: Int16Array[], followUp?: string[]) => {
+    if (!Array.isArray(audio) || !audio.length || audio.length > 24) throw new Error('录音无效');
     const pcm = audio.map((a) => (a instanceof Int16Array ? a : new Int16Array(a as ArrayLike<number>)));
     const total = pcm.reduce((n, a) => n + a.length, 0);
     if (total < 16000 * 3 || total > 16000 * 600) throw new Error('录音太短或太长，请重新校准');
     const s = settings.get();
     const terms = glossaries.active().map((e) => e.zh).filter(Boolean);
-    const sentences = calibrationScript(terms);
-    if (sentences.length !== pcm.length) throw new Error('术语表在校准时变了，请重新校准');
+    const second = Array.isArray(followUp) && followUp.length > 0;
+    const sentences = second ? followUpScript(followUp) : calibrationScript(terms);
+    if (sentences.length !== pcm.length) throw new Error(second ? '录音和句子数量不一致，请重新测一遍' : '术语表在校准时变了，请重新校准');
     const status = secrets.status();
     const zhLocalReady = modelsForLang('zh', s.local.esModel).every((m) => models.status(m) === 'ready');
     const ids = [
@@ -583,18 +585,28 @@ const handlers: Record<string, Handler> = {
       onProgress: (done, all) => broadcast('calibration-progress', { done, total: all }),
     });
     profileStore.update((p) =>
-      addCalibration(recordConfusions(addCorrections(p, run.corrections, 'zh', 'calibration'), run.confusions), {
+      addCalibration(weighFeatureEvidence(recordConfusions(addCorrections(p, run.corrections, 'zh', 'calibration'), run.confusions), run.features, featureOfKey), {
         at: Date.now(),
         lang: 'zh',
         results: run.results.map(({ asr, accuracy, ms, error }) => ({ asr, accuracy, ms, ...(error ? { error } : {}) })),
+        features: run.features,
       }),
     );
+    // Shown per direction, merged ones first; only directions the reading could show.
+    const order = FEATURES.flatMap((f) => f.dirs.map((d) => d.key));
+    const features = Object.entries(run.features)
+      .filter(([, c]) => c.tested > 0)
+      .map(([key, c]) => ({ key, id: featureOfKey(key) ?? key, name: featureName(featureOfKey(key) ?? key), ...c }))
+      .sort((a, b) => b.merged - a.merged || order.indexOf(a.key) - order.indexOf(b.key));
+    const showed = [...new Set(features.filter((f) => f.merged > 0).map((f) => f.id))];
     return {
       results: run.results.map(({ asr, name, accuracy, ms, error }) => ({ asr, name, accuracy, ms, ...(error ? { error } : {}) })),
       best: run.best,
       current: s.out.asr,
       learnedTerms: run.corrections,
       pairs: [...new Set(run.confusions)].filter((c) => run.confusions.filter((x) => x === c).length >= 2),
+      features,
+      followUp: second ? [] : showed,
       profile: profileView(),
     };
   },
@@ -870,6 +882,11 @@ async function editSegment(id: string, segId: string, srcText: string, opts: { l
     log.warn('could not rewrite transcript files', err instanceof Error ? err.message : String(err));
   }
   if (learned.length) profileStore.update((p) => addCorrections(p, learned, base, 'edit'));
+  // The accent features the correction shows (n→l, hu→f…), learned from everyday use.
+  if (opts.learn !== false && base === 'zh') {
+    const seen = accentEvidence(seg.srcText, text);
+    if (seen.length) profileStore.update((p) => recordConfusions(p, seen));
+  }
   return { segment, learned };
 }
 
@@ -915,7 +932,10 @@ async function reviewMeeting(id: string): Promise<StoredReview> {
   for (const sg of review.suggestions) {
     const seg = meetings.get(id)?.segments.find((s) => s.id === sg.segId);
     if (!seg || !seg.srcText.includes(sg.heard)) continue;
-    profileStore.update((p) => addCorrections(p, [{ heard: sg.heard, meant: sg.meant }], baseOf(seg.srcLang), 'review'));
+    profileStore.update((p) => {
+      const q = addCorrections(p, [{ heard: sg.heard, meant: sg.meant }], baseOf(seg.srcLang), 'review');
+      return baseOf(seg.srcLang) === 'zh' ? recordConfusions(q, accentEvidence(sg.heard, sg.meant)) : q;
+    });
     // Only the place the review pointed at (the first occurrence), and remembered for an exact undo.
     sg.before = seg.srcText;
     sg.after = seg.srcText.replace(sg.heard, sg.meant);

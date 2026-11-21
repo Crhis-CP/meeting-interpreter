@@ -9,7 +9,7 @@ test('术语表: aliases are typed key by key — separators and multi-word Span
   const { app, dataDir } = await launchApp();
   const win = await mainWindow(app);
   await win.waitForLoadState('domcontentloaded');
-  await win.getByRole('navigation').getByRole('button', { name: '术语表', exact: true }).click();
+  await win.getByRole('navigation').getByRole('button', { name: '词库', exact: true }).click();
   await win.getByRole('button', { name: '+ 添加术语' }).click();
   await win.getByLabel('中文', { exact: true }).last().fill('报价单');
   await win.getByLabel('Español', { exact: true }).last().fill('cotización');
@@ -32,7 +32,7 @@ test('术语表: edits are kept when leaving the page without pressing 保存', 
   const win = await mainWindow(app);
   await win.waitForLoadState('domcontentloaded');
   const nav = (name: string) => win.getByRole('navigation').getByRole('button', { name, exact: true });
-  await nav('术语表').click();
+  await nav('词库').click();
   await win.getByRole('button', { name: '+ 添加术语' }).click();
   await win.getByLabel('中文', { exact: true }).last().fill('交货期');
   await win.getByLabel('Español', { exact: true }).last().fill('plazo de entrega');
@@ -40,7 +40,7 @@ test('术语表: edits are kept when leaving the page without pressing 保存', 
   await expect
     .poll(() => readFileSync(join(dataDir, 'glossaries.json'), 'utf8').includes('plazo de entrega'))
     .toBe(true);
-  await nav('术语表').click();
+  await nav('词库').click();
   await expect(win.getByLabel('Español', { exact: true }).last()).toHaveValue('plazo de entrega');
   await app.close();
 });

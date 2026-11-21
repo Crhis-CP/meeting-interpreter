@@ -2,10 +2,12 @@
  * Comparing what was said with what was recognised: accuracy, accent patterns, and the personal
  * corrections worth keeping ("how the recogniser hears me" → "what I meant").
  */
-import { accentPairOf, confusionOf, similarSyllable, syllables } from '../glossary/correct';
-
-export { confusionOf };
+import { similarSyllable, syllables } from '../glossary/correct';
 import type { LangBase } from '../lang/languages';
+import { asSpoken, contextSyllables, featureCounts, relatedBy, type FeatureCount } from './accents';
+
+/** The accent feature relating two syllables ("l-n", "f-hu", …), or null. */
+export const confusionOf = relatedBy;
 
 export interface LearnedCorrection {
   heard: string;
@@ -57,11 +59,11 @@ export function alignTokens(ref: string[], hyp: string[]): AlignOp[] {
   return ops.reverse();
 }
 
-/** 1 − token error rate (characters for Chinese, words otherwise), clamped to 0…1. */
+/** 1 − token error rate (characters for Chinese, words otherwise), clamped to 0…1. Chinese numbers count however they are written (四十万 = 40万). */
 export function accuracy(reference: string, recognised: string, base: LangBase = 'zh'): number {
-  const ref = tokens(reference, base);
+  const ref = tokens(base === 'zh' ? asSpoken(reference) : reference, base);
   if (!ref.length) return 0;
-  const errors = alignTokens(ref, tokens(recognised, base)).filter((o) => o.op !== 'eq').length;
+  const errors = alignTokens(ref, tokens(base === 'zh' ? asSpoken(recognised) : recognised, base)).filter((o) => o.op !== 'eq').length;
   return Math.max(0, 1 - errors / ref.length);
 }
 
@@ -85,16 +87,27 @@ function termRanges(ref: string[], terms: string[], base: LangBase): { start: nu
  *   Everyday words are never turned into rules: one person's 你好 heard for 您好 must not rewrite
  *   everybody's 你好.
  */
-export function learnFromReading(reference: string, recognised: string, base: LangBase, terms: string[] = []): { corrections: LearnedCorrection[]; confusions: string[] } {
-  const ref = tokens(reference, base);
-  const ops = alignTokens(ref, tokens(recognised, base));
+export function learnFromReading(
+  reference: string,
+  recognised: string,
+  base: LangBase,
+  terms: string[] = [],
+): { corrections: LearnedCorrection[]; confusions: string[]; features: Record<string, FeatureCount> } {
+  const ref = tokens(base === 'zh' ? asSpoken(reference) : reference, base);
+  const hyp = tokens(base === 'zh' ? asSpoken(recognised) : recognised, base);
+  const ops = alignTokens(ref, hyp);
   const confusions: string[] = [];
+  let features: Record<string, FeatureCount> = {};
   if (base === 'zh') {
+    // Characters read in context (多音字: 银行 hang, 行走 xing), on both sides.
+    const said = contextSyllables(ref);
+    const heard = contextSyllables(hyp);
     for (const o of ops) {
       if (o.op !== 'sub' || !HAN.test(o.r) || !HAN.test(o.h)) continue;
-      const c = accentPairOf(syllables(o.h)[0] ?? '', syllables(o.r)[0] ?? '');
+      const c = relatedBy(heard[o.hi] ?? '', said[o.ri] ?? '');
       if (c) confusions.push(c);
     }
+    features = featureCounts(ref, ops, hyp);
   }
   const corrections: LearnedCorrection[] = [];
   const termOf = new Map<string, string>(terms.map((t) => [join(tokens(t, base), base), t]));
@@ -108,7 +121,16 @@ export function learnFromReading(reference: string, recognised: string, base: La
     const meant = termOf.get(join(ref.slice(r.start, r.end), base)) ?? r.term;
     if (h && h !== join(tokens(meant, base), base) && heard.length <= 2 * (r.end - r.start) && !corrections.some((c) => c.heard === h)) corrections.push({ heard: h, meant });
   }
-  return { corrections, confusions };
+  return { corrections, confusions, features };
+}
+
+/**
+ * The accent features behind a correction of Chinese ("what the recogniser wrote" → "what was
+ * said"): each mis-heard character that differs from the right one by a known merge. Counted into
+ * the profile, so features show up from everyday use too, without any calibration.
+ */
+export function accentEvidence(heard: string, meant: string): string[] {
+  return learnFromReading(meant, heard, 'zh').confusions;
 }
 
 function editDistance(a: string, b: string): number {
@@ -123,7 +145,7 @@ export function soundsAlike(heard: string[], meant: string[], base: LangBase): b
     if (heard.length !== meant.length || !heard.every((c) => HAN.test(c)) || !meant.every((c) => HAN.test(c))) return false;
     const ph = syllables(heard.join(''));
     const pm = syllables(meant.join(''));
-    return ph.every((s, k) => similarSyllable(s, pm[k] ?? '') || accentPairOf(s, pm[k] ?? '') !== null);
+    return ph.every((s, k) => similarSyllable(s, pm[k] ?? '') || relatedBy(s, pm[k] ?? '') !== null);
   }
   const h = fold(heard.join(' '));
   const m = fold(meant.join(' '));

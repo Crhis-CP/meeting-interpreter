@@ -5,22 +5,17 @@ import { api, errMsg, useEvent } from '../api';
 import { Toggle } from './ui';
 import { startRecording, type Recording } from '../../../browser/recorder';
 
-/** Friendly names for accent patterns. */
-const PAIR_NAMES: Record<string, string> = {
-  'l-n': 'n / l（如“南”“兰”）',
-  'f-h': 'f / h（如“发”“花”）',
-  'z-zh': 'z / zh（如“资”“知”）',
-  'c-ch': 'c / ch（如“采”“柴”）',
-  's-sh': 's / sh（如“四”“是”）',
-  'l-r': 'r / l（如“日”“力”）',
-  'in-ing': 'in / ing（如“新”“星”）',
-  'en-eng': 'en / eng（如“分”“风”）',
-  'an-ang': 'an / ang（如“班”“帮”）',
-};
-const pairName = (p: string) => PAIR_NAMES[p] ?? p.replace('-', ' / ');
+import { featureName as pairName } from '@core/profile/accents';
+
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const LANG_NAMES = { zh: '中文', es: '西语', en: '英语' } as const;
 const SOURCE_NAMES = { calibration: '校准', edit: '我改的', review: '会后检查', manual: '手动添加' } as const;
+
+/**
+ * A calibration left half-way (another page, 取消): picked up where it stopped next time, as long
+ * as the app stays open.
+ */
+let unfinished: { script: string[]; audio: Int16Array[]; i: number; followUp: string[] } | null = null;
 
 type Step = { kind: 'idle' } | { kind: 'reading'; i: number; recording: Recording | null } | { kind: 'analysing'; done: number; total: number } | { kind: 'done'; outcome: CalibrationOutcome };
 
@@ -31,9 +26,22 @@ export function AccentCalibrationCard({ s, update }: { s: AppSettings; update: (
   const [error, setError] = useState('');
   const [level, setLevel] = useState(0);
   const audio = useRef<Int16Array[]>([]);
+  const followUp = useRef<string[]>([]);
+  const [resumable, setResumable] = useState(!!unfinished);
   /** The microphone in use: released when the card goes away (another page) or a new sentence starts. */
   const rec = useRef<Recording | null>(null);
-  useEffect(() => () => rec.current?.cancel(), []);
+  const scriptRef = useRef<string[]>([]);
+  scriptRef.current = script;
+  const stepRef = useRef(step);
+  stepRef.current = step;
+  useEffect(
+    () => () => {
+      rec.current?.cancel();
+      const st = stepRef.current;
+      if (st.kind === 'reading') unfinished = { script: scriptRef.current, audio: audio.current, i: st.i, followUp: followUp.current };
+    },
+    [],
+  );
   useEvent('calibration-progress', (p) => setStep((st) => (st.kind === 'analysing' ? { kind: 'analysing', ...p } : st)));
   useEffect(() => {
     if (step.kind !== 'reading' || !step.recording) return;
@@ -41,12 +49,25 @@ export function AccentCalibrationCard({ s, update }: { s: AppSettings; update: (
     return () => clearInterval(t);
   }, [step]);
 
-  const begin = async () => {
+  const begin = async (features: string[] = []) => {
     setError('');
-    const sc = await api.profile.script();
+    unfinished = null;
+    setResumable(false);
+    followUp.current = features;
+    const sc = await api.profile.script(features.length ? features : undefined);
     setScript(sc);
     audio.current = [];
     setStep({ kind: 'reading', i: 0, recording: null });
+  };
+  const resume = () => {
+    if (!unfinished) return;
+    const u = unfinished;
+    unfinished = null;
+    setResumable(false);
+    followUp.current = u.followUp;
+    setScript(u.script);
+    audio.current = u.audio;
+    setStep({ kind: 'reading', i: u.i, recording: null });
   };
   const record = async (i: number) => {
     setError('');
@@ -72,14 +93,19 @@ export function AccentCalibrationCard({ s, update }: { s: AppSettings; update: (
     if (step.i + 1 < script.length) return record(step.i + 1);
     setStep({ kind: 'analysing', done: 0, total: 1 });
     try {
-      setStep({ kind: 'done', outcome: await api.profile.calibrate(audio.current) });
+      setStep({ kind: 'done', outcome: await api.profile.calibrate(audio.current, followUp.current.length ? followUp.current : undefined) });
     } catch (err) {
       setError(errMsg(err));
       setStep({ kind: 'idle' });
     }
   };
   const cancel = () => {
-    if (step.kind === 'reading') step.recording?.cancel();
+    if (step.kind === 'reading') {
+      step.recording?.cancel();
+      // Kept: 继续 picks up at this sentence.
+      unfinished = { script, audio: audio.current, i: step.i, followUp: followUp.current };
+      setResumable(true);
+    }
     setStep({ kind: 'idle' });
   };
 
@@ -88,7 +114,14 @@ export function AccentCalibrationCard({ s, update }: { s: AppSettings; update: (
       <h3>口音校准</h3>
       {step.kind === 'idle' && (
         <div className="row">
-          <button data-test="flow" className="btn primary" onClick={() => void begin()}>开始校准（1 分钟）</button>
+          {resumable ? (
+            <>
+              <button data-test="flow" className="btn primary" onClick={resume}>继续校准（从第 {(unfinished?.i ?? 0) + 1} 句）</button>
+              <button data-test="flow" className="btn" onClick={() => void begin()}>重新开始</button>
+            </>
+          ) : (
+            <button data-test="flow" className="btn primary" onClick={() => void begin()}>开始校准（约 2 分钟）</button>
+          )}
         </div>
       )}
       {step.kind === 'reading' && (
@@ -109,13 +142,14 @@ export function AccentCalibrationCard({ s, update }: { s: AppSettings; update: (
         </div>
       )}
       {step.kind === 'analysing' && <div className="muted" role="status">正在分析… {step.total > 1 ? `${step.done} / ${step.total}` : ''}</div>}
-      {step.kind === 'done' && <CalibrationResult outcome={step.outcome} s={s} update={update} again={() => void begin()} />}
+      {step.kind === 'done' && <CalibrationResult outcome={step.outcome} s={s} update={update} again={() => void begin()} more={(f) => void begin(f)} />}
       {error && <div className="callout err" role="alert" style={{ marginTop: 10 }}>{error}</div>}
     </div>
   );
 }
 
-function CalibrationResult({ outcome, s, update, again }: { outcome: CalibrationOutcome; s: AppSettings; update: (patch: object) => Promise<unknown>; again: () => void }) {
+function CalibrationResult({ outcome, s, update, again, more }: { outcome: CalibrationOutcome; s: AppSettings; update: (patch: object) => Promise<unknown>; again: () => void; more: (features: string[]) => void }) {
+  const merged = outcome.features.filter((f) => f.merged > 0);
   const cur = outcome.results.find((r) => r.asr === outcome.current && !r.error);
   const best = outcome.results.find((r) => r.asr === outcome.best);
   const better = best && best.asr !== outcome.current && (!cur || best.accuracy - cur.accuracy >= 0.03);
@@ -142,12 +176,29 @@ function CalibrationResult({ outcome, s, update, again }: { outcome: Calibration
           </button>
         </div>
       )}
+      {merged.length > 0 && (
+        <div>
+          <div>这次听错的读音：</div>
+          <ul style={{ margin: '4px 0 0 18px' }} data-testid="calibration-features">
+            {merged.map((f) => (
+              <li key={f.key}>
+                {f.key.replace('→', ' 听成 ')}：{f.tested} 次里 {f.merged} 次 <span className="muted small">{pairName(f.id)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {outcome.pairs.length > 0 && <div>你的口音特点：{[...new Set(outcome.pairs)].map(pairName).join('、')}</div>}
       {outcome.learnedTerms.length > 0 && (
         <div>记住了：{outcome.learnedTerms.map((c) => `“${c.heard}”→“${c.meant}”`).join('，')}</div>
       )}
-      {!outcome.pairs.length && !outcome.learnedTerms.length && <div className="muted">没有明显的误听</div>}
+      {!merged.length && !outcome.pairs.length && !outcome.learnedTerms.length && <div className="muted">没有明显的误听</div>}
       <div className="row">
+        {outcome.followUp.length > 0 && (
+          <button data-test="flow" className="btn primary" onClick={() => more(outcome.followUp)}>
+            只测这几项再确认一下（{outcome.followUp.length * 2} 句）
+          </button>
+        )}
         <button className="btn" onClick={again}>重新校准</button>
       </div>
     </div>
@@ -180,7 +231,7 @@ export function MyCorrectionsCard({ s, update, llmReady = true, setTab }: { s: A
   if (!p) return null;
   return (
     <div className="card">
-      <h3>我的纠错词表</h3>
+      <h3>听成 → 其实是</h3>
       <Toggle checked={s.interpretation.autoReview} onChange={(v) => void update({ interpretation: { autoReview: v } })} label="会后自动学习" />
       {s.interpretation.autoReview && !llmReady && (
         <div className="callout warn row between" style={{ marginTop: 8 }}>

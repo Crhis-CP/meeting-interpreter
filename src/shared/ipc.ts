@@ -103,6 +103,10 @@ export interface CalibrationOutcome {
   current: string;
   learnedTerms: { heard: string; meant: string }[];
   pairs: string[];
+  /** Per merge direction, what the reading showed ("n→l": heard merged 4 of 5 times). */
+  features: { key: string; id: string; name: string; tested: number; merged: number }[];
+  /** Features worth a short second round (they showed at least once); empty after the second round. */
+  followUp: string[];
   profile: ProfileView;
 }
 
@@ -214,8 +218,9 @@ export interface RendererApi {
   /** The personal voice profile (accent calibration and learned corrections), kept in a local file. */
   profile: {
     get(): Promise<ProfileView>;
-    script(): Promise<string[]>;
-    calibrate(audio: Int16Array[]): Promise<CalibrationOutcome>;
+    /** `followUp`: the second round, for these features only. */
+    script(followUp?: string[]): Promise<string[]>;
+    calibrate(audio: Int16Array[], followUp?: string[]): Promise<CalibrationOutcome>;
     addCorrection(lang: 'zh' | 'es' | 'en', heard: string, meant: string): Promise<ProfileView>;
     removeCorrection(lang: 'zh' | 'es' | 'en', heard: string): Promise<ProfileView>;
     exportFile(): Promise<boolean>;

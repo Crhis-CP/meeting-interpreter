@@ -18,7 +18,7 @@ test.afterEach(async ({}, info) => attachAppLogs(info));
  */
 const SKIP = new Set(['flow', 'network', 'destructive', 'admin']);
 const CONSEQUENTIAL = /下载|安装|卸载|删除|清除|移除|生成|开始同传|开启房间|结束会议|关闭房间|校准|开始录音|测试一下|预设|方案/;
-const PAGES = ['会议同传', '现场房间', '会议记录', '术语表', '使用指南', '设置'];
+const PAGES = ['会议同传', '现场房间', '会议记录', '词库', '使用指南', '设置'];
 
 async function stubNativeSide(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ dialog, shell }) => {
@@ -51,12 +51,12 @@ async function exercise(win: Page, where: string, reopen: () => Promise<void>): 
       const key = `${tag}:${role}:${name}`;
       if (done.has(key)) continue;
       done.add(key);
+      if (role === 'tab') continue; // the tabs are walked by the caller (a tab only shows a page)
       const kind = (await el.getAttribute('data-test')) ?? (await el.evaluate((e) => e.closest('[data-test]')?.getAttribute('data-test') ?? null));
       // A switch only changes a setting; buttons with consequential labels must say what they do.
       const consequential = !isSwitch && CONSEQUENTIAL.test(name);
       if (!kind && consequential) untagged.push(`${where}: ${name}`);
       if ((kind && SKIP.has(kind)) || (!kind && consequential) || (await (isSwitch ? box : el).isDisabled())) continue;
-      if (role === 'tab') continue; // the tabs are walked by the caller
       if (tag === 'select') {
         const values = await el.evaluate((e) => Array.from((e as unknown as { options: ArrayLike<{ value: string }> }).options, (o) => o.value));
         const before = await el.inputValue();
@@ -102,7 +102,8 @@ test('按钮全测: every button, switch and select works and keeps its state', 
   for (const page of PAGES) {
     const nav = win.getByRole('navigation').getByRole('button', { name: page, exact: true });
     await nav.click();
-    if (page !== '设置') {
+    // Pages with tabs (设置, 词库): every tab is walked.
+    if (page !== '设置' && page !== '词库') {
       untagged.push(...(await exercise(win, page, () => nav.click())));
       continue;
     }
@@ -116,7 +117,7 @@ test('按钮全测: every button, switch and select works and keeps its state', 
         await win.getByRole('tab', { name: tabName, exact: true }).click();
       };
       await openTab();
-      untagged.push(...(await exercise(win, `设置 › ${tabName}`, openTab)));
+      untagged.push(...(await exercise(win, `${page} › ${tabName}`, openTab)));
     }
   }
   expect(untagged, 'buttons with consequences need data-test="flow|network|destructive|admin" (or "safe")').toEqual([]);

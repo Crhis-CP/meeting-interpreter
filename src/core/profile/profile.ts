@@ -25,6 +25,8 @@ export const CalibrationResultSchema = z.object({
   lang: Lang,
   /** Accuracy (0…1) and time per recogniser that was tried. */
   results: z.array(z.object({ asr: z.string(), accuracy: z.number(), ms: z.number(), error: z.string().optional() })),
+  /** Per merge direction ("n→l"): chances in the reading and times heard merged (0.9). */
+  features: z.record(z.string(), z.object({ tested: z.number().int().min(0), merged: z.number().int().min(0) })).optional(),
 });
 export type CalibrationResult = z.infer<typeof CalibrationResultSchema>;
 
@@ -87,6 +89,32 @@ export function recordConfusions(p: VoiceProfile, seen: string[], now = Date.now
   const confusions = { ...p.confusions };
   for (const c of seen) confusions[c] = (confusions[c] ?? 0) + 1;
   return { ...p, confusions, updatedAt: now };
+}
+
+/**
+ * What a calibration showed the user does NOT do weighs too: a feature tested at least three
+ * times without a single merge loses half its count, so an old result (or a one-off mis-hearing)
+ * fades instead of loosening the matching for good.
+ */
+export function weighFeatureEvidence(p: VoiceProfile, features: Record<string, { tested: number; merged: number }>, idOf: (key: string) => string | null, now = Date.now()): VoiceProfile {
+  const byId = new Map<string, { tested: number; merged: number }>();
+  for (const [k, c] of Object.entries(features)) {
+    const id = idOf(k);
+    if (!id) continue;
+    const t = byId.get(id) ?? { tested: 0, merged: 0 };
+    byId.set(id, { tested: t.tested + c.tested, merged: t.merged + c.merged });
+  }
+  const confusions = { ...p.confusions };
+  let changed = false;
+  for (const [id, c] of byId) {
+    if (c.tested >= 3 && c.merged === 0 && confusions[id]) {
+      const n = Math.floor(confusions[id]! / 2);
+      if (n) confusions[id] = n;
+      else delete confusions[id];
+      changed = true;
+    }
+  }
+  return changed ? { ...p, confusions, updatedAt: now } : p;
 }
 
 export function addCalibration(p: VoiceProfile, r: CalibrationResult): VoiceProfile {

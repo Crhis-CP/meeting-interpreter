@@ -1,5 +1,6 @@
 import { pinyin } from 'pinyin-pro';
 import { isLatin, type LangBase } from '../lang/languages';
+import { relatedBy, split } from '../profile/accents';
 import { foldLatin } from './match';
 import { aliasesOf, termOf, type GlossaryEntry } from './types';
 
@@ -19,34 +20,15 @@ export function syllables(text: string): string[] {
   return pinyin(text, { toneType: 'none', type: 'array', nonZh: 'consecutive' }) as string[];
 }
 
-const INITIALS = ['zh', 'ch', 'sh', 'b', 'p', 'm', 'f', 'd', 't', 'n', 'l', 'g', 'k', 'h', 'j', 'q', 'x', 'r', 'z', 'c', 's', 'y', 'w'];
-
 /** A toneless syllable as [initial, final] ("zhang" → ["zh", "ang"], "an" → ["", "an"]). */
-export function splitSyllable(s: string): [string, string] {
-  const i = INITIALS.find((x) => s.startsWith(x) && s.length > x.length) ?? '';
-  return [i, s.slice(i.length)];
-}
+export const splitSyllable = split;
 
 /**
- * The single accent pattern that turns one syllable into the other, e.g. "l-n" (nan → lan),
- * "f-h", "z-zh", "in-ing"; null when they are equal or differ in both initial and final.
+ * The accent feature that turns one syllable into the other ("l-n" for nan / lan, "f-hu" for
+ * fa / hua, "r-y" for ren / yin…), or null (docs/accents.md).
  */
-export function confusionOf(a: string, b: string): string | null {
-  if (!a || !b || a === b) return null;
-  const [ia, fa] = splitSyllable(a);
-  const [ib, fb] = splitSyllable(b);
-  if (ia !== ib && fa === fb && ia && ib) return [ia, ib].sort().join('-');
-  if (fa !== fb && ia === ib && fa && fb) return [fa, fb].sort().join('-');
-  return null;
-}
-
-/** Sound pairs that Chinese regional accents really merge (anything else is noise, not an accent). */
-export const ACCENT_PAIRS: ReadonlySet<string> = new Set(['l-n', 'f-h', 'z-zh', 'c-ch', 's-sh', 'l-r', 'in-ing', 'en-eng', 'an-ang', 'ian-iang', 'uan-uang', 'eng-ong']);
-
-/** `confusionOf`, but only for real accent pairs. */
 export function accentPairOf(a: string, b: string): string | null {
-  const c = confusionOf(a, b);
-  return c && ACCENT_PAIRS.has(c) ? c : null;
+  return relatedBy(a, b);
 }
 
 /**
@@ -56,7 +38,7 @@ export function accentPairOf(a: string, b: string): string | null {
 export function similarSyllable(a: string, b: string, extra?: ReadonlySet<string>): boolean {
   if (a === b) return true;
   if (extra?.size) {
-    const c = confusionOf(a, b);
+    const c = relatedBy(a, b);
     if (c && extra.has(c)) return true;
   }
   const norm = (s: string) =>
@@ -101,8 +83,11 @@ function isNameLike(term: string): boolean {
 /**
  * Applies glossary corrections to recognised text:
  * 1. exact alias replacement (known mis-recognitions → canonical term);
- * 2. optionally, for Chinese, pinyin-fuzzy replacement of Han runs that sound like a term
- *    (terms of 2+ characters; at most one syllable may differ for 2–3 character terms, two for 4+).
+ * 2. optionally, for Chinese, pinyin-fuzzy replacement of Han runs that sound like a term (terms
+ *    of 2+ characters): every syllable must sound alike — the same, a common merge, or one of this
+ *    user's accent features — with at least one identical character; a term of 4+ characters may
+ *    have one syllable that does not, when all its other characters are identical. (Before 0.9 a
+ *    3-character term replaced any word sharing two characters: 销售数据 became 销售额据.)
  */
 export function correctText(text: string, base: LangBase, entries: GlossaryEntry[], opts: { pinyinFuzzy: boolean; extraPairs?: readonly string[] }): Correction {
   const extra = opts.extraPairs?.length ? new Set(opts.extraPairs) : undefined;
@@ -136,7 +121,7 @@ export function correctText(text: string, base: LangBase, entries: GlossaryEntry
       if (out.includes(e.zh)) continue;
       const termPy = syllables(e.zh);
       const n = e.zh.length;
-      const allowed = n >= 4 ? 2 : 1;
+      const allowed = n >= 4 ? 1 : 0;
       const chars = [...out];
       for (let i = 0; i + n <= chars.length; i++) {
         const window = chars.slice(i, i + n);
@@ -150,7 +135,7 @@ export function correctText(text: string, base: LangBase, entries: GlossaryEntry
           if (!similarSyllable(py[k] ?? '', termPy[k] ?? '', extra)) diff++;
         }
         // Require at least one identical character so unrelated homophones are left alone.
-        if (diff <= allowed && diff < n && exactChars >= 1 && (diff === 0 || exactChars >= n - allowed)) {
+        if (diff <= allowed && exactChars >= 1 && (diff === 0 || exactChars >= n - 1)) {
           chars.splice(i, n, ...e.zh);
           edits.push({ from: candidate, to: e.zh });
           i += n - 1;
