@@ -253,6 +253,34 @@ test('extension: a meeting that asks for the mic before any click keeps its real
   await context.close();
 });
 
+test('extension free tier without the desktop app: the popup says so and waits; once the app runs, it can start', async () => {
+  const { context, extId, ext } = await launch();
+  await ext.evaluate(() =>
+    chrome.storage.local.set({
+      settings: { providers: 'custom', remote: 'es-MX', out: { asr: 'local', mt: 'demo', tts: 'system', voice: '' }, in: { asr: 'local', mt: 'demo', tts: 'none', voice: '' } },
+    }),
+  );
+  await ext.goto(`chrome-extension://${extId}/popup.html`);
+  await expect(ext.getByText(/免费方案需要电脑版正在运行/)).toBeVisible({ timeout: 10_000 });
+  await expect(ext.getByRole('button', { name: '开始同传' })).toBeDisabled();
+  // Still there after the popup redraws (it redraws on every state change).
+  await ext.evaluate(() => chrome.storage.session.set({ poke: Date.now() }));
+  await expect(ext.getByText(/免费方案需要电脑版正在运行/)).toBeVisible();
+  const bridge = new DesktopBridge({
+    version: 'test', log: createLogger('bridge'), enabled: () => true, modelsReady: () => true, ensureModels: async () => undefined,
+    asr: () => ({ id: 'fake', start: async () => { throw new Error('not used'); } }),
+    tts: () => ({ id: 'fake', voices: () => [], async *synthesize() {} }),
+  });
+  await bridge.start();
+  try {
+    await expect(ext.getByText(/免费方案需要电脑版正在运行/)).toHaveCount(0, { timeout: 10_000 });
+    await expect(ext.getByRole('button', { name: '开始同传' })).toBeEnabled();
+  } finally {
+    await bridge.stop();
+    await context.close();
+  }
+});
+
 test('extension free tier: recognition and voice come from the desktop app', async () => {
   // A stand-in for the desktop app: "recognises" a fixed sentence once it has heard 1 s of audio
   // and speaks with a 250 Hz tone.

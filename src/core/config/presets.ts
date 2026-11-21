@@ -12,6 +12,10 @@ export interface ProviderPreset {
   quality: 1 | 2 | 3;
   /** Credentials the user must enter. */
   needs: SecretName[];
+  /** What a plan card says, so the choice is an informed one: how accurate, what the other side hears, what it takes. */
+  card?: { accuracy: string; voice: string; takes: string };
+  /** Not a plan (the demo): kept out of the plan lists, offered as a link instead. */
+  hidden?: boolean;
   out: Omit<DirectionConfig, 'enabled' | 'voice'>;
   in: Omit<DirectionConfig, 'enabled' | 'voice'>;
   llmPreset: string;
@@ -25,6 +29,8 @@ export const PRESETS: ProviderPreset[] = [
     cost: '0 元 · 不用 Key',
     quality: 2,
     needs: [],
+    // (The download size is checked against the models in tests/core/presets.test.ts.)
+    card: { accuracy: '翻译和云端大模型相当；西语识别错词约 3%', voice: '电脑自带的声音', takes: '第一次下载约 2.2 GB，下完才能开会；之后不联网也能用' },
     out: { asr: 'local', mt: 'local-ai', tts: 'system' },
     in: { asr: 'local', mt: 'local-ai', tts: 'system' },
     llmPreset: 'zhipu-free',
@@ -36,6 +42,7 @@ export const PRESETS: ProviderPreset[] = [
     cost: '约 2–4 元/小时（双向），新用户有免费额度',
     quality: 3,
     needs: ['dashscope'],
+    card: { accuracy: '最好：云端识别和翻译', voice: '自然人声', takes: '一个阿里云 Key（1 分钟拿到）；约 2–4 元/小时，新用户有免费额度' },
     out: { asr: 'dashscope', mt: 'qwen-mt', tts: 'dashscope' },
     in: { asr: 'dashscope', mt: 'qwen-mt', tts: 'dashscope' },
     llmPreset: 'qwen',
@@ -47,6 +54,7 @@ export const PRESETS: ProviderPreset[] = [
     cost: '免费层够轻度使用，超出按量付费',
     quality: 3,
     needs: ['azure', 'azureTranslator'],
+    card: { accuracy: '很好：云端识别和翻译', voice: '自然人声（有阿根廷口音）', takes: '两个 Azure Key；双向同传要按量付费的标准层 S0' },
     out: { asr: 'azure', mt: 'azure-translator', tts: 'azure' },
     in: { asr: 'azure', mt: 'azure-translator', tts: 'azure' },
     llmPreset: 'zhipu-free',
@@ -58,11 +66,15 @@ export const PRESETS: ProviderPreset[] = [
     cost: '只演示，不真正翻译',
     quality: 1,
     needs: [],
+    hidden: true,
     out: { asr: 'demo', mt: 'demo', tts: 'demo' },
     in: { asr: 'demo', mt: 'demo', tts: 'demo' },
     llmPreset: 'qwen',
   },
 ];
+
+/** The real plans, for the plan lists (the demo is offered separately). */
+export const PLANS = (): ProviderPreset[] => PRESETS.filter((p) => !p.hidden);
 
 export function preset(id: string): ProviderPreset | undefined {
   return PRESETS.find((p) => p.id === id);

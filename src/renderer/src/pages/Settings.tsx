@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AppSettings, SecretName } from '@core/config/schema';
-import { PRESETS } from '@core/config/presets';
+import { PLANS } from '@core/config/presets';
 import { accentsOf, lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import { LLM_PRESETS, llmPreset } from '@core/providers/openai-compatible';
 import type { VoiceInfo } from '@core/providers/types';
@@ -322,15 +322,27 @@ function ProvidersTab({ s, update, go }: TabProps) {
       <div className="card">
         <h3>选择方案</h3>
         <div className="grid2">
-          {PRESETS.map((p) => (
+          {PLANS().map((p) => (
             <button key={p.id} data-test={p.id === 'free' ? 'network' : 'safe'} className={`preset ${s.preset === p.id ? 'active' : ''}`} onClick={() => void api.settings.applyPreset(p.id)}>
               <h4>
                 {p.name} {s.preset === p.id && <span className="badge ok">当前</span>}
               </h4>
-              <p>{p.cost}</p>
+              {p.card && (
+                <dl className="plan-facts small">
+                  <dt>准确</dt>
+                  <dd>{p.card.accuracy}</dd>
+                  <dt>声音</dt>
+                  <dd>{p.card.voice}</dd>
+                  <dt>需要</dt>
+                  <dd>{p.card.takes}</dd>
+                </dl>
+              )}
             </button>
           ))}
         </div>
+        <button data-test="safe" className="btn sm ghost" style={{ marginTop: 8 }} onClick={() => void api.settings.applyPreset('demo')} disabled={s.preset === 'demo'}>
+          {s.preset === 'demo' ? '正在用演示模式（不真正翻译）' : '演示模式（不真正翻译）'}
+        </button>
       </div>
 
       {(uses('dashscope') || uses('qwen-mt') || s.llm.preset === 'qwen') && (

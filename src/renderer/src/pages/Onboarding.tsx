@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import logoUrl from '../assets/logo.png';
-import { PRESETS, type PresetId } from '@core/config/presets';
+import { PLANS, PRESETS, type PresetId } from '@core/config/presets';
 import { lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import type { SecretName } from '@core/config/schema';
 import { api, useDevices, useSettings } from '../api';
@@ -36,6 +36,11 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const finishPlan = async () => {
     await api.settings.applyPreset(choice);
     setStep(p.needs.length ? 1 : 2);
+  };
+  const startDemo = async () => {
+    await api.settings.applyPreset('demo');
+    await update({ onboarded: true });
+    onDone();
   };
   const storeKeys = async () => {
     for (const [k, v] of Object.entries(keys)) if (v?.trim()) await api.secrets.set(k as SecretName, v.trim());
@@ -89,14 +94,27 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           </div>
           <h3>翻译方案</h3>
           <div className="grid2">
-            {PRESETS.map((x) => (
+            {PLANS().map((x) => (
               <button key={x.id} className={`preset ${choice === x.id ? 'active' : ''}`} onClick={() => setChoice(x.id)}>
                 <h4>{x.name}</h4>
-                <p className="muted small">{x.cost}</p>
+                {x.card && (
+                  <dl className="plan-facts small">
+                    <dt>准确</dt>
+                    <dd>{x.card.accuracy}</dd>
+                    <dt>声音</dt>
+                    <dd>{x.card.voice}</dd>
+                    <dt>需要</dt>
+                    <dd>{x.card.takes}</dd>
+                  </dl>
+                )}
               </button>
             ))}
           </div>
-          <div className="row" style={{ marginTop: 16, justifyContent: 'flex-end' }}>
+          <div className="row between" style={{ marginTop: 16 }}>
+            {/* The demo is not a plan: a way to look around first, never a meeting setup. */}
+            <button data-test="safe" className="btn sm ghost" onClick={() => void startDemo()}>
+              先看看演示（不会真的翻译）
+            </button>
             <button className="btn primary big" onClick={finishPlan}>
               下一步
             </button>

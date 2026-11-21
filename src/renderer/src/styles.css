@@ -957,3 +957,18 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   max-height: 240px;
   overflow: auto;
 }
+
+/* The three facts on a plan card: accuracy, voice, what it takes. */
+.plan-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 6px 0 0;
+  text-align: left;
+}
+.plan-facts dt {
+  color: var(--ink-3);
+}
+.plan-facts dd {
+  margin: 0;
+}

@@ -56,7 +56,8 @@ export function keyField(name: keyof Secrets, label: string, saved: boolean, lin
 }
 
 /** Shown when the free tier needs the desktop app and it is not running. */
-export const desktopMissing = () => h('div', { class: 'callout warn', role: 'status' }, '未检测到桌面客户端 ', h('a', { href: DESKTOP_DOWNLOAD, target: '_blank' }, '下载 ↗'));
+export const desktopMissing = () =>
+  h('div', { class: 'callout warn', role: 'status' }, '免费方案需要电脑版正在运行（识别和语音由它提供），现在没有检测到。打开电脑版后会自动连上。', ' ', h('a', { href: DESKTOP_DOWNLOAD, target: '_blank' }, '下载电脑版 ↗'));
 
 /** Why the current settings cannot start (a missing key etc.), or null when they can. */
 export function settingsProblem(data: StoredData): string | null {

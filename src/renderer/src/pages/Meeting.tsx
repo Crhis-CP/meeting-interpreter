@@ -154,6 +154,12 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
         )}
       </header>
 
+      {settings.preset === 'demo' && (
+        <div className="callout warn row between" role="status" aria-label="演示模式" style={{ marginBottom: 16 }}>
+          <span>演示模式：不是真实翻译，译文是固定的示例句子。开真实会议前先选一个方案。</span>
+          <button data-test="safe" className="btn sm" onClick={() => openSettings('providers')}>选方案</button>
+        </div>
+      )}
       {error && (
         <div className="callout err" role="alert" style={{ marginBottom: 16 }}>
           {error}

@@ -30,6 +30,25 @@ const dotClass = (s: string) => (s === 'listening' ? 'ok' : s === 'error' ? 'err
 let busy = false;
 let timer: number | undefined;
 
+/**
+ * Whether the desktop app is running (the free tier's recognition and voices come from it): asked
+ * when the popup opens and every 5 s, kept here so the popup's frequent redraws always show it
+ * (a check that answered after a redraw used to be lost). null until the first answer.
+ */
+let desktop: boolean | null = null;
+let desktopTimer: number | undefined;
+function watchDesktop(): void {
+  if (desktopTimer !== undefined) return;
+  const check = () =>
+    void pingDesktop(createBrowserContext(consoleLogger('popup'), async () => undefined)).then((ok) => {
+      const was = desktop;
+      desktop = !!ok;
+      if (was !== desktop) void render();
+    });
+  check();
+  desktopTimer = window.setInterval(check, 5000);
+}
+
 async function render() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const data = await loadAll();
@@ -77,14 +96,12 @@ async function render() {
       form.classList.add('keybox');
       main.append(form);
     }
-    const problem = need ? 'key' : settingsProblem(data);
-    if (problem && !need) main.append(h('div', { class: 'callout warn', role: 'status' }, problem, ' ', h('button', { class: 'link', onclick: () => openOptions() }, '去设置')));
-
-    if (usesDesktop(s)) {
-      const slot = h('div');
-      main.append(slot);
-      void pingDesktop(createBrowserContext(consoleLogger('popup'), async () => undefined)).then((ok) => ok || slot.replaceWith(desktopMissing()));
-    }
+    const needsDesktop = usesDesktop(s);
+    if (needsDesktop) watchDesktop();
+    const problem = need ? 'key' : settingsProblem(data) ?? (needsDesktop && desktop === false ? 'desktop' : null);
+    if (problem && !need && problem !== 'desktop') main.append(h('div', { class: 'callout warn', role: 'status' }, problem, ' ', h('button', { class: 'link', onclick: () => openOptions() }, '去设置')));
+    // The free tier needs the desktop app running: said here, and starting waits for it.
+    if (needsDesktop) main.append(desktop === false ? desktopMissing() : desktop === null ? h('p', { class: 'note', role: 'status' }, '正在检测电脑版…') : '');
     if ([s.out.mt, s.in.mt].includes('offline')) {
       const slot = h('div');
       main.append(slot);

@@ -10,6 +10,8 @@ test('demo meeting: microphone audio becomes bilingual segments and a saved reco
   const win = await mainWindow(app);
   await win.waitForLoadState('domcontentloaded');
   await expect(win.getByRole('heading', { name: '会议同传' })).toBeVisible();
+  // The demo says what it is, all along (it is not a plan anyone should hold a meeting with).
+  await expect(win.getByRole('status', { name: '演示模式' })).toContainText('不是真实翻译');
   await win.screenshot({ path: 'test-results/main-idle.png' });
 
   await win.getByRole('button', { name: '开始同传' }).click();
@@ -140,5 +142,18 @@ test('录音 switched off and on mid-meeting: the recording goes on in a second 
   await win.getByRole('tab', { name: '录音录屏' }).click();
   await expect(win.getByText('全程混音（第 1 段）')).toBeVisible();
   await expect(win.getByText('全程混音（第 2 段）')).toBeVisible();
+  await app.close();
+});
+
+test('first start: each plan card says how accurate it is, what the other side hears and what it takes; the demo is a link', async () => {
+  const { app } = await launchApp({ onboarded: false });
+  const win = await mainWindow(app);
+  const cards = win.locator('.preset');
+  await expect(cards).toHaveCount(3);
+  await expect(cards.first()).toContainText('准确');
+  await expect(cards.first()).toContainText('第一次下载约');
+  await expect(cards.nth(1)).toContainText('自然人声');
+  await win.getByRole('button', { name: '先看看演示（不会真的翻译）' }).click();
+  await expect(win.getByRole('status', { name: '演示模式' })).toBeVisible();
   await app.close();
 });
