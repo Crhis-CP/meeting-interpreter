@@ -7,6 +7,10 @@
  * microphone is resampled to 16 kHz and handed to the extension for recognition.
  *
  * If anything here fails, the page gets its original stream: the meeting must never lose its mic.
+ * In particular, while autoplay rules keep our audio context suspended (nobody has clicked the
+ * page yet) its output is silence: then the page gets its real microphone untouched, and when
+ * interpretation starts we take over the call's audio sender instead (replaceTrack), giving the
+ * real track back when it stops.
  */
 import { base64ToBytes, bytesToBase64, bytesToInt16, floatToInt16, int16ToBytes, int16ToFloat, resampleLinear } from '@core/audio/pcm';
 import { PAGE_TAG, type BridgeToMain, type MainToBridge, type DOmit } from './protocol';
@@ -18,7 +22,11 @@ interface Hook {
   pass: GainNode;
   nodes: AudioNode[];
   createdAt: number;
+  /** Took over a call's audio sender (the page keeps its real track): given back when interpretation stops. */
+  sender?: RTCRtpSender;
 }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 (() => {
   const md = navigator.mediaDevices;
@@ -69,9 +77,8 @@ interface Hook {
     player.push(id || 'tts', bytesToInt16(base64ToBytes(pcmB64)), rate);
   };
 
-  const hook = (stream: MediaStream): MediaStream => {
-    const real = stream.getAudioTracks()[0];
-    if (!real) return stream;
+  /** Our track in place of `real`: the real voice (passthrough) or the translation, switchable. */
+  const makeHook = (real: MediaStreamTrack, owned: boolean): Hook => {
     const ac = audioContext();
     const src = ac.createMediaStreamSource(new MediaStream([real]));
     const dest = ac.createMediaStreamDestination();
@@ -91,41 +98,123 @@ interface Hook {
     const out = dest.stream.getAudioTracks()[0]!;
     const h: Hook = { real, out, pass, nodes: [src, dest, pass, proc, mute], createdAt: performance.now() };
     proc.onaudioprocess = (e) => {
+      // A taken-over sender: the meeting mutes its own (real) track; the translation mutes with it.
+      if (h.sender) out.enabled = real.enabled;
       if (!active || current() !== h || !out.enabled) return;
       const input = e.inputBuffer.getChannelData(0);
       const pcm = floatToInt16(resampleLinear(input, ac.sampleRate, 16000));
       post({ t: 'mic', pcm: bytesToBase64(int16ToBytes(pcm)) });
     };
 
-    // Look like the real microphone to the meeting app (device name, settings) and stop it with ours.
-    try {
-      Object.defineProperty(out, 'label', { get: () => real.label });
-      const settings = out.getSettings.bind(out);
-      out.getSettings = () => ({ ...settings(), ...real.getSettings() });
-      out.getCapabilities = () => real.getCapabilities();
-      out.getConstraints = () => real.getConstraints();
-      out.applyConstraints = (c) => real.applyConstraints(c);
-      const stop = out.stop.bind(out);
-      out.stop = () => {
-        stop();
-        real.stop();
-        for (const n of h.nodes) n.disconnect();
-        const i = hooks.indexOf(h);
-        if (i >= 0) hooks.splice(i, 1);
-      };
-    } catch {
-      // Cosmetic only.
+    if (owned) {
+      // Look like the real microphone to the meeting app (device name, settings) and stop it with ours.
+      try {
+        Object.defineProperty(out, 'label', { get: () => real.label });
+        const settings = out.getSettings.bind(out);
+        out.getSettings = () => ({ ...settings(), ...real.getSettings() });
+        out.getCapabilities = () => real.getCapabilities();
+        out.getConstraints = () => real.getConstraints();
+        out.applyConstraints = (c) => real.applyConstraints(c);
+        const stop = out.stop.bind(out);
+        out.stop = () => {
+          stop();
+          real.stop();
+          dispose(h);
+        };
+      } catch {
+        // Cosmetic only.
+      }
+      real.addEventListener('ended', () => out.dispatchEvent(new Event('ended')));
     }
-    real.addEventListener('ended', () => out.dispatchEvent(new Event('ended')));
     hooks.push(h);
     post({ t: 'hooked' });
-    return new MediaStream([out, ...stream.getVideoTracks()]);
+    return h;
+  };
+
+  /** Removes our nodes (the real track is the page's business). */
+  const dispose = (h: Hook) => {
+    for (const n of h.nodes) n.disconnect();
+    const i = hooks.indexOf(h);
+    if (i >= 0) hooks.splice(i, 1);
+  };
+
+  /** Starts our audio context if the page allows it now; never waits long. */
+  const running = async (): Promise<boolean> => {
+    const ac = audioContext();
+    if (ac.state !== 'running') await Promise.race([ac.resume().catch(() => undefined), sleep(150)]);
+    return ac.state === 'running';
+  };
+
+  // The call's audio senders, to take over when interpretation starts after the page already has
+  // its real microphone (and to give them back).
+  const senders = new Set<RTCRtpSender>();
+  const PC = (window as unknown as { RTCPeerConnection?: typeof RTCPeerConnection }).RTCPeerConnection;
+  const Sender = (window as unknown as { RTCRtpSender?: typeof RTCRtpSender }).RTCRtpSender;
+  const replace = Sender?.prototype.replaceTrack;
+  if (PC && Sender && replace) {
+    try {
+      const addTrack = PC.prototype.addTrack;
+      PC.prototype.addTrack = function (this: RTCPeerConnection, track: MediaStreamTrack, ...streams: MediaStream[]) {
+        const sender = addTrack.call(this, track, ...streams);
+        if (track.kind === 'audio') senders.add(sender);
+        return sender;
+      };
+      const addTransceiver = PC.prototype.addTransceiver;
+      PC.prototype.addTransceiver = function (this: RTCPeerConnection, t: MediaStreamTrack | string, init?: RTCRtpTransceiverInit) {
+        const tr = addTransceiver.call(this, t, init);
+        if ((typeof t === 'string' ? t : t.kind) === 'audio') senders.add(tr.sender);
+        return tr;
+      };
+      // The meeting switching microphones while we hold its sender: the new one is taken over too.
+      Sender.prototype.replaceTrack = function (this: RTCRtpSender, track: MediaStreamTrack | null) {
+        const held = hooks.find((h) => h.sender === this);
+        if (held) dispose(held);
+        if (active && track && track.kind === 'audio' && track.readyState === 'live' && !hooks.some((h) => h.out === track) && ctx?.state === 'running') {
+          const h = makeHook(track, false);
+          h.sender = this;
+          return replace.call(this, h.out);
+        }
+        return replace.call(this, track);
+      };
+    } catch {
+      // Without this the page-level hook below still works.
+    }
+  }
+
+  /** Interpretation started while the call sends a microphone we do not control: take it over. */
+  const takeOver = async () => {
+    if (!replace || !(await running())) return;
+    for (const s of senders) {
+      const t = s.track;
+      if (!active || !t || t.kind !== 'audio' || t.readyState !== 'live' || hooks.some((h) => h.out === t)) continue;
+      const h = makeHook(t, false);
+      h.sender = s;
+      await replace.call(s, h.out).catch(() => dispose(h));
+    }
+  };
+
+  /** Interpretation stopped: the call sends the meeting's own microphone again. */
+  const giveBack = () => {
+    if (!replace) return;
+    for (const h of hooks.filter((x) => x.sender)) {
+      void replace.call(h.sender!, h.real).catch(() => undefined);
+      dispose(h);
+    }
+  };
+
+  const hook = (stream: MediaStream): MediaStream => {
+    const real = stream.getAudioTracks()[0];
+    if (!real) return stream;
+    const h = makeHook(real, true);
+    return new MediaStream([h.out, ...stream.getVideoTracks()]);
   };
 
   md.getUserMedia = async function getUserMedia(constraints?: MediaStreamConstraints): Promise<MediaStream> {
     const stream = await original(constraints);
     if (!constraints?.audio) return stream;
     try {
+      // A suspended context would hand the meeting a silent microphone: give it the real one.
+      if (!(await running())) return stream;
       return hook(stream);
     } catch (err) {
       console.warn('[会议同传] 无法接管麦克风，使用原始麦克风', err);
@@ -133,17 +222,30 @@ interface Hook {
     }
   };
 
+  // Read-only state for diagnostics (tests, support): nothing private in it.
+  try {
+    Object.defineProperty(window, '__meetingInterpreterMic', {
+      get: () => ({ active, passthrough, context: ctx?.state ?? null, senders: senders.size, hooks: hooks.map((h) => ({ sender: !!h.sender, live: h.out.readyState === 'live' })) }),
+    });
+  } catch {
+    // Diagnostics only.
+  }
+
   window.addEventListener('message', (e) => {
     if (e.source !== window) return;
     const m = e.data as BridgeToMain | undefined;
     if (!m || m[PAGE_TAG] !== 'bridge') return;
     switch (m.t) {
-      case 'mode':
+      case 'mode': {
+        const was = active;
         active = m.active;
         passthrough = m.passthrough;
         if (active && ctx?.state === 'suspended') void ctx.resume().catch(() => undefined);
         applyMode();
+        if (active && !was) void takeOver();
+        if (!active && was) giveBack();
         break;
+      }
       case 'tts':
         playTts(m.id, m.pcm, m.rate);
         break;

@@ -136,7 +136,7 @@ async function render() {
     main.append(h('div', { class: 'callout err', role: 'alert' }, m!));
   }
   if (here && st.status === 'running' && !st.micHooked) {
-    main.append(h('div', { class: 'callout warn', role: 'status' }, '对方现在听到的还是你的原声：请刷新会议页面重新入会'));
+    main.append(h('div', { class: 'callout warn', role: 'status' }, '对方现在听到的还是你的原声：在会议里把麦克风关掉再打开（或重新选一次麦克风）；还不行就刷新会议页面重新入会'));
   }
   for (const w of st.warnings) main.append(h('div', { class: 'callout warn', role: 'status' }, w));
   if (!here && st.tabId !== null) {
