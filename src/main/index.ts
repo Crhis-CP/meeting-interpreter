@@ -30,7 +30,7 @@ import { KEY_NAMES, missingKeys } from '../core/config/readiness';
 import { collectStorage } from './storage';
 import { cleanupData, rotateLog } from './maintenance';
 import { windowsDataDir } from './data-location';
-import { afterExitCommand, planUninstall, safeToDelete, writeBackup, type UninstallPlan } from './uninstall';
+import { afterExitCommand, planUninstall, safeToDelete, startAfterExit, writeBackup, type UninstallPlan } from './uninstall';
 import { installedVirtualAudio, installVirtualAudio, removeVirtualAudio } from './platform/virtual-audio';
 import { createNodeContext } from './platform/node-context';
 import { testDirection, testLlm } from './provider-test';
@@ -1008,8 +1008,14 @@ async function runUninstall(opts: { records: boolean; driver: boolean; dryRun?: 
   if (target && process.platform === 'darwin') await shell.trashItem(target.path).catch((err) => notes.push(`软件没能移到废纸篓，请手动删除：${err instanceof Error ? err.message : String(err)}`));
   // The data folder (and the Windows uninstaller) once this process has quit.
   // (Tests keep a trace of the clean-up beside the test data folder.)
-  const { cmd, args } = afterExitCommand(process.platform, process.pid, dataDir, target?.uninstaller ?? null, process.env['MI_USER_DATA'] ? `${dataDir}-uninstall.log` : undefined);
-  spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  const command = afterExitCommand(process.platform, process.pid, dataDir, target?.uninstaller ?? null, process.env['MI_USER_DATA'] ? `${dataDir}-uninstall.log` : undefined);
+  const cleanupPid = await startAfterExit(process.platform, command).catch((err: unknown) => {
+    const why = err instanceof Error ? err.message : String(err);
+    log.error(`uninstall: ${why}`);
+    shell.showItemInFolder(dataDir);
+    throw new Error(`${why}。备份已经在“下载”文件夹里。请退出本软件，再手动删除这个文件夹：${dataDir}`);
+  });
+  log.info(`uninstall: clean-up running (pid ${cleanupPid}); quitting`);
   setTimeout(() => {
     quitting = true;
     app.quit();

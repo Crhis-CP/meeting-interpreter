@@ -7,6 +7,7 @@
  *  - the virtual audio driver: only when ticked (other apps may use it);
  *  - the app: moved to the Trash (Mac) or its uninstaller run (Windows).
  */
+import { spawn as nodeSpawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join, parse, resolve, sep } from 'node:path';
 import { glossaryToCsv } from '../core/glossary/csv';
@@ -58,10 +59,6 @@ export function safeToDelete(dir: string, home: string): boolean {
   return /meeting-?interpreter|会议同传|^mi-e2e-/i.test(basename(p));
 }
 
-/**
- * The command that finishes the job once the app has quit: waits for the process to end, deletes
- * the data folder, and (Windows) runs the uninstaller quietly.
- */
 /** Windows: the clean-up itself (PowerShell), run once the app has quit. */
 export function windowsCleanupScript(pid: number, dataDir: string, uninstaller: string | null, trace?: string): string {
   const q = (s: string) => `'${s.replace(/'/g, "''")}'`;
@@ -79,17 +76,62 @@ export function windowsCleanupScript(pid: number, dataDir: string, uninstaller: 
 
 /**
  * The command that finishes the job once the app has quit: waits for the process to end, deletes
- * the data folder, and (Windows) runs the uninstaller quietly. On Windows it is started through a
- * short-lived PowerShell that hands it on and exits, so it is not part of the app's process tree
- * (ending the app's tree, as test harnesses and some tools do, would end the clean-up with it).
+ * the data folder, and (Windows) runs the uninstaller quietly. On Windows it is started by a
+ * short-lived launcher that hands it on (so it is not part of the app's process tree: ending the
+ * app's tree, as test harnesses and some tools do, would end the clean-up with it) and exits with
+ * the clean-up's process id, so the app knows it is running before it quits.
  */
 export function afterExitCommand(platform: NodeJS.Platform, pid: number, dataDir: string, uninstaller: string | null, trace?: string): { cmd: string; args: string[] } {
   if (platform === 'win32') {
     const encoded = Buffer.from(windowsCleanupScript(pid, dataDir, uninstaller, trace), 'utf16le').toString('base64');
-    const handOn = `Start-Process -FilePath powershell.exe -WindowStyle Hidden -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','${encoded}'`;
-    return { cmd: 'powershell.exe', args: ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', handOn] };
+    const handOn = `$p = Start-Process -FilePath powershell.exe -WindowStyle Hidden -PassThru -ErrorAction Stop -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','${encoded}'; exit $p.Id`;
+    return { cmd: 'powershell.exe', args: ['-NoProfile', '-NonInteractive', '-Command', handOn] };
   }
   const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
   // (spawned detached: on Mac and Linux that is its own session, outside the app's process group)
   return { cmd: '/bin/sh', args: ['-c', `while kill -0 ${pid} 2>/dev/null; do sleep 0.5; done; sleep 1; rm -rf ${sq(dataDir)}`] };
+}
+
+type Spawn = typeof nodeSpawn;
+
+/**
+ * Starts the clean-up and resolves with its process id once it runs on its own; rejects with the
+ * reason if it could not be started (the app then stays open and says so, rather than quitting and
+ * silently leaving gigabytes behind).
+ * Windows: the launcher exits with the clean-up's process id (process ids are multiples of 4, never
+ * 0 or 1, PowerShell's own exit codes). A PowerShell can take seconds to start on a busy computer,
+ * hence the generous wait.
+ */
+export function startAfterExit(platform: NodeJS.Platform, command: { cmd: string; args: string[] }, spawn: Spawn = nodeSpawn, timeoutMs = 45_000): Promise<number> {
+  return new Promise((resolve, reject) => {
+    if (platform !== 'win32') {
+      const child = spawn(command.cmd, command.args, { detached: true, stdio: 'ignore' });
+      child.once('error', reject);
+      child.once('spawn', () => {
+        child.unref();
+        resolve(child.pid ?? 0);
+      });
+      return;
+    }
+    const child = spawn(command.cmd, command.args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+    let stderr = '';
+    child.stderr?.on('data', (d: Buffer) => (stderr += d.toString()));
+    const fail = (why: string) => reject(new Error(`清理程序没有启动：${why}`));
+    const timer = setTimeout(() => {
+      child.kill();
+      fail(`${Math.round(timeoutMs / 1000)} 秒内没有回应`);
+    }, timeoutMs);
+    child.once('error', (err) => {
+      clearTimeout(timer);
+      fail(err.message);
+    });
+    child.once('exit', (code) => {
+      clearTimeout(timer);
+      if (code !== null && code > 1) return resolve(code);
+      // The launcher started nothing, so its error output ends right after it.
+      const why = () => `退出码 ${code ?? '无'}${stderr.trim() ? `，${stderr.trim().slice(0, 400)}` : ''}`;
+      if (!child.stderr || child.stderr.readableEnded) fail(why());
+      else child.stderr.once('end', () => fail(why()));
+    });
+  });
 }
