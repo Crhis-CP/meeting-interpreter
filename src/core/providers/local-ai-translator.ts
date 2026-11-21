@@ -9,8 +9,20 @@ import { ProviderError, type TranslateRequest, type Translator } from './types';
 
 /** Runs one prompt through the local model (in a worker process / via the desktop app). */
 export interface LocalAiEngine {
-  /** `lane`: 0 into the other language, 1 into Chinese (each direction keeps its own cached prefix). */
-  complete(prompt: string, signal?: AbortSignal, lane?: number): Promise<string>;
+  /**
+   * `lane`: 0 into the other language, 1 into Chinese (each direction keeps its own cached prefix).
+   * `maxTokens`: a cap for the answer (a model stuck repeating itself must not hold up the next sentences).
+   */
+  complete(prompt: string, signal?: AbortSignal, lane?: number, maxTokens?: number): Promise<string>;
+}
+
+/**
+ * How long a translation of `text` can sensibly be, in tokens, with room to spare: a Chinese
+ * character becomes up to ~3 tokens of Spanish or English; the other way round, ~1 per character.
+ */
+export function answerBudget(text: string, from: LangBase): number {
+  const n = [...text].length;
+  return Math.min(400, 32 + Math.ceil(n * (from === 'zh' ? 3 : 1.2)));
 }
 
 const NAME_ZH: Record<LangBase, string> = { zh: '中文', es: '西班牙语', en: '英语' };
@@ -44,7 +56,7 @@ export class LocalAiTranslator implements Translator {
     const to = baseOf(req.to);
     const text = from === 'es' ? plainSpanish(req.text) : req.text;
     try {
-      const out = clean(await this.engine.complete(hyMtPrompt(text, from, to, req.hits), req.signal, to === 'zh' ? 1 : 0));
+      const out = clean(await this.engine.complete(hyMtPrompt(text, from, to, req.hits), req.signal, to === 'zh' ? 1 : 0, answerBudget(text, from)));
       if (!out) throw new Error('没有翻译结果');
       return out;
     } catch (err) {

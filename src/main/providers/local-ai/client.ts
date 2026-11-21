@@ -90,7 +90,7 @@ export class LocalAiClient implements LocalAiEngine {
   }
 
   /** `lane`: the direction (0 into the other language, 1 into Chinese); each keeps its own cached prefix. */
-  async complete(prompt: string, signal?: AbortSignal, lane = 0): Promise<string> {
+  async complete(prompt: string, signal?: AbortSignal, lane = 0, maxTokens?: number): Promise<string> {
     if (this.failed && Date.now() < this.failed.until) throw new Error(this.failed.message);
     if (this.idle) clearTimeout(this.idle);
     this.idle = setTimeout(() => this.dispose(), this.o.idleMs ?? 600_000);
@@ -116,7 +116,7 @@ export class LocalAiClient implements LocalAiEngine {
         cancel();
         reject(new DOMException('Aborted', 'AbortError'));
       });
-      const req: AiRequest = { t: 'complete', id, prompt, maxTokens: Math.min(512, 64 + prompt.length * 3), lane };
+      const req: AiRequest = { t: 'complete', id, prompt, maxTokens: maxTokens ?? Math.min(512, 64 + prompt.length * 3), lane };
       this.worker!.postMessage(req);
     });
   }
