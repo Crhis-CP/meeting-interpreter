@@ -162,6 +162,8 @@ export interface RendererApi {
     state(): Promise<MeetingState>;
     /** Sentences of the meeting in progress so far (a page opened mid-meeting starts from them). */
     segments(): Promise<TranscriptSegment[]>;
+    /** What still stands between the user and a meeting that works as chosen (keys, downloads). */
+    readiness(): Promise<ReadinessItem[]>;
     setOut(enabled: boolean): Promise<void>;
     setIn(enabled: boolean): Promise<void>;
     setInSpeak(speak: boolean): Promise<void>;
@@ -273,6 +275,15 @@ export interface RendererEvents {
 }
 
 // ------------------------------------------------------------ audio window protocol
+
+export interface ReadinessItem {
+  id: string;
+  text: string;
+  /** The settings tab that fixes it. */
+  fix: 'providers' | 'devices';
+  /** It resolves by itself (a download in progress). */
+  downloading?: boolean;
+}
 
 export interface AudioConfig {
   mode: 'meeting' | 'room';

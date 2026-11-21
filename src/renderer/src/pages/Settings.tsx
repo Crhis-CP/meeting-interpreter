@@ -35,7 +35,12 @@ function foreignOf(s: AppSettings): 'es' | 'en' {
 
 export function SettingsPage() {
   const [s, update] = useSettings();
-  const [tab, setTab] = useState<Tab>('providers');
+  // Another page may ask for a tab (e.g. the meeting page's "去设置" for devices).
+  const [tab, setTab] = useState<Tab>(() => {
+    const asked = sessionStorage.getItem('settings-tab') as Tab | null;
+    sessionStorage.removeItem('settings-tab');
+    return asked && TABS.some(([k]) => k === asked) ? asked : 'providers';
+  });
   if (!s) return null;
   return (
     <div>

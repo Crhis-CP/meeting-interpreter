@@ -48,7 +48,7 @@ export const DASHSCOPE_ASR_FALLBACKS = ['qwen-audio-3.1-asr-flash-streaming', 'q
 
 function need(secrets: Secrets, name: keyof Secrets): string {
   const v = secrets[name];
-  if (!v) throw new ProviderError(`请先在“服务设置”里填写 ${NAMES[name] ?? name} 的 Key`, String(name));
+  if (!v) throw new ProviderError(`还没有填 ${NAMES[name] ?? name} 的 Key：在 设置 › 翻译服务 里填写`, String(name));
   return v;
 }
 
@@ -149,7 +149,7 @@ export function createProviders(
       }
       case 'llm': {
         const llm = makeLlm(settings, secrets, ctx);
-        if (!llm) throw new ProviderError('请先在“服务设置”里填写大模型的 Key（例如免费的智谱 GLM）', 'llm');
+        if (!llm) throw new ProviderError('还没有填大模型的 Key：在 设置 › 翻译服务 里填写（智谱 GLM 有免费的）', 'llm');
         return new LlmTranslator(llm);
       }
       case 'qwen-mt':

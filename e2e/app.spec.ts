@@ -91,3 +91,24 @@ test('without an LLM key, the end of a meeting says that minutes and learning di
   await expect(win.getByRole('tab', { name: '翻译服务' })).toHaveAttribute('aria-selected', 'true');
   await app.close();
 });
+
+test('准备情况: what is missing before a meeting is listed, each fix opens the right settings tab', async () => {
+  // 百炼 chosen, no key saved yet, no virtual microphone chosen.
+  const { app } = await launchApp({
+    preset: 'dashscope',
+    out: { enabled: true, asr: 'dashscope', mt: 'qwen-mt', tts: 'dashscope', voice: '' },
+    in: { enabled: true, asr: 'dashscope', mt: 'qwen-mt', tts: 'dashscope', voice: '' },
+  });
+  const win = await mainWindow(app);
+  const prep = win.getByLabel('会议准备');
+  const keyRow = prep.locator('.callout', { hasText: '还没填阿里云百炼的 Key' });
+  await expect(keyRow).toBeVisible();
+  await expect(keyRow).toContainText('识别、翻译、语音');
+  await keyRow.getByRole('button', { name: '去设置' }).click();
+  await expect(win.getByRole('tab', { name: '翻译服务' })).toHaveAttribute('aria-selected', 'true');
+
+  await win.getByRole('navigation').getByRole('button', { name: /^会议同传/ }).click();
+  await prep.locator('.callout', { hasText: '没选虚拟麦克风' }).getByRole('button', { name: '去设置' }).click();
+  await expect(win.getByRole('tab', { name: '音频设备' })).toHaveAttribute('aria-selected', 'true');
+  await app.close();
+});

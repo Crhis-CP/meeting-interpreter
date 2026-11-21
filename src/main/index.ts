@@ -21,9 +21,10 @@ import { azureVoicesFor } from '../core/providers/azure';
 import { DashscopeTts, createClonedVoice, deleteClonedVoice, waitForVoice } from '../core/providers/dashscope';
 import type { SummaryTemplate } from '../core/session/summary';
 import type { Direction, TranscriptSegment } from '../core/types';
-import { IPC, type FromAudio, type ProfileView, type RendererEvents, type StoredReview, type ToAudio } from '../shared/ipc';
+import { IPC, type FromAudio, type ProfileView, type ReadinessItem, type RendererEvents, type StoredReview, type ToAudio } from '../shared/ipc';
 import { detectMeetingApps } from './platform/meeting-apps';
 import { restoreAudioDefaults, savedAudioDefaults } from './platform/audio-defaults';
+import { KEY_NAMES, missingKeys } from '../core/config/readiness';
 import { installVirtualAudio } from './platform/virtual-audio';
 import { createNodeContext } from './platform/node-context';
 import { testDirection, testLlm } from './provider-test';
@@ -383,6 +384,7 @@ const handlers: Record<string, Handler> = {
   },
   'meeting.state': () => sessionManager.state,
   'meeting.segments': () => (sessionManager.active ? sessionManager.segments().slice(-200) : []),
+  'meeting.readiness': () => readiness(),
   'meeting.setOut': (on: boolean) => {
     sessionManager.setOut(on);
     updateTray();
@@ -405,7 +407,7 @@ const handlers: Record<string, Handler> = {
     const detail = meetings.get(id);
     if (!detail) throw new Error('会议不存在');
     const llm = makeLlm(settings.get(), secrets.all(), ctx, true);
-    if (!llm) throw new Error('请先在“服务设置”里配置大模型（例如免费的智谱 GLM），才能生成纪要');
+    if (!llm) throw new Error('生成纪要需要大模型 Key：在 设置 › 翻译服务 里填写（智谱 GLM 有免费的）');
     return sessionManager.writeSummary(detail.folder, detail.meta, detail.segments, llm, template);
   },
   'meetings.rename': (id: string, title: string) => meetings.rename(id, title),
@@ -880,6 +882,51 @@ function prefetchModels(): Promise<void> {
 }
 
 /** Before a meeting with offline recognition, make sure its models are on disk. */
+/** The local recognition models a meeting (or room) with these settings uses. */
+function localAsrNeeded(mode: 'meeting' | 'room'): ModelId[] {
+  if (!usesLocalAsr()) return [];
+  const s = settings.get();
+  const needed = new Set<ModelId>();
+  if (s.out.asr === 'local') modelsForLang(s.languages.self, s.local.esModel).forEach((id) => needed.add(id));
+  if (s.in.asr === 'local') modelsForLang(s.languages.remote, s.local.esModel).forEach((id) => needed.add(id));
+  return [...needed];
+}
+
+/**
+ * What still stands between the user and a meeting that works as chosen: missing keys and models
+ * still downloading (devices are checked in the page itself). Cheap: no file hashing.
+ */
+async function readiness(): Promise<ReadinessItem[]> {
+  const s = settings.get();
+  if (s.preset === 'demo') return [];
+  const items: ReadinessItem[] = [];
+  for (const k of missingKeys(s, secrets.status())) items.push({ id: `key:${k.name}`, text: `还没填${KEY_NAMES[k.name]}的 Key（${k.for}要用）`, fix: 'providers' });
+  const asr = localAsrNeeded('meeting').filter((id) => models.status(id) !== 'ready');
+  const asrMissing = asr.length ? models.missingBytes(asr) : 0;
+  if (asrMissing) {
+    if (!prefetching) void prefetchModels();
+    items.push({ id: 'asr-models', text: `本机识别模型还在下载（还差约 ${Math.max(1, Math.round(asrMissing / 1_000_000))} MB）`, fix: 'providers', downloading: true });
+  }
+  if (usesLocalAi() && !aiModelInUse()) {
+    const id = s.local.aiModel;
+    const total = AI_MODELS[id].files.reduce((n, f) => n + f.size, 0);
+    const left = aiModels.missingBytes([id]);
+    if (left) {
+      void prefetchAi(id);
+      const done = aiProgress?.id === id ? aiProgress.received : total - left;
+      items.push({ id: 'ai-model', text: `本机 AI 翻译模型还在下载（${Math.max(0, Math.min(99, Math.floor((done / total) * 100)))}%，还差约 ${Math.max(1, Math.round((total - done) / 1_000_000))} MB）`, fix: 'providers', downloading: true });
+    }
+  }
+  if ([s.out.mt, s.in.mt].includes('offline')) {
+    const left = await offlineMt.missingBytes().catch(() => 0);
+    if (left) {
+      void prefetchOfflineMt();
+      items.push({ id: 'offline-mt', text: `离线翻译模型还在下载（还差约 ${Math.max(1, Math.round(left / 1_000_000))} MB）`, fix: 'providers', downloading: true });
+    }
+  }
+  return items;
+}
+
 async function requireLocalModels(mode: 'meeting' | 'room'): Promise<void> {
   if (!usesLocalAsr()) return;
   const s = settings.get();

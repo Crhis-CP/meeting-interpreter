@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppSettings } from '@core/config/schema';
 import { lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import type { TranscriptSegment } from '@core/types';
-import type { MeetingState } from '@shared/ipc';
+import type { MeetingState, ReadinessItem } from '@shared/ipc';
 import { api, errMsg, useEvent, useLlmReady } from '../api';
-import { Field, Level, SegmentView, StateBadge, Toggle } from '../components/ui';
+import { FlashButton, Field, Level, SegmentView, StateBadge, Toggle } from '../components/ui';
 import { ScreenPicker } from '../components/ScreenPicker';
 import { DeviceCheck } from '../components/DeviceCheck';
 import type { Page } from '../App';
@@ -76,9 +76,34 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
   const remoteName = short(settings.languages.remote);
 
   // Only what needs attention, each with its fix.
-  const problems: { text: string; fix: () => void }[] = [
-    ...(!settings.devices.virtualMic ? [{ text: `对方听不到${remoteName}译音：没选虚拟麦克风`, fix: () => go('settings') }] : []),
-    ...(settings.devices.meetingSource === 'device' && !settings.devices.meetingDevice ? [{ text: '听不到对方：没选会议声音', fix: () => go('settings') }] : []),
+  /** Opens settings on the tab that fixes something. */
+  const openSettings = (tab: 'providers' | 'devices') => {
+    sessionStorage.setItem('settings-tab', tab);
+    go('settings');
+  };
+  // 准备情况: keys, downloads (from the main process) and devices, each with its fix.
+  const [ready, setReady] = useState<ReadinessItem[] | null>(null);
+  useEffect(() => {
+    if (active) return;
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () =>
+      void api.meeting.readiness().then((r) => {
+        if (stop) return;
+        setReady(r);
+        // While something downloads, follow its progress.
+        if (r.some((x) => x.downloading)) timer = setTimeout(load, 3000);
+      }, () => setReady([]));
+    load();
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+  }, [active, settings]);
+  const problems: { text: string; fix: () => void; downloading?: boolean }[] = [
+    ...(ready ?? []).map((r) => ({ text: r.text, fix: () => openSettings(r.fix), downloading: r.downloading })),
+    ...(!settings.devices.virtualMic ? [{ text: `对方听不到${remoteName}译音：没选虚拟麦克风`, fix: () => openSettings('devices') }] : []),
+    ...(settings.devices.meetingSource === 'device' && !settings.devices.meetingDevice ? [{ text: '听不到对方：没选会议声音', fix: () => openSettings('devices') }] : []),
   ];
 
   const start = async () => {
@@ -159,11 +184,22 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
         <section className="card" aria-label="会议准备">
           <DeviceCheck s={settings} foreign={remoteName ?? '西语'} />
           {problems.map((p) => (
-            <div key={p.text} className="callout warn row between" role="alert" style={{ marginBottom: 10 }}>
+            <div key={p.text} className={`callout ${p.downloading ? 'info' : 'warn'} row between`} role={p.downloading ? 'status' : 'alert'} style={{ marginBottom: 10 }}>
               <span>{p.text}</span>
-              <button className="btn sm" onClick={p.fix}>去设置</button>
+              <button className="btn sm" onClick={p.fix}>{p.downloading ? '查看' : '去设置'}</button>
             </div>
           ))}
+          {/* Can the other side hear me? Checked in the meeting app itself (its microphone level). */}
+          {settings.devices.virtualMic && (
+            <div className="row" style={{ marginBottom: 12, gap: 8 }}>
+              <FlashButton
+                label="对方能听到吗？发测试音"
+                done="测试音已送进虚拟麦克风：看会议软件里麦克风的音量条有没有跳。没跳的话，在会议软件里把麦克风选成虚拟声卡"
+                action={() => api.audio.testTone('virtualMic')}
+              />
+              <span className="muted small">请戴耳机：外放的中文会被麦克风收进去再翻一遍。会议软件的降噪调低一些，译音更清楚。</span>
+            </div>
+          )}
           <div className="grid2">
             <Field label="对方说">
               <select value={lang(settings.languages.remote).base} onChange={(e) => void api.settings.set({ languages: { remote: withRemoteBase(settings.languages.remote, e.target.value as 'es' | 'en') }, out: { voice: '' }, in: { voice: '' } })}>
