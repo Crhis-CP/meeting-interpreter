@@ -38,6 +38,9 @@ import { LocalAsr } from './providers/local-asr/client';
 import { ModelManager } from './providers/local-asr/model-manager';
 import { modelsForLang, modelsSize, type ForeignModelId, type ModelId } from './providers/local-asr/models';
 import { stopSpeechHost, SystemTts } from './providers/system-tts';
+import { NeuralTts } from './providers/neural-tts/client';
+import { TTS_MODELS, type TtsModelId } from './providers/neural-tts/models';
+import { FallbackTts } from '../core/providers/fallback-tts';
 import { RoomHost } from './room/room-host';
 import { AudioWindowMt } from './offline-mt';
 import { OfflineTranslator } from '../core/providers/offline-translator';
@@ -140,6 +143,9 @@ const models = new ModelManager(modelsDir, proxiedFetch, inChina ? { baseUrls: [
 const ctx = createNodeContext(createLogger('provider'), proxiedFetch);
 /** The local AI translation models (Hy-MT2), downloaded like the recognition models and checked by SHA-256. */
 const aiModels = new ModelManager(modelsDir, proxiedFetch, { models: AI_MODELS, ...(inChina ? { baseUrls: ['https://hf-mirror.com', 'https://huggingface.co'] } : {}) });
+/** The natural voices (Kokoro): one model for Chinese, Spanish and English. */
+const ttsModels = new ModelManager(modelsDir, proxiedFetch, { models: TTS_MODELS, ...(inChina ? { baseUrls: ['https://hf-mirror.com', 'https://huggingface.co'] } : {}) });
+const TTS_MODEL: TtsModelId = 'kokoro-v1.0';
 let aiClient: { id: AiModelId; client: LocalAiClient } | null = null;
 /** The model to translate with: the chosen one, else the other one if only that is downloaded. */
 function aiModelInUse(): AiModelId | null {
@@ -240,6 +246,20 @@ function toAudio(msg: ToAudio): void {
 }
 
 const systemTts = () => new SystemTts();
+/** One process for every natural voice in the app (both directions, the room, the Chrome extension). */
+const neuralTts = new NeuralTts({
+  dir: (m) => join(modelsDir, m),
+  ready: (m) => ttsModels.status(m) === 'ready',
+  spawn: () => forkWorker('neural-tts-worker.js', 'neural-tts'),
+  // A sentence in about a quarter of its length with 4 threads (2 on smaller computers).
+  threads: availableParallelism() >= 6 ? 4 : 2,
+  keepLoaded: () => sessionManager.active || room.active,
+  onLoaded: (ms) => log.info(`natural voices loaded in ${ms} ms`),
+  onError: (message) => log.warn(`natural voices: ${message}`),
+});
+/** The free voices: natural, with the system's own voice standing in until they are downloaded (or if they fail). */
+const localTts = () =>
+  new FallbackTts(neuralTts, systemTts(), (err) => log.info('natural voices unavailable, using the system voice:', err instanceof Error ? err.message : String(err)));
 
 /**
  * The Spanish / English recogniser in use: Parakeet; until it is downloaded, a Whisper model an
@@ -274,7 +294,7 @@ const desktopBridge = new DesktopBridge({
   log: log.child('bridge'),
   enabled: () => settings.get().bridge.enabled,
   asr: () => localAsr('in'),
-  tts: systemTts,
+  tts: localTts,
   modelsReady: (base) => modelsForLang(base, foreignAsr()).every((id) => models.status(id) === 'ready'),
   ensureModels: (base, onStatus) =>
     models.ensureFor(base, settings.get().local.esModel, (p) => {
@@ -296,7 +316,7 @@ const offlineMt = new AudioWindowMt(
 );
 
 function providers(): Providers {
-  return createProviders(settings.get(), secrets.all(), ctx, () => glossaries.active(), { systemTts, localAsr, offlineMt, localAi });
+  return createProviders(settings.get(), secrets.all(), ctx, () => glossaries.active(), { systemTts, localTts, localAsr, offlineMt, localAi });
 }
 
 const sessionManager = new SessionManager({
@@ -372,6 +392,8 @@ const handlers: Record<string, Handler> = {
     if (usesLocalAsr()) void prefetchModels();
     if (usesOfflineMt()) void prefetchOfflineMt();
     if (usesLocalAi()) void prefetchAi();
+    // The voices after recognition and translation (they share the connection; those come first).
+    if (usesLocalTts()) void Promise.allSettled([prefetching, aiPrefetch?.job]).then(() => prefetchVoices());
     return s;
   },
   'secrets.status': () => secrets.status(),
@@ -547,7 +569,7 @@ const handlers: Record<string, Handler> = {
       id,
       name: names[id] ?? id,
       hotwords,
-      asr: createProviders(parseSettings({ ...s, out: { ...s.out, asr: id } }), secrets.all(), ctx, () => glossaries.active(), { systemTts, localAsr, offlineMt }).asr('out'),
+      asr: createProviders(parseSettings({ ...s, out: { ...s.out, asr: id } }), secrets.all(), ctx, () => glossaries.active(), { systemTts, localTts, localAsr, offlineMt }).asr('out'),
     }));
     const run = await runCalibration({ sentences, audio: pcm, lang: 'zh-CN', terms, current: s.out.asr }, candidates, {
       onProgress: (done, all) => broadcast('calibration-progress', { done, total: all }),
@@ -640,14 +662,36 @@ const handlers: Record<string, Handler> = {
     const s = settings.get();
     try {
       if (provider === 'system') return await new SystemTts().listVoices(langCode);
+      if (provider === 'local') return neuralTts.voices(langCode);
       // Voice lists are static for the cloud providers: show them even before a key is saved.
       if (provider === 'azure') return azureVoicesFor(langCode);
       if (provider === 'dashscope') return new DashscopeTts({ apiKey: 'list-only', region: s.dashscope.region }, ctx).voices(langCode);
-      const p = createProviders({ ...s, out: { ...s.out, tts: provider as AppSettings['out']['tts'] } }, secrets.all(), ctx, () => [], { systemTts, localAsr });
+      const p = createProviders({ ...s, out: { ...s.out, tts: provider as AppSettings['out']['tts'] } }, secrets.all(), ctx, () => [], { systemTts, localTts, localAsr });
       return p.tts('out')?.voices(langCode) ?? [];
     } catch {
       return [];
     }
+  },
+
+  'providers.preview': async (provider: string, langCode: string, voice: string) => {
+    const s = settings.get();
+    // The natural voices themselves (not the stand-in), so what is heard is what was chosen.
+    if (provider === 'local' && !neuralTts.available(langCode)) throw new Error('自然人声还没下载好，下载好就能试听（设置 › 存储空间 可以看进度）');
+    const tts = provider === 'local' ? neuralTts : createProviders({ ...s, out: { ...s.out, tts: provider as AppSettings['out']['tts'], voice } }, secrets.all(), ctx, () => [], { systemTts, localTts, localAsr }).tts('out');
+    if (!tts) throw new Error('这个选项不发声');
+    const chunks: Int16Array[] = [];
+    let sampleRate = 24000;
+    for await (const c of tts.synthesize({ text: previewSentence(langCode), lang: langCode, voice: voice || undefined, rate: 1 })) {
+      chunks.push(c.samples);
+      sampleRate = c.sampleRate;
+    }
+    const pcm = new Int16Array(chunks.reduce((n, c) => n + c.length, 0));
+    let o = 0;
+    for (const c of chunks) {
+      pcm.set(c, o);
+      o += c.length;
+    }
+    return { pcm: pcm.buffer, sampleRate };
   },
 
   'local.status': () => models.statusList(settings.get().local.esModel),
@@ -662,6 +706,7 @@ const handlers: Record<string, Handler> = {
   'storage.download': (id: string) => downloadStored(id),
   'storage.cancel': (id: string) => {
     asrDownloads.get(id)?.abort();
+    if (ttsModels.ids().includes(id)) voicePrefetch?.abort.abort();
     if (localAsrNeeded('meeting').includes(id as ModelId)) prefetchAbort?.abort();
     if (aiPrefetch?.id === id) aiPrefetch.abort.abort();
   },
@@ -820,13 +865,24 @@ async function editSegment(id: string, segId: string, srcText: string, opts: { l
   return { segment, learned };
 }
 
+/** What 试听 says: an everyday meeting sentence with a number in it. */
+function previewSentence(langCode: string): string {
+  const base = langCode.slice(0, 2);
+  if (base === 'zh') return '您好，我是您的同传助手。第一批货可以在三周内发出，剩下的下个月发。';
+  if (base === 'es') return 'Hola, soy su intérprete. El primer envío sale en tres semanas, y el resto el mes que viene.';
+  return 'Hello, I am your interpreter. The first shipment leaves in three weeks, and the rest next month.';
+}
+
 /** Loads the translation models (and, on Windows, the speech process) as a meeting starts, so the first sentence is not slow. */
 function warmUpTranslation(): void {
   const s = settings.get();
   const mts = [s.out.mt, s.in.mt];
   if (mts.includes('offline') || mts.includes('local-ai')) void offlineMt.translate('你好', 'zh', 'es').catch(() => undefined);
   if (mts.includes('local-ai')) localAi()?.warmUp();
-  if (s.out.tts === 'system' || s.in.tts === 'system') systemTts().warmUp();
+  const voiceLangs = [s.out.tts === 'local' ? s.languages.remote : null, s.in.tts === 'local' ? s.languages.self : null].filter((l): l is string => !!l);
+  for (const l of voiceLangs) neuralTts.warmUp(l);
+  // The system voice speaks where the natural voices are not there yet.
+  if (s.out.tts === 'system' || s.in.tts === 'system' || voiceLangs.some((l) => !neuralTts.available(l))) systemTts().warmUp();
 }
 
 function profileView(): ProfileView {
@@ -887,6 +943,7 @@ const STORAGE_NAMES: Record<string, string> = {
   'whisper-base': '西语 / 英语识别（旧版 Whisper base，换成 Parakeet 后可以删除）',
   'hy-mt2-1.8b': '本机 AI 翻译（标准）',
   'hy-mt2-7b': '本机 AI 翻译（更准）',
+  'kokoro-v1.0': '自然人声（中文、西语、英语，男声女声）',
 };
 /** Recognition models downloaded from the 存储空间 page (each can be cancelled). */
 const asrDownloads = new Map<string, AbortController>();
@@ -896,12 +953,14 @@ function storageInfo(): StorageInfo {
   const inUse = new Set<string>(localAsrNeeded('meeting'));
   if (usesForeignAsr()) inUse.add(s.local.esModel); // Parakeet, also while a Whisper model stands in
   if (usesLocalAi()) inUse.add(s.local.aiModel);
+  if (usesLocalTts()) inUse.add(TTS_MODEL);
   const bigMac = process.platform === 'darwin' && process.arch === 'arm64' && totalmem() >= 15 * 1024 ** 3;
   return collectStorage({
     dataDir,
     recordsDir: recordsDir(),
     asr: models,
     ai: aiModels,
+    tts: ttsModels,
     inUse,
     names: STORAGE_NAMES,
     // (Whisper: only from earlier versions.)
@@ -924,6 +983,11 @@ async function removeStored(id: string): Promise<void> {
       aiClient = null;
     }
     await aiModels.remove(id);
+  } else if (ttsModels.ids().includes(id)) {
+    if (busy && usesLocalTts()) throw inUse();
+    // The voice process keeps the model open (Windows would refuse to delete it).
+    neuralTts.dispose();
+    await ttsModels.remove(id);
   } else if (id === 'offline-mt') {
     if (busy && usesOfflineMt()) throw inUse();
     await offlineMt.clear();
@@ -950,6 +1014,7 @@ async function downloadStored(id: string): Promise<void> {
       asrDownloads.delete(id);
     }
   } else if (aiModels.ids().includes(id)) await (handlers['ai.download'] as (id: AiModelId) => Promise<void>)(id as AiModelId);
+  else if (ttsModels.ids().includes(id)) await prefetchVoices();
   else if (id === 'offline-mt') await prefetchOfflineMt();
   else throw new Error('这一项不需要下载');
 }
@@ -1103,6 +1168,36 @@ function prefetchAi(id: AiModelId = settings.get().local.aiModel): Promise<void>
   return job;
 }
 
+function usesLocalTts(): boolean {
+  const s = settings.get();
+  return s.out.tts === 'local' || s.in.tts === 'local';
+}
+
+let voicePrefetch: { job: Promise<void>; abort: AbortController } | null = null;
+/** The last failed download of the voices (not tried again by itself for a while: no stream of warnings offline). */
+let voiceFailure: { at: number; message: string } | null = null;
+/** Downloads the natural voices in the background, once (until then the system voice speaks). */
+function prefetchVoices(): Promise<void> {
+  if (voicePrefetch) return voicePrefetch.job;
+  if (ttsModels.status(TTS_MODEL) === 'ready') return Promise.resolve();
+  const abort = new AbortController();
+  const job = (async () => {
+    // Downloaded before (e.g. reinstalled): only needs its check.
+    if (ttsModels.missingBytes([TTS_MODEL]) === 0) await ttsModels.verifyExisting([TTS_MODEL]);
+    if (ttsModels.status(TTS_MODEL) === 'ready') return;
+    await ttsModels.ensure([TTS_MODEL], (p) => broadcast('model-progress', p), abort.signal);
+    voiceFailure = null;
+    broadcast('toast', { level: 'info', message: '自然人声已下载完成，下一场会议起使用。' });
+  })()
+    .catch((err) => {
+      if (!isAbortError(err)) voiceFailure = { at: Date.now(), message: err instanceof Error ? err.message : String(err) };
+      if (!isAbortError(err)) broadcast('toast', { level: 'warn', message: `自然人声下载失败：${err instanceof Error ? err.message : String(err)}（先用电脑自带的声音；可在 设置 › 存储空间 里重试）` });
+    })
+    .finally(() => (voicePrefetch = null));
+  voicePrefetch = { job, abort };
+  return job;
+}
+
 let mtPrefetch: Promise<void> | null = null;
 /** Downloads the offline translation models in the background, once. */
 function prefetchOfflineMt(): Promise<void> {
@@ -1242,6 +1337,15 @@ async function readiness(): Promise<ReadinessItem[]> {
       ai.warmUp();
       items.push({ id: 'ai-loading', text: '本机 AI 翻译模型正在加载（第一次可能要半分钟，以后几秒钟）', downloading: true });
     }
+  }
+  // The natural voices: after recognition and translation, and never in the way of a meeting
+  // (the computer's own voice speaks until they are there).
+  if (usesLocalTts() && ttsModels.status(TTS_MODEL) !== 'ready') {
+    const failed = !voicePrefetch && voiceFailure && Date.now() - voiceFailure.at < 5 * 60_000 ? voiceFailure : null;
+    if (!failed && !items.some((i) => i.downloading) && !prefetching && !aiPrefetch) void prefetchVoices();
+    const left = ttsModels.missingBytes([TTS_MODEL]);
+    if (failed) items.push({ id: 'voices', text: `自然人声没能下载（${failed.message}），先用电脑自带的声音说译文；过几分钟会自动再试，也可以在 设置 › 存储空间 里重试。` });
+    else if (voicePrefetch || left) items.push({ id: 'voices', text: `自然人声${voicePrefetch ? '正在下载' : '还没下载'}（还差约 ${Math.max(1, Math.round(left / 1_000_000))} MB）。下好之前，用电脑自带的声音说译文。`, downloading: true });
   }
   if ([s.out.mt, s.in.mt].includes('offline')) {
     const left = await offlineMt.missingBytes().catch(() => 0);

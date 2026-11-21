@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 export const AsrProviderId = z.enum(['demo', 'dashscope', 'azure', 'local']);
 export const MtProviderId = z.enum(['demo', 'offline', 'local-ai', 'llm', 'qwen-mt', 'deepl', 'azure-translator']);
-export const TtsProviderId = z.enum(['demo', 'dashscope', 'azure', 'system', 'none']);
+/** 'local': the natural voices on this computer (free; the system's own voice stands in until they are downloaded). */
+export const TtsProviderId = z.enum(['demo', 'dashscope', 'azure', 'local', 'system', 'none']);
 export type AsrProviderId = z.infer<typeof AsrProviderId>;
 export type MtProviderId = z.infer<typeof MtProviderId>;
 export type TtsProviderId = z.infer<typeof TtsProviderId>;
@@ -45,6 +46,12 @@ export function migrateSettings(raw: unknown): unknown {
   if (r.local && typeof r.local === 'object') {
     const local = r.local as Record<string, unknown>;
     if (local.esModel === 'whisper-small' || local.esModel === 'whisper-base') r.local = { ...local, esModel: 'parakeet-v3' };
+  }
+  // 0.9: the free voices are the natural ones (the system's own voice is their stand-in now). A
+  // system voice id means nothing to them: the voice starts as the default (female).
+  for (const d of ['out', 'in'] as const) {
+    const c = r[d] as Record<string, unknown> | undefined;
+    if (c && typeof c === 'object' && c.tts === 'system') r[d] = { ...c, tts: 'local', voice: c.voice === 'male' || c.voice === 'female' ? c.voice : '' };
   }
   return r;
 }

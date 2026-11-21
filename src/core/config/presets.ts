@@ -25,14 +25,14 @@ export const PRESETS: ProviderPreset[] = [
   {
     id: 'free',
     name: '免费方案',
-    description: '本机离线识别 + 本机 AI 翻译 + 系统自带语音。不用任何 Key，不联网也能用（第一次自动下载模型）。',
+    description: '本机离线识别 + 本机 AI 翻译 + 本机自然人声。不用任何 Key，不联网也能用（第一次自动下载模型）。',
     cost: '0 元 · 不用 Key',
     quality: 2,
     needs: [],
     // (The download size is checked against the models in tests/core/presets.test.ts.)
-    card: { accuracy: '翻译和云端大模型相当；西语识别错词约 3%', voice: '电脑自带的声音', takes: '第一次下载约 2.2 GB，下完才能开会；之后不联网也能用' },
-    out: { asr: 'local', mt: 'local-ai', tts: 'system' },
-    in: { asr: 'local', mt: 'local-ai', tts: 'system' },
+    card: { accuracy: '翻译和云端大模型相当；西语识别错词约 3%', voice: '自然人声，男声女声可选', takes: '第一次下载约 2.6 GB，识别和翻译下完就能开会；之后不联网也能用' },
+    out: { asr: 'local', mt: 'local-ai', tts: 'local' },
+    in: { asr: 'local', mt: 'local-ai', tts: 'local' },
     llmPreset: 'zhipu-free',
   },
   {

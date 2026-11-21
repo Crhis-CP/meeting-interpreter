@@ -23,6 +23,11 @@ Third-party components used at runtime:
   downloaded on first use for Spanish and English recognition. Not modified.
 - Tencent Hy-MT2-1.8B translation model (Apache License 2.0), GGUF downloaded on first use,
   run with node-llama-cpp (MIT) / llama.cpp (MIT).
+- Kokoro-82M text-to-speech model by hexgrad (Apache License 2.0,
+  https://huggingface.co/hexgrad/Kokoro-82M), in the ONNX conversion by the sherpa-onnx project
+  with its word lists and Chinese text-normalisation rules (Apache License 2.0) and the jieba
+  dictionary (MIT) (https://huggingface.co/csukuangfj/kokoro-multi-lang-v1_0), downloaded on first
+  use for the natural voices. Not modified.
 - Mozilla Firefox Translations models and bergamot-translator (MPL-2.0), downloaded on first use.
 - Microsoft Cognitive Services Speech SDK for JavaScript (MIT).
 - pinyin-pro (MIT), zod (MIT), ws (MIT), qrcode (MIT), selfsigned (MIT), React (MIT), Electron (MIT).

@@ -226,6 +226,8 @@ export interface RendererApi {
   providers: {
     test(scope: 'out' | 'in' | 'llm'): Promise<ProviderTestStep[]>;
     voices(provider: string, lang: string): Promise<VoiceInfo[]>;
+    /** A sample sentence in this voice (16-bit PCM), to listen to before choosing. */
+    preview(provider: string, lang: string, voice: string): Promise<{ pcm: ArrayBuffer; sampleRate: number }>;
   };
   /** “用我的声音”: clone the user's voice from a recorded WAV (百炼), or remove it. */
   voice: {
@@ -304,7 +306,7 @@ export interface RendererEvents {
 
 export interface StorageItem {
   id: string;
-  kind: 'asr' | 'ai' | 'mt' | 'tool' | 'logs' | 'cache';
+  kind: 'asr' | 'ai' | 'tts' | 'mt' | 'tool' | 'logs' | 'cache';
   name: string;
   /** On disk now. */
   bytes: number;

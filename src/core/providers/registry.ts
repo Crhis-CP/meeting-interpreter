@@ -7,7 +7,8 @@ import { DashscopeAsr, DashscopeTts, QwenMtTranslator, type DashscopeConfig } fr
 import { DeeplTranslator } from './deepl';
 import { OfflineTranslator, type OfflineMtEngine } from './offline-translator';
 import { LocalAiTranslator, type LocalAiEngine } from './local-ai-translator';
-import { DashscopeCloneTts, FallbackTts } from './dashscope/voice-clone';
+import { DashscopeCloneTts } from './dashscope/voice-clone';
+import { FallbackTts } from './fallback-tts';
 import { FallbackAsr } from './fallback-asr';
 import { LlmTranslator } from './llm-translator';
 import { MockAsr, MockLlm, MockTranslator, MockTts } from './mock';
@@ -17,6 +18,8 @@ import { ProviderError, type Llm, type ProviderContext, type StreamingAsr, type 
 export interface ProviderExtras {
   /** OS voices (main process only). */
   systemTts?: () => Tts;
+  /** The natural voices (desktop): with the system voice standing in until they are downloaded. */
+  localTts?: () => Tts;
   /** Offline recogniser for a language (main process only). */
   localAsr?: (dir: Direction) => StreamingAsr;
   /** Offline translation engine (Mozilla models in a browser context). */
@@ -183,6 +186,9 @@ export function createProviders(
       }
       case 'azure':
         return new AzureTts(azureConfig(settings, secrets), ctx);
+      case 'local':
+        if (!extras.localTts) throw new ProviderError('自然人声只在电脑版可用', 'local');
+        return extras.localTts();
       case 'system':
         if (!extras.systemTts) throw new ProviderError('系统语音只在桌面版可用', 'system');
         return extras.systemTts();

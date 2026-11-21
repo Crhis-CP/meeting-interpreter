@@ -22,7 +22,7 @@ const api: RendererApi = {
   uninstall: ns('uninstall', ['plan', 'run']),
   meetings: ns('meetings', ['list', 'get', 'summarize', 'rename', 'remove', 'openFolder', 'openFile', 'fileUrl', 'editSegment', 'review', 'decide', 'undo', 'forgetTerm']),
   profile: ns('profile', ['get', 'script', 'calibrate', 'addCorrection', 'removeCorrection', 'exportFile', 'importFile', 'reset', 'openFolder']),
-  providers: ns('providers', ['test', 'voices']),
+  providers: ns('providers', ['test', 'voices', 'preview']),
   voice: ns('voice', ['create', 'remove']),
   mt: ns('mt', ['status', 'download']),
   ai: ns('ai', ['status', 'download']),

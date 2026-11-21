@@ -129,7 +129,7 @@ async function renderSettings(body: HTMLElement) {
           h('div', { class: 'grid3' },
             field('识别', select(c.asr, [['local', '本机（桌面客户端，免费）'], ['dashscope', '阿里云百炼'], ['azure', 'Azure'], ['demo', '演示']], (v) => upd({ asr: v }))),
             field('翻译', select(c.mt, [['local-ai', '本机 AI 翻译（桌面客户端，免费）'], ['offline', '离线翻译（免费）'], ['llm', '大模型'], ['qwen-mt', '百炼翻译'], ['deepl', 'DeepL'], ['azure-translator', 'Azure 翻译'], ['demo', '演示']], (v) => upd({ mt: v }))),
-            field('发音', select(c.tts, [['system', '电脑自带声音（免费）'], ['dashscope', '阿里云百炼'], ['azure', 'Azure'], ['none', '不发音'], ['demo', '演示']], (v) => upd({ tts: v }))),
+            field('发音', select(c.tts, [['local', '电脑版的自然人声（免费）'], ['dashscope', '阿里云百炼'], ['azure', 'Azure'], ['none', '不发音'], ['demo', '演示']], (v) => upd({ tts: v }))),
           ),
         ),
       );
@@ -229,11 +229,11 @@ async function renderSettings(body: HTMLElement) {
   moreBody.append(
     s.out.tts === 'dashscope' || s.out.tts === 'azure'
       ? field('对方听到的声音', select(s.out.voice, voiceOptions(s.out.tts, s.remote), (v) => void set({ out: { ...s.out, voice: v } })))
-      : s.out.tts === 'system'
+      : s.out.tts === 'local'
         ? systemVoiceSelect(s, set)
         : '',
     toggle(s.playOriginal, '听对方的原声', (v) => set({ playOriginal: v })),
-    toggle(s.speakIn, '用中文读出对方的话', (v) => set({ speakIn: v })),
+    toggle(s.speakIn, '听中文译音', (v) => set({ speakIn: v })),
     toggle(s.showMine, '字幕里显示我说的话', (v) => set({ showMine: v })),
     toggle(s.pinyinFuzzy, '术语近音纠错', (v) => set({ pinyinFuzzy: v })),
     field(`字幕字号 ${s.subtitleSize}`, h('input', { type: 'range', min: 14, max: 40, value: s.subtitleSize, onchange: (e: Event) => void set({ subtitleSize: Number((e.target as HTMLInputElement).value) }) })),
@@ -334,7 +334,7 @@ function offlineMtRow(): HTMLElement {
   return row;
 }
 
-/** Voices installed on the computer, listed by the desktop app. */
+/** The desktop app's voices (its natural voices: 女声 / 男声). */
 function systemVoiceSelect(s: ExtSettings, set: (p: Partial<ExtSettings>) => Promise<void>) {
   const sel = select(s.out.voice, [['', '默认']], (v) => void set({ out: { ...s.out, voice: v } }));
   const wrap = field('对方听到的声音', sel);
@@ -342,7 +342,9 @@ function systemVoiceSelect(s: ExtSettings, set: (p: Partial<ExtSettings>) => Pro
     try {
       const res = await fetch(`http://127.0.0.1:${DESKTOP_BRIDGE_PORT}/voices?lang=${encodeURIComponent(s.remote)}`);
       const voices = (await res.json()) as { id: string; name: string }[];
-      for (const v of voices) sel.append(h('option', { value: v.id, selected: v.id === s.out.voice }, v.name));
+      // 女声 is the default of the natural voices: one choice for it, not two.
+      if (voices.some((v) => v.id === 'female')) sel.querySelector('option[value=""]')?.remove();
+      for (const v of voices) sel.append(h('option', { value: v.id, selected: v.id === s.out.voice || (v.id === 'female' && !s.out.voice) }, v.name));
     } catch {
       // desktop app not running: only the default
     }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PLANS, preset } from '@core/config/presets';
 import { MODELS } from '../../src/main/providers/local-asr/models';
 import { AI_MODELS } from '../../src/main/providers/local-ai/model';
+import { TTS_MODELS } from '../../src/main/providers/neural-tts/models';
 import manifest from '../../src/browser/offline-mt/manifest.json';
 
 describe('plan cards', () => {
@@ -15,6 +16,7 @@ describe('plan cards', () => {
     const bytes =
       ['silero-vad', 'sensevoice', 'parakeet-v3'].reduce((n, id) => n + MODELS[id as keyof typeof MODELS].files.reduce((m, f) => m + f.size, 0), 0) +
       AI_MODELS['hy-mt2-1.8b'].files.reduce((m, f) => m + f.size, 0) +
+      TTS_MODELS['kokoro-v1.0'].files.reduce((m, f) => m + f.size, 0) +
       (manifest as { files: { size: number }[] }).files.reduce((m, f) => m + f.size, 0);
     const said = Number(/约 ([\d.]+) GB/.exec(preset('free')!.card!.takes)![1]);
     expect(Math.abs(said - bytes / 1e9)).toBeLessThan(0.1);

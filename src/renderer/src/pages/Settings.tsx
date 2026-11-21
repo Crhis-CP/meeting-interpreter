@@ -137,6 +137,17 @@ function VoiceSelect({ provider, langCode, value, onChange }: { provider: string
     void api.providers.voices(provider, langCode).then(setVoices);
   }, [provider, langCode]);
   if (provider === 'none') return null;
+  // The natural voices: just 女声 / 男声 (female is the default).
+  if (provider === 'local')
+    return (
+      <select value={value === 'male' ? 'male' : 'female'} onChange={(e) => onChange(e.target.value)}>
+        {voices.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.name}
+          </option>
+        ))}
+      </select>
+    );
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">默认音色</option>
@@ -146,6 +157,61 @@ function VoiceSelect({ provider, langCode, value, onChange }: { provider: string
         </option>
       ))}
     </select>
+  );
+}
+
+/** Plays a sample sentence in the chosen voice. */
+function PreviewButton({ provider, langCode, voice }: { provider: string; langCode: string; voice: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const play = async () => {
+    setError('');
+    setBusy(true);
+    try {
+      const { pcm, sampleRate } = await api.providers.preview(provider, langCode, voice);
+      const samples = new Int16Array(pcm);
+      const ac = new AudioContext();
+      const buf = ac.createBuffer(1, samples.length, sampleRate);
+      const ch = buf.getChannelData(0);
+      for (let i = 0; i < samples.length; i++) ch[i] = samples[i]! / 32768;
+      const src = ac.createBufferSource();
+      src.buffer = buf;
+      src.connect(ac.destination);
+      src.onended = () => void ac.close();
+      src.start();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <button data-test="safe" className="btn sm" disabled={busy} onClick={() => void play()}>{busy ? '正在生成…' : '试听'}</button>
+      {error && <span className="small" style={{ color: 'var(--ink-3)' }} role="alert">{error}</span>}
+    </>
+  );
+}
+
+/** What each side hears: the voice (女声 / 男声 for the natural voices) and a sample to listen to. */
+function VoicesCard({ s, update }: TabProps) {
+  const rows = (['out', 'in'] as const).filter((d) => s[d].enabled && s[d].tts !== 'none' && s[d].tts !== 'demo');
+  if (!rows.length) return null;
+  const short: Record<string, string> = { zh: '中文', es: '西语', en: '英语' };
+  return (
+    <div className="card">
+      <h3>声音</h3>
+      {rows.map((d) => {
+        const dst = d === 'out' ? s.languages.remote : s.languages.self;
+        return (
+          <div key={d} className="row" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
+            <span style={{ minWidth: 150 }}>{d === 'out' ? `对方听到的${short[lang(dst).base] ?? lang(dst).nameZh}` : `我听到的${short[lang(dst).base] ?? lang(dst).nameZh}`}</span>
+            <VoiceSelect provider={s[d].tts} langCode={dst} value={s[d].voice} onChange={(v) => void update({ [d]: { voice: v } })} />
+            <PreviewButton provider={s[d].tts} langCode={dst} voice={s[d].voice} />
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -166,7 +232,7 @@ function LocalModelsCard({ go }: { go?: (tab: Tab) => void }) {
     const t = setInterval(load, 2000);
     return () => clearInterval(t);
   }, [info]);
-  const used = (info?.items ?? []).filter((i) => i.inUse && (i.kind === 'asr' || i.kind === 'ai' || i.kind === 'mt'));
+  const used = (info?.items ?? []).filter((i) => i.inUse && (i.kind === 'asr' || i.kind === 'ai' || i.kind === 'tts' || i.kind === 'mt'));
   if (!used.length) return null;
   const ready = used.filter((i) => i.state === 'ready').length;
   const downloading = used.some((i) => i.state === 'downloading');
@@ -457,11 +523,12 @@ function ProvidersTab({ s, update, go }: TabProps) {
 
       {(s.preset === 'free' || s.out.mt === 'local-ai' || s.in.mt === 'local-ai') && <AiMtCard s={s} update={update} />}
       <LocalModelsCard go={go} />
+      <VoicesCard s={s} update={update} />
       {s.out.tts === 'dashscope' && <MyVoiceCard s={s} update={update} />}
 
       <div className="card">
         <h3>Chrome 插件</h3>
-        <Toggle checked={s.bridge.enabled} onChange={(v) => void update({ bridge: { enabled: v } })} label="让 Chrome 插件使用本机识别、AI 翻译和系统语音" />
+        <Toggle checked={s.bridge.enabled} onChange={(v) => void update({ bridge: { enabled: v } })} label="让 Chrome 插件使用本机识别、AI 翻译和自然人声" />
       </div>
 
       <div className="card">
@@ -496,15 +563,14 @@ function ProvidersTab({ s, update, go }: TabProps) {
                   <select value={c.tts} onChange={(e) => void update({ [d]: { tts: e.target.value, voice: '' }, preset: 'custom' })}>
                     <option value="dashscope">阿里云百炼（自然人声）</option>
                     <option value="azure">Azure 神经网络语音</option>
-                    <option value="system">系统自带语音（免费）</option>
-                    <option value="none">不发声（只出字幕）</option>
+                    <option value="local">本机自然人声（免费）</option>
+                    {c.tts === 'system' && <option value="system">系统自带语音</option>}
+                    {/* Hearing the Chinese or not is the meeting page's “听中文译音” switch (one place). */}
+                    {c.tts === 'none' && <option value="none">不发声（只出字幕）</option>}
                     <option value="demo">演示</option>
                   </select>
                 </Field>
               </div>
-              <Field label={`${lang(dst).nameZh}音色`}>
-                <VoiceSelect provider={c.tts} langCode={dst} value={c.voice} onChange={(v) => void update({ [d]: { voice: v } })} />
-              </Field>
               <TestPanel scope={d} label={d === 'out' ? '测试 中→西' : '测试 西→中'} />
             </div>
           );

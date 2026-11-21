@@ -21,7 +21,8 @@ export function offlineMt(): OfflineMt {
 export function buildProviders(settings: ExtSettings, secrets: Secrets, ctx: ProviderContext, glossary: () => GlossaryEntry[], opts: { desktopAi?: boolean } = {}): Providers {
   return createProviders(toAppSettings(settings), secrets, ctx, glossary, {
     localAsr: () => new DesktopBridgeAsr(ctx),
-    systemTts: () => new DesktopBridgeTts(ctx),
+    // The desktop app's natural voices (its own system voice stands in until they are downloaded).
+    localTts: () => new DesktopBridgeTts(ctx),
     offlineMt: { translate: (text, from, to) => offlineMt().translate(text, from, to) },
     // "本机 AI 翻译" runs in the desktop app; without it the in-browser offline models translate.
     localAiTranslator: () => (opts.desktopAi ? new DesktopBridgeTranslator(ctx) : null),
@@ -35,5 +36,5 @@ export function usesLocalAi(s: ExtSettings): boolean {
 
 /** Whether the settings use the desktop app. */
 export function usesDesktop(s: ExtSettings): boolean {
-  return [s.out.asr, s.in.asr].includes('local') || [s.out.tts, s.in.tts].includes('system');
+  return [s.out.asr, s.in.asr].includes('local') || [s.out.tts, s.in.tts].includes('local');
 }

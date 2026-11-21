@@ -287,7 +287,7 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
             </div>
             <div className="partial" aria-live="polite">{partials.in}</div>
             <div className="row" style={{ marginTop: 8 }}>
-              <Toggle checked={state.in.speak} onChange={(v) => void api.meeting.setInSpeak(v)} label={`朗读${selfName}译音`} />
+              <Toggle checked={state.in.speak} onChange={(v) => void api.meeting.setInSpeak(v)} label={`听${selfName}译音`} />
               <button className="btn sm" onClick={() => void api.app.showWindow('overlay')}>
                 字幕窗
               </button>

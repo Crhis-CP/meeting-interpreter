@@ -201,40 +201,5 @@ export class DashscopeCloneTts implements Tts {
   }
 }
 
-/**
- * Speaks with the cloned voice and, should that fail (voice deleted, model not enabled), falls back
- * to the stock voice for the rest of the meeting so the other side keeps hearing the translation.
- */
-export class FallbackTts implements Tts {
-  readonly id: string;
-  private broken = false;
-  constructor(
-    private readonly primary: Tts,
-    private readonly fallback: Tts,
-    private readonly onFallback?: (err: unknown) => void,
-  ) {
-    this.id = primary.id;
-  }
-
-  voices(l: LangCode): VoiceInfo[] {
-    return this.primary.voices(l);
-  }
-
-  async *synthesize(req: TtsRequest): AsyncIterable<PcmChunk> {
-    if (!this.broken) {
-      let got = false;
-      try {
-        for await (const c of this.primary.synthesize(req)) {
-          got = true;
-          yield c;
-        }
-        return;
-      } catch (err) {
-        if (got || req.signal?.aborted) throw err;
-        this.broken = true;
-        this.onFallback?.(err);
-      }
-    }
-    yield* this.fallback.synthesize({ ...req, voice: undefined });
-  }
-}
+/** (Moved: also used by the natural voices.) */
+export { FallbackTts } from '../fallback-tts';

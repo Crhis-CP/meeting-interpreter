@@ -25,4 +25,10 @@ describe('settings saved by older versions', () => {
     }
     expect(parseSettings({}).local.esModel).toBe('parakeet-v3');
   });
+
+  it('moves the free voices from the system voice to the natural voices (the system voice is their stand-in); keeps the rest', () => {
+    const s = parseSettings({ out: { asr: 'local', mt: 'local-ai', tts: 'system', voice: 'com.apple.voice.compact.es-MX.Paulina' }, in: { asr: 'dashscope', mt: 'qwen-mt', tts: 'dashscope', voice: 'Cherry' } });
+    expect(s.out).toMatchObject({ asr: 'local', mt: 'local-ai', tts: 'local', voice: '' });
+    expect(s.in).toMatchObject({ tts: 'dashscope', voice: 'Cherry' });
+  });
 });

@@ -49,8 +49,8 @@ export interface ExtSettings {
 export const DEFAULT_SETTINGS: ExtSettings = {
   remote: 'es-MX',
   providers: 'free',
-  out: { asr: 'local', mt: 'local-ai', tts: 'system', voice: '' },
-  in: { asr: 'local', mt: 'local-ai', tts: 'system', voice: '' },
+  out: { asr: 'local', mt: 'local-ai', tts: 'local', voice: '' },
+  in: { asr: 'local', mt: 'local-ai', tts: 'local', voice: '' },
   llm: { preset: 'zhipu-free', baseUrl: '', model: '' },
   dashscopeRegion: 'cn',
   azureRegion: 'eastasia',
@@ -67,7 +67,7 @@ export const DEFAULT_SETTINGS: ExtSettings = {
 
 /** Provider choices per preset; `custom` keeps the user's own per-direction choices. */
 export const PROVIDER_SETS: Record<Exclude<ProviderSet, 'custom'>, { asr: string; mt: string; tts: string }> = {
-  free: { asr: 'local', mt: 'local-ai', tts: 'system' },
+  free: { asr: 'local', mt: 'local-ai', tts: 'local' },
   dashscope: { asr: 'dashscope', mt: 'qwen-mt', tts: 'dashscope' },
   azure: { asr: 'azure', mt: 'azure-translator', tts: 'azure' },
   demo: { asr: 'demo', mt: 'demo', tts: 'demo' },
@@ -83,12 +83,15 @@ export function withDefaults(s: Partial<ExtSettings> | undefined): ExtSettings {
     v.out = { ...v.out, ...p };
     v.in = { ...v.in, ...p };
   }
+  // Before 0.9 the desktop app's voices were 'system' (its own system voices; their ids mean nothing now).
+  for (const d of ['out', 'in'] as const) if (v[d].tts === 'system') v[d] = { ...v[d], tts: 'local', voice: v[d].voice === 'male' ? 'male' : '' };
   return v;
 }
 
 /** The core engine's settings for these extension settings. */
 export function toAppSettings(s: ExtSettings): AppSettings {
-  const tts = (t: string) => (t === 'none' || t === 'dashscope' || t === 'azure' || t === 'demo' || t === 'system' ? t : 'none');
+  // ('system': the name of the desktop app's voices before 0.9.)
+  const tts = (t: string) => (t === 'system' ? 'local' : t === 'none' || t === 'dashscope' || t === 'azure' || t === 'demo' || t === 'local' ? t : 'none');
   return parseSettings({
     onboarded: true,
     preset: s.providers === 'demo' ? 'demo' : 'custom',

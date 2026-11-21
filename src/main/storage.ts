@@ -23,6 +23,8 @@ export interface StorageDeps {
   recordsDir: string;
   asr: ModelSource;
   ai: ModelSource;
+  /** The natural voices. */
+  tts?: ModelSource;
   /** Models the current settings use. */
   inUse: Set<string>;
   /** Names to show (fallback: the model's label, then its id). */
@@ -35,7 +37,7 @@ export interface StorageDeps {
 /** Chromium's own caches in the data folder (safe to clear; rebuilt as needed). */
 export const CACHE_DIRS = ['Cache', 'Code Cache', 'GPUCache', 'DawnGraphiteCache', 'DawnWebGPUCache', 'Shared Dictionary', join('Service Worker', 'CacheStorage')];
 
-function modelItems(src: ModelSource, kind: 'asr' | 'ai', d: StorageDeps): StorageItem[] {
+function modelItems(src: ModelSource, kind: 'asr' | 'ai' | 'tts', d: StorageDeps): StorageItem[] {
   const items: StorageItem[] = [];
   for (const id of src.ids()) {
     const bytes = src.bytesOnDisk(id);
@@ -57,7 +59,7 @@ function modelItems(src: ModelSource, kind: 'asr' | 'ai', d: StorageDeps): Stora
 }
 
 export function collectStorage(d: StorageDeps): StorageInfo {
-  const items: StorageItem[] = [...modelItems(d.asr, 'asr', d), ...modelItems(d.ai, 'ai', d)];
+  const items: StorageItem[] = [...modelItems(d.asr, 'asr', d), ...modelItems(d.ai, 'ai', d), ...(d.tts ? modelItems(d.tts, 'tts', d) : [])];
   // Offline translation lives in the app's browser storage (IndexedDB) inside the data folder.
   const mtBytes = dirBytes(join(d.dataDir, 'IndexedDB'));
   if (mtBytes || d.offlineMt.inUse || d.offlineMt.downloading) {

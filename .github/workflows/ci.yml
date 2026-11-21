@@ -82,20 +82,23 @@ jobs:
       - name: AI translation model (pinned commit, SHA-256 checked)
         shell: bash
         run: echo "MI_AI_MODEL=$(npx tsx --tsconfig tsconfig.node.json scripts/dev/fetch-ai-model.mts ai-model)" >> "$GITHUB_ENV"
-      # The recognition models (VAD, SenseVoice, Parakeet), downloaded and hash-checked by the
-      # app's own model manager in the tests; cached by the commits they are pinned to.
+      # The recognition models (VAD, SenseVoice, Parakeet) and the natural voices (Kokoro),
+      # downloaded and hash-checked by the app's own model manager in the tests; cached by the
+      # commits they are pinned to.
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: asr-models
-          key: asr-vad-fba88cd-sensevoice-2365bae-parakeet-ed5d745
+          key: asr-vad-fba88cd-sensevoice-2365bae-parakeet-ed5d745-kokoro-f7b96bb
       - name: Unit tests, with this computer's real voices, the real AI model and the real recognition models
         env:
           MI_REAL_VOICES: '1'
           MI_MODELS_DIR: asr-models
         run: npm test
       - run: npm run build
-      - name: Desktop app end to end, including the real AI model
-        run: npx playwright test e2e/app.spec.ts e2e/buttons.spec.ts e2e/devices.spec.ts e2e/storage.spec.ts e2e/profile.spec.ts e2e/restart.spec.ts e2e/local-ai.spec.ts --trace off
+      - name: Desktop app end to end, including the real AI model and the natural voices
+        env:
+          MI_MODELS_DIR: asr-models
+        run: npx playwright test e2e/app.spec.ts e2e/buttons.spec.ts e2e/devices.spec.ts e2e/storage.spec.ts e2e/profile.spec.ts e2e/restart.spec.ts e2e/local-ai.spec.ts e2e/voices.spec.ts --trace off
       - name: The packaged app (security fuses on, as installed) holds a meeting and translates
         if: always()
         shell: bash

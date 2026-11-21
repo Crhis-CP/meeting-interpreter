@@ -35,6 +35,15 @@ describe('settings', () => {
     expect(custom.out.mt).toBe('llm');
   });
 
+  it('the free voices are the desktop app’s natural voices; settings from before 0.9 move over, keeping 男声', () => {
+    expect(withDefaults({ providers: 'free' }).out.tts).toBe('local');
+    const old = withDefaults({ providers: 'custom', out: { asr: 'local', mt: 'local-ai', tts: 'system', voice: 'male' }, in: { asr: 'local', mt: 'local-ai', tts: 'system', voice: 'Microsoft Helena' } });
+    expect(old.out).toMatchObject({ tts: 'local', voice: 'male' });
+    expect(old.in).toMatchObject({ tts: 'local', voice: '' });
+    const app = toAppSettings(withDefaults({ providers: 'custom', out: { asr: 'local', mt: 'local-ai', tts: 'local', voice: 'male' } }));
+    expect(app.out).toMatchObject({ tts: 'local', voice: 'male' });
+  });
+
   it('maps to engine settings that build providers', () => {
     const app = toAppSettings(withDefaults({ providers: 'dashscope', remote: 'en-GB' }));
     expect(app.languages).toEqual({ self: 'zh-CN', remote: 'en-GB' });
