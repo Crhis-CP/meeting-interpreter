@@ -1,7 +1,7 @@
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, protocol, safeStorage, session, shell, systemPreferences, Tray, utilityProcess } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { cpus, release } from 'node:os';
+import { constants as osConstants, cpus, release, setPriority, totalmem } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { PresetId } from '../core/config/presets';
@@ -15,7 +15,7 @@ import { runCalibration } from '../core/profile/calibrate';
 import { learnFromEdit } from '../core/profile/learn';
 import { addCalibration, addCorrections, mergeProfiles, personalFor, profileHotwords, ProfileSchema, recordConfusions, removeCorrection, userPairs } from '../core/profile/profile';
 import { reviewMeeting as reviewMeetingCore } from '../core/profile/review';
-import { createLogger, setLogSink } from '../core/log';
+import { createLogger, setLogSink, type Logger } from '../core/log';
 import { createProviders, makeLlm, type Providers } from '../core/providers/registry';
 import { azureVoicesFor } from '../core/providers/azure';
 import { DashscopeTts, createClonedVoice, deleteClonedVoice, waitForVoice } from '../core/providers/dashscope';
@@ -141,7 +141,19 @@ function forkWorker(file: string, name: string): Electron.UtilityProcess {
   child.stdout?.on('data', lines('info'));
   child.stderr?.on('data', lines('warn'));
   child.on('exit', (code) => (code ? wlog.warn(`process exited with code ${code}`) : wlog.info('process exited')));
+  // Slightly below normal: when the computer is busy, the meeting app (video, audio) goes first and
+  // we right after it — never the other way round.
+  child.once('spawn', () => lowerPriority(child.pid, wlog));
   return child;
+}
+
+function lowerPriority(pid: number | undefined, l: Logger): void {
+  if (!pid) return;
+  try {
+    setPriority(pid, osConstants.priority.PRIORITY_BELOW_NORMAL);
+  } catch (err) {
+    l.debug('could not lower the priority', err instanceof Error ? err.message : String(err));
+  }
 }
 
 const localAi = (): LocalAiClient | null => {
@@ -598,7 +610,12 @@ const handlers: Record<string, Handler> = {
       models: ids.map((id) => ({ id, ready: aiModels.status(id) === 'ready', sizeMb: Math.round(AI_MODELS[id].files[0]!.size / 1_000_000), downloading: aiPrefetch?.id === id })),
     };
   },
-  'ai.download': (id?: AiModelId) => prefetchAi(id && id in AI_MODELS ? id : settings.get().local.aiModel),
+  'ai.download': (id?: AiModelId) => {
+    const want = id && id in AI_MODELS ? id : settings.get().local.aiModel;
+    // The 7B model takes about 6 GB while it runs: on a smaller computer everything would swap.
+    if (want === 'hy-mt2-7b' && totalmem() < 15 * 1024 ** 3) throw new Error(`这台电脑内存 ${Math.round(totalmem() / 1024 ** 3)} GB，“更准”的模型需要 16 GB 以上，会拖慢整台电脑（包括会议软件）。“标准”模型已经足够准。`);
+    return prefetchAi(want);
+  },
   'mt.download': () => offlineMt.download(),
   'audio.installDriver': () => {
     // Installing makes the system's sound drop for a moment (and may switch devices): never mid-meeting.
@@ -633,6 +650,7 @@ const handlers: Record<string, Handler> = {
     recordsDir: recordsDir(),
     dataDir,
     osVersion: release(),
+    memoryGb: Math.round(totalmem() / 1024 ** 3),
   }),
   'app.openExternal': (url: string) => {
     // Web links, and the OS privacy/sound/firewall settings pages we point people to.

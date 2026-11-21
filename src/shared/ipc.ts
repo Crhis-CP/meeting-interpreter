@@ -127,6 +127,8 @@ export interface AppInfo {
   recordsDir: string;
   dataDir: string;
   osVersion: string;
+  /** Installed memory, GB (rounded). */
+  memoryGb: number;
 }
 
 export interface ScreenSource {

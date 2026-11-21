@@ -31,6 +31,9 @@ export function AccentCalibrationCard({ s, update }: { s: AppSettings; update: (
   const [error, setError] = useState('');
   const [level, setLevel] = useState(0);
   const audio = useRef<Int16Array[]>([]);
+  /** The microphone in use: released when the card goes away (another page) or a new sentence starts. */
+  const rec = useRef<Recording | null>(null);
+  useEffect(() => () => rec.current?.cancel(), []);
   useEvent('calibration-progress', (p) => setStep((st) => (st.kind === 'analysing' ? { kind: 'analysing', ...p } : st)));
   useEffect(() => {
     if (step.kind !== 'reading' || !step.recording) return;
@@ -47,8 +50,12 @@ export function AccentCalibrationCard({ s, update }: { s: AppSettings; update: (
   };
   const record = async (i: number) => {
     setError('');
+    rec.current?.cancel();
+    rec.current = null;
     try {
-      setStep({ kind: 'reading', i, recording: await startRecording() });
+      const r = await startRecording(s.devices.mic);
+      rec.current = r;
+      setStep({ kind: 'reading', i, recording: r });
     } catch (err) {
       setError(`无法使用麦克风：${errMsg(err)}`);
     }

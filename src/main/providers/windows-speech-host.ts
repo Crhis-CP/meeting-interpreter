@@ -6,6 +6,7 @@
  * Starting powershell.exe and loading System.Speech costs about a second; this pays it once.
  * If the host does not come up or misbehaves, SystemTts falls back to one process per sentence.
  */
+import { constants as osConstants, setPriority } from 'node:os';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { POWERSHELL_ARGS } from './system-tts-args';
 
@@ -64,7 +65,18 @@ export class WindowsSpeechHost {
   broken = false;
 
   constructor(
-    private readonly spawnHost: Spawn = () => spawn('powershell.exe', POWERSHELL_ARGS, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }),
+    private readonly spawnHost: Spawn = () => {
+      const child = spawn('powershell.exe', POWERSHELL_ARGS, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+      // Slightly below normal, like the other workers: the meeting app goes first when the computer is busy.
+      child.once('spawn', () => {
+        try {
+          if (child.pid) setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL);
+        } catch {
+          /* not allowed: keep normal priority */
+        }
+      });
+      return child;
+    },
     // A cold PowerShell (first start after boot, antivirus scanning) took 24 s on a CI machine.
     private readonly timeouts = { startMs: 60_000, jobMs: 60_000 },
   ) {}

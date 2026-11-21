@@ -77,3 +77,32 @@ test('accent calibration, then correcting a sentence teaches the profile', async
   await expect(row).toHaveCount(0);
   await app.close();
 });
+
+test('accent calibration: leaving the page mid-sentence gives the microphone back', async () => {
+  const { app } = await launchApp();
+  const win = await mainWindow(app);
+  await win.waitForLoadState('domcontentloaded');
+  // Count the microphone tracks this window opens.
+  await win.evaluate(() => {
+    const md = (globalThis as unknown as { navigator: { mediaDevices: { getUserMedia(c: unknown): Promise<{ getTracks(): { readyState: string }[] }> } } }).navigator.mediaDevices;
+    const tracks: { readyState: string }[] = [];
+    const original = md.getUserMedia.bind(md);
+    md.getUserMedia = async (c) => {
+      const s = await original(c);
+      tracks.push(...s.getTracks());
+      return s;
+    };
+    (globalThis as unknown as { liveMics: () => number }).liveMics = () => tracks.filter((t) => t.readyState === 'live').length;
+  });
+  const liveMics = () => win.evaluate(() => (globalThis as unknown as { liveMics: () => number }).liveMics());
+  await win.locator('.nav-item', { hasText: '设置' }).click();
+  await win.getByRole('tab', { name: '同传与语言' }).click();
+  await win.getByRole('button', { name: '开始校准' }).click();
+  await win.getByRole('button', { name: '开始录音' }).click();
+  await expect(win.getByRole('button', { name: /^读完了/ })).toBeVisible();
+  await expect.poll(liveMics).toBe(1);
+  // Off to another page while recording: the microphone (and its indicator) must go off.
+  await win.locator('.nav-item', { hasText: '术语表' }).click();
+  await expect.poll(liveMics).toBe(0);
+  await app.close();
+});

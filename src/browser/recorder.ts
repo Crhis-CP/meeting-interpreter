@@ -12,8 +12,15 @@ export interface Recording {
   cancel(): void;
 }
 
-export async function startRecording(): Promise<Recording> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+/**
+ * @param deviceId the chosen microphone ('' = system default; one that is unplugged falls back to it)
+ * @param maxSeconds recording stops collecting after this (a forgotten recording never grows without end)
+ */
+export async function startRecording(deviceId = '', maxSeconds = 60): Promise<Recording> {
+  const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+  const stream = await navigator.mediaDevices
+    .getUserMedia({ audio: deviceId ? { ...audio, deviceId: { exact: deviceId } } : audio })
+    .catch((err: unknown) => (deviceId ? navigator.mediaDevices.getUserMedia({ audio }) : Promise.reject(err)));
   const ctx = new AudioContext();
   await ctx.resume();
   const src = ctx.createMediaStreamSource(stream);
@@ -25,14 +32,19 @@ export async function startRecording(): Promise<Recording> {
   let total = 0;
   proc.onaudioprocess = (e) => {
     const d = e.inputBuffer.getChannelData(0);
-    parts.push(new Float32Array(d));
-    total += d.length;
+    if (total < maxSeconds * ctx.sampleRate) {
+      parts.push(new Float32Array(d));
+      total += d.length;
+    }
     let peak = 0;
     for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]!));
     level = peak;
   };
   src.connect(proc).connect(mute).connect(ctx.destination);
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
     src.disconnect();
     proc.disconnect();
     for (const t of stream.getTracks()) t.stop();

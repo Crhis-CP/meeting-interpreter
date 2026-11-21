@@ -247,7 +247,10 @@ function AiMtCard({ s, update }: TabProps) {
     api.ai.download(id).catch((e) => setError(errMsg(e))).finally(load);
   };
   const appleSilicon = info?.platform === 'darwin' && info.arch === 'arm64';
-  const rows = st?.models.filter((m) => m.id === 'hy-mt2-1.8b' || appleSilicon) ?? [];
+  // The 7B model needs a fast GPU and about 6 GB while it runs: offered on Apple silicon with 16 GB+
+  // (a downloaded one is still shown, so it can be used or removed).
+  const bigEnough = appleSilicon && (info?.memoryGb ?? 0) >= 16;
+  const rows = st?.models.filter((m) => m.id === 'hy-mt2-1.8b' || bigEnough || m.ready) ?? [];
   const using = s.out.mt === 'local-ai' && s.in.mt === 'local-ai';
   const anyReady = rows.some((m) => m.ready);
   return (
