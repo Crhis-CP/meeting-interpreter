@@ -9,6 +9,7 @@ import { base64ToBytes, bytesToBase64, bytesToInt16, floatToInt16, int16ToBytes,
 import { otherLanguage } from '@core/lang/languages';
 import { slowTranslationNotice, type DirectionPipeline } from '@core/pipeline/pipeline';
 import { createDirection } from '@core/pipeline/direction';
+import { Talk } from '@core/pipeline/talk';
 import { Transcript } from '@core/session/transcript';
 import type { Direction, MeetingMeta, TranscriptSegment } from '@core/types';
 import { consoleLogger, createBrowserContext } from './browser-context';
@@ -168,6 +169,8 @@ async function start(msg: Extract<ToOffscreen, { type: 'start' }>) {
     // An offline draft in front of a cloud / LLM translator, when the models are in this browser.
     const draft = (await offlineMt().missingBytes().catch(() => 1)) === 0 ? new OfflineTranslator({ translate: (t, f, to) => offlineMt().translate(t, f, to) }) : undefined;
     const translators = { out: providers.mt('out'), in: providers.mt('in') };
+    // What both sides say, for the translations that depend on it (one per session).
+    const talk = new Talk();
     for (const dir of ['out', 'in'] as const) {
       const src = dir === 'out' ? settings.languages.self : settings.languages.remote;
       const dst = otherLanguage(src, settings.languages.remote);
@@ -177,6 +180,7 @@ async function start(msg: Extract<ToOffscreen, { type: 'start' }>) {
         // What is still waiting to play, asked each time (it counts down while it plays).
         backlog: () => (!session ? 0 : dir === 'out' ? Math.max(0, (session.outPlayedUntil - Date.now()) / 1000) : session.inPlayer.backlog()),
         speaker: dir === 'out' ? 'me' : 'them',
+        talk,
         idPrefix: dir,
         srcLang: src,
         dstLang: dst,

@@ -4,6 +4,7 @@
 import { EventEmitter } from 'node:events';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
+import { Talk } from '../../src/core/pipeline/talk';
 import { LocalAiTranslator } from '../../src/core/providers/local-ai-translator';
 import { LocalAiClient } from '../../src/main/providers/local-ai/client';
 import { attachAiWorker } from '../../src/main/providers/local-ai/worker';
@@ -34,10 +35,14 @@ const t0 = Date.now();
 await client.ready();
 const loadMs = Date.now() - t0;
 const t = new LocalAiTranslator(client);
+// As in a meeting: each sentence sees what both sides said before it (NO_CONTEXT=1: without).
+const talk = new Talk(process.env.TALK ? (JSON.parse(process.env.TALK) as { max: number; keep: number; maxChars: number }) : {});
 const rows: { from: string; to: string; src: string; out: string; ms: number }[] = [];
 for (const [f, to, text] of order) {
   const s = Date.now();
-  const out = await t.translate({ text, from: code[f]!, to: code[to]!, hits: [], context: [] });
+  const history = process.env.NO_CONTEXT ? [] : talk.window();
+  talk.add({ who: f === 'zh' ? 'me' : 'them', text });
+  const out = await t.translate({ text, from: code[f]!, to: code[to]!, hits: [], context: [], history });
   const ms = Date.now() - s;
   rows.push({ from: f, to, src: text, out, ms });
   console.log(`${f}→${to} ${String(ms).padStart(5)} ms | ${out}`);

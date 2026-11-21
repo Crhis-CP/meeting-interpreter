@@ -59,4 +59,17 @@ describe('LlmTranslator', () => {
     const t = new LlmTranslator({ id: 'x', complete: async () => '"La Plataforma Nébula es muy buena."' });
     expect(await t.translate(req)).toBe('La Plataforma Nébula es muy buena.');
   });
+
+  it('with both sides’ words before (not earlier translations), the correction rule, and the Argentine notes', () => {
+    const p = buildTranslationPrompt({
+      text: '昨天已经发了。', from: 'zh-CN', to: 'es-AR', hits: [], context: [{ src: '你好', dst: 'Hola' }],
+      history: [{ who: 'them', text: '¿Ya mandaron las facturas?' }, { who: 'me', text: '十月的吗？' }],
+    });
+    expect(p.system).toContain('- Other side: ¿Ya mandaron las facturas?');
+    expect(p.system).toContain('- Me: 十月的吗？');
+    expect(p.system).not.toContain('⇒ Hola'); // the conversation replaces the translated lines
+    expect(p.system).toContain('"next week, no, next month" → "next month"');
+    expect(p.system).toContain('Argentine (Rioplatense)');
+    expect(buildTranslationPrompt({ text: 'x', from: 'zh-CN', to: 'es-MX', hits: [], context: [] }).system).not.toContain('Argentine');
+  });
 });

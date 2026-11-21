@@ -99,6 +99,11 @@ export interface TranslateRequest {
   hits: GlossaryHit[];
   /** Recent source/translation pairs, oldest first, for coherence. */
   context: { src: string; dst: string }[];
+  /**
+   * What both sides said just before, oldest first (see Conversation): who ('me', 'them', or a
+   * room participant's name) and their words as recognised — never machine translations.
+   */
+  history?: { who: string; text: string }[];
   signal?: AbortSignal;
 }
 

@@ -7,8 +7,10 @@ import { baseOf } from '../lang/languages';
 import { createLogger, type Logger } from '../log';
 import { applyCorrections, type CorrectionRule } from '../profile/profile';
 import type { AsrSession, StreamingAsr, Translator, Tts } from '../providers/types';
+import { smoothSpoken } from '../text/disfluency';
 import type { LangCode, SegmentDir, TranscriptSegment } from '../types';
 import { Committer } from './committer';
+import type { Talk } from './talk';
 import { cleanTranslation, isValidTranslation } from './validate';
 
 /** Speech rate for the current playback backlog: 1.0 up to 3 s, rising linearly to `max` at 12 s. */
@@ -24,6 +26,8 @@ export interface PipelineOptions {
   dir: SegmentDir;
   /** `me`, `them`, or a room participant's name. */
   speaker: string;
+  /** The meeting's conversation, shared by its directions (translations see what both sides said). */
+  talk?: Talk;
   /** Segment ids are `${idPrefix}-${seq}`. */
   idPrefix: string;
   srcLang: LangCode;
@@ -346,14 +350,20 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
   }
 
   private async translate(job: Job): Promise<string | null> {
+    // What a human interpreter would translate: without "呃", "eh", stammered repeats (the
+    // transcript keeps the words as said).
+    const text = smoothSpoken(job.seg.srcText, baseOf(this.o.srcLang));
     const req = {
-      text: job.seg.srcText,
+      text,
       from: this.o.srcLang,
       to: this.o.dstLang,
-      hits: findHits(job.seg.srcText, baseOf(this.o.srcLang), this.o.glossary(), baseOf(this.o.dstLang)),
+      hits: findHits(text, baseOf(this.o.srcLang), this.o.glossary(), baseOf(this.o.dstLang)),
       context: this.context.slice(-3),
+      history: this.o.talk?.window() ?? [],
       signal: this.abort.signal,
     };
+    // Said now, so the next sentences (of either side) see it.
+    this.o.talk?.add({ who: this.o.speaker, text });
     // The fast draft: shown while the main translation is on its way, used if that fails.
     let draft: string | null = null;
     let final = false;

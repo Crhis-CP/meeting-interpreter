@@ -1,0 +1,15 @@
+{
+  "about": "Spoken corrections and false starts that the word-level smoothing leaves alone (a model has to see the whole sentence). A right translation says only what the speaker finally meant.",
+  "cases": [
+    { "from": "zh", "to": "es", "text": "我们下周，不对，下个月发货。", "must": "el mes que viene (not 'la semana que viene')" },
+    { "from": "zh", "to": "es", "text": "价格是十块，哦不，十二块一件。", "must": "doce por unidad only" },
+    { "from": "zh", "to": "es", "text": "这个我们可以，就是说，我们可以先付一半。", "must": "podemos pagar la mitad primero (once)" },
+    { "from": "zh", "to": "es", "text": "第一批是三百，我说错了，是五百台。", "must": "quinientas unidades only" },
+    { "from": "zh", "to": "es", "text": "我们的工厂在，在广州，不是深圳，是广州。", "must": "Guangzhou only (Shenzhen not as the place)" },
+    { "from": "es", "to": "zh", "text": "Llegamos el martes, no, perdón, el miércoles.", "must": "周三 only" },
+    { "from": "es", "to": "zh", "text": "Necesitamos doscientas, digo, trescientas unidades.", "must": "三百 only" },
+    { "from": "es", "to": "zh", "text": "El pago es a treinta, mejor dicho, a sesenta días.", "must": "六十天 only" },
+    { "from": "es", "to": "zh", "text": "Te lo mando hoy, bueno, mañana a primera hora.", "must": "明天一早 (not today)" },
+    { "from": "es", "to": "zh", "text": "La reunión es con el gerente, o sea, con el dueño de la empresa.", "must": "o sea here is a clarification: 和老板 (owner); fine to mention both if clear" }
+  ]
+}

@@ -151,9 +151,9 @@ export class DeeplTranslator implements Translator {
       source_lang: lang(req.from).codes.deeplSource,
       target_lang: lang(req.to).codes.deeplTarget,
     };
-    const context = req.context
-      .slice(-3)
-      .map((c) => c.src.trim())
+    // DeepL's own context field (not translated, not billed): what both sides said just before.
+    const context = (req.history?.length ? req.history.map((t) => t.text) : req.context.slice(-3).map((c) => c.src))
+      .map((t) => t.trim())
       .filter(Boolean)
       .join('\n');
     if (context) body.context = context;

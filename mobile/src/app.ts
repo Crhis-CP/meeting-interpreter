@@ -13,6 +13,7 @@ import { createLogger } from '@core/log';
 import { SharedAsr } from '@core/pipeline/conversation';
 import type { DirectionPipeline } from '@core/pipeline/pipeline';
 import { createDirection } from '@core/pipeline/direction';
+import { Talk } from '@core/pipeline/talk';
 import { DASHSCOPE_VOICES } from '@core/providers/dashscope/tts';
 import { LLM_PRESETS } from '@core/providers/openai-compatible';
 import { createProviders } from '@core/providers/registry';
@@ -141,6 +142,8 @@ let held = false;
 let status: 'idle' | 'starting' | 'listening' | 'speaking' | 'error' = 'idle';
 let statusText = '';
 const segs = new Map<string, TranscriptSegment>();
+/** What both people said (for translations that depend on it): the conversation on screen. */
+const talk = new Talk();
 let partial = '';
 /** Conversations started so far: after pause → start, sentences continue (new ids, later times). */
 let run = 0;
@@ -168,10 +171,12 @@ async function start() {
     // Continue after the sentences already on screen (they are kept across pause and start).
     const offset = Math.max(0, ...[...segs.values()].map((x) => x.end ?? x.start ?? 0));
     const draft = settings.mt !== 'offline' && settings.provider !== 'demo' && !(await offline.missingBytes().catch(() => 1)) ? new OfflineTranslator({ translate: (t, f, to) => offline.translate(t, f, to) }) : undefined;
+    // What both people say, for the translations that depend on it (kept across pause and start).
     const make = (side: 'zh' | 'foreign') =>
       createDirection({
         dir: side === 'zh' ? 'out' : 'in',
         speaker: side === 'zh' ? 'me' : 'them',
+        talk,
         idPrefix: `${side === 'zh' ? 'zh' : 'fx'}${run > 1 ? `.${run}` : ''}`,
         srcLang: side === 'zh' ? 'zh-CN' : settings.remote,
         dstLang: side === 'zh' ? settings.remote : 'zh-CN',
@@ -387,7 +392,7 @@ function render() {
     h('header', {},
       h('button', { class: 'pill', title: '切换对方的语言', onclick: toggleLang, disabled: !!engine }, '中文 ⇄ ', foreignName()),
       h('div', { class: 'grow' }),
-      turns.length && !engine ? h('button', { class: 'icon-btn', onclick: () => (segs.clear(), render()) }, '清空') : null,
+      turns.length && !engine ? h('button', { class: 'icon-btn', onclick: () => (segs.clear(), talk.reset(), render()) }, '清空') : null,
       h('button', { class: 'icon-btn', 'aria-label': '设置', onclick: () => openSettings() }, gearIcon()),
     ),
     list,

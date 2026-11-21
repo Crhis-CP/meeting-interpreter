@@ -11,6 +11,7 @@ import type { CorrectionRule } from '../../core/profile/profile';
 import type { Logger } from '../../core/log';
 import type { DirectionPipeline } from '../../core/pipeline/pipeline';
 import { createDirection } from '../../core/pipeline/direction';
+import { Talk } from '../../core/pipeline/talk';
 import type { Providers } from '../../core/providers/registry';
 import { decodeFrame, encodeTtsFrame, ROOM_PROTOCOL_VERSION, type ClientMessage, type RoomPeer, type ServerMessage } from '../../core/room/protocol';
 import type { Direction, TranscriptSegment } from '../../core/types';
@@ -106,6 +107,8 @@ export class RoomHost {
   private pendingSockets = 0;
   private port = 0;
   private participants = new Map<string, Participant>();
+  /** What everyone in the room says, for the translations that depend on it (one per room). */
+  private talk = new Talk();
   private startedSession = false;
   private tunnel: TunnelManager;
   private publicUrl: string | null = null;
@@ -165,6 +168,7 @@ export class RoomHost {
     }
     this.token = randomBytes(16).toString('base64url');
     this.badJoins.clear();
+    this.talk.reset();
     const handler = (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) =>
       (req.url ?? '').startsWith('/rt/') ? this.serveHttpConn(req, res) : this.serveStatic(req, res);
     if (this.d.insecure) {
@@ -541,6 +545,7 @@ export class RoomHost {
     const pipeline = createDirection({
       dir: 'room',
       speaker: p.name,
+      talk: this.talk,
       idPrefix: p.generation > 1 ? `room-${p.id}.${p.generation}` : `room-${p.id}`,
       srcLang: p.lang,
       dstLang,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Emitter } from '@core/events';
 import { DirectionPipeline, rateForBacklog, slowTranslationNotice } from '@core/pipeline/pipeline';
+import { Talk } from '@core/pipeline/talk';
 import type { AsrEvents, AsrSession, StreamingAsr, Translator, Tts, TranslateRequest, TtsRequest } from '@core/providers/types';
 import type { TranscriptSegment } from '@core/types';
 import { waitFor } from '../helpers/fakes';
@@ -170,6 +171,30 @@ describe('DirectionPipeline', () => {
     p.push(new Int16Array(160).fill(7));
     await started;
     expect(asr.last.pushed[0]![0]).toBe(7);
+  });
+
+  it('translates what was meant without fillers and stammers; the transcript keeps the words as said', async () => {
+    const { p, asr, translator, segments, ends } = make();
+    await p.start();
+    asr.last.final('呃，我们我们我们下周可以发货。');
+    await waitFor(() => ends.includes('out-1'), 3000);
+    expect(translator.requests[0]!.text).toBe('我们下周可以发货。');
+    expect(segments.at(-1)!.srcText).toBe('呃，我们我们我们下周可以发货。');
+  });
+
+  it('the two directions of a meeting see what both sides said before (their words, not translations)', async () => {
+    const talk = new Talk();
+    const me = make({ talk });
+    const them = make({ talk, dir: 'in', speaker: 'them', idPrefix: 'in', srcLang: 'es-AR', dstLang: 'zh-CN' });
+    them.translator.results['¿Ya mandaron las facturas?'] = '发票寄了吗？';
+    await me.p.start();
+    await them.p.start();
+    them.asr.last.final('¿Ya mandaron las facturas?');
+    await waitFor(() => them.ends.includes('in-1'), 3000);
+    me.asr.last.final('昨天已经发了。');
+    await waitFor(() => me.ends.includes('out-1'), 3000);
+    expect(them.translator.requests[0]!.history).toEqual([]);
+    expect(me.translator.requests[0]!.history).toEqual([{ who: 'them', text: '¿Ya mandaron las facturas?' }]);
   });
 
   it('passes glossary hits, context and hot words', async () => {

@@ -1,0 +1,17 @@
+{
+  "about": "Sentences whose right translation depends on what was said before (Chinese leaves out the object; Spanish needs its gender and number; who 'he' is). Each: the conversation so far (speaker, language, words as said), then the sentence to translate and what a right translation must get.",
+  "cases": [
+    { "history": [["them", "es", "¿Ya mandaron las facturas de octubre?"]], "from": "zh", "to": "es", "text": "昨天已经发了。", "must": "las (facturas, feminine plural): 'ya las enviamos ayer'" },
+    { "history": [["them", "es", "¿Cuándo nos pueden mandar las muestras?"]], "from": "zh", "to": "es", "text": "我们下周一寄过去。", "must": "las (muestras): 'se las enviamos el lunes'" },
+    { "history": [["them", "es", "¿Le podés pasar el contrato a Juan?"]], "from": "zh", "to": "es", "text": "好的，我马上发给他。", "must": "se lo (el contrato, to Juan)" },
+    { "history": [["me", "zh", "我们新出了一款手机。"], ["them", "es", "¿Y cómo es la batería?"]], "from": "zh", "to": "es", "text": "比上一代大百分之二十。", "must": "the battery (feminine): 'es un 20 % más grande que la anterior'" },
+    { "history": [["them", "es", "El problema es el flete, está carísimo."]], "from": "zh", "to": "es", "text": "这个我们可以分担一半。", "must": "this = the freight cost: 'podemos asumir la mitad'" },
+    { "history": [["me", "zh", "这款机器的保修期是两年。"], ["them", "es", "¿Y la batería también?"]], "from": "zh", "to": "es", "text": "电池是一年。", "must": "warranty of the battery is one year (not 'the battery is one year')" },
+    { "history": [["them", "es", "Necesitamos tres contenedores para fin de mes."]], "from": "zh", "to": "es", "text": "两个没问题，第三个要等到下个月。", "must": "contenedores (masculine): 'dos no hay problema, el tercero…'" },
+    { "history": [["me", "zh", "这个价格包括运费吗？"]], "from": "es", "to": "zh", "text": "No, eso va aparte.", "must": "eso = 运费 (freight is separate): '不包括，运费另算'" },
+    { "history": [["me", "zh", "你们需要多少台？"]], "from": "es", "to": "zh", "text": "Unas quinientas, más o menos.", "must": "大约五百台 (the measure word from the question)" },
+    { "history": [["me", "zh", "我们下周三可以视频会议吗？"]], "from": "es", "to": "zh", "text": "Ese día no puedo, ¿te sirve el jueves?", "must": "那天 = 下周三; 周四可以吗" },
+    { "history": [["them", "es", "Mi socio, Martín, va a revisar el contrato."]], "from": "zh", "to": "es", "text": "好的，他看完请告诉我们。", "must": "él = Martín (masculine): 'cuando lo revise, avísennos'" },
+    { "history": [["them", "es", "La propuesta nos parece interesante, pero el precio es un quilombo."]], "from": "zh", "to": "es", "text": "价格我们可以再谈。", "must": "plain 'podemos volver a hablar del precio'" }
+  ]
+}

@@ -27,17 +27,50 @@ export function answerBudget(text: string, from: LangBase): number {
 
 const NAME_ZH: Record<LangBase, string> = { zh: '中文', es: '西班牙语', en: '英语' };
 
+type Terms = { source: string; target: string }[];
+const termLines = (terms: Terms) =>
+  terms
+    .filter((t) => t.source && t.target)
+    .slice(0, 20)
+    .map((t) => `${t.source} 翻译成 ${t.target}`);
+
 /** Hy-MT2's own instruction (from its model card), with the user's terms as reference translations. */
-export function hyMtPrompt(text: string, from: LangBase, to: LangBase, terms: { source: string; target: string }[]): string {
+export function hyMtPrompt(text: string, from: LangBase, to: LangBase, terms: Terms): string {
   void from;
-  const refs = terms.filter((t) => t.source && t.target).slice(0, 20);
-  const head = refs.length ? `参考下面的翻译：\n${refs.map((t) => `${t.source} 翻译成 ${t.target}`).join('\n')}\n\n` : '';
+  const refs = termLines(terms);
+  const head = refs.length ? `参考下面的翻译：\n${refs.join('\n')}\n\n` : '';
   return `${head}将以下文本翻译为${NAME_ZH[to]}，注意只需要输出翻译后的结果，不要额外解释：\n\n${text}`;
+}
+
+const WHO: Record<string, string> = { me: '我方', them: '对方' };
+
+/**
+ * With what both sides said just before: Hy-MT2's "background information" format (model card),
+ * the conversation first (it only grows between sentences, so the model reuses what it computed),
+ * then the user's terms. Measured (scripts/dev/prompt-eval.mts): the sentences that need the
+ * context come out right ("电池是一年" → the warranty, not the battery's life), the terms still win.
+ */
+export function hyMtContextPrompt(text: string, to: LangBase, terms: Terms, history: { who: string; text: string }[]): string {
+  const said = history.map((t) => `${WHO[t.who] ?? t.who}：${t.text}`).join('\n');
+  const refs = termLines(terms);
+  return `【背景信息】\n${said}\n${refs.length ? `参考下面的翻译：\n${refs.join('\n')}\n` : ''}\n请结合背景信息将以下文本翻译为${NAME_ZH[to]}。\n\n【待翻译文本】\n${text}`;
+}
+
+/**
+ * An answer that does not look like a translation of this sentence: Chinese characters in a
+ * Spanish / English translation, Latin words in a Chinese one that the sentence (and the terms) do
+ * not have (a context prompt once gave "感谢您的 waktu"), or the prompt's own labels. The sentence is then translated again without the context.
+ */
+export function looksOff(out: string, source: string, to: LangBase, terms: Terms): boolean {
+  if (/【|】/.test(out)) return true;
+  if (to !== 'zh') return /\p{Script=Han}/u.test(out);
+  const known = `${source} ${terms.map((t) => t.target).join(' ')}`.toLowerCase();
+  return (out.match(/[A-Za-z]{3,}/g) ?? []).some((w) => !known.includes(w.toLowerCase()));
 }
 
 /** The model sometimes wraps the answer in quotes or adds a label: keep just the translation. */
 function clean(out: string): string {
-  let s = out.trim().replace(/^(译文|翻译|Traducción|Translation)\s*[:：]\s*/i, '');
+  let s = out.trim().replace(/^【[^】]{1,8}】\s*/, '').replace(/^(译文|翻译|Traducción|Translation)\s*[:：]\s*/i, '');
   const pairs: [string, string][] = [['“', '”'], ['"', '"'], ['「', '」'], ['«', '»']];
   for (const [a, b] of pairs) if (s.startsWith(a) && s.endsWith(b) && s.length > 2) s = s.slice(a.length, -b.length).trim();
   return s;
@@ -53,8 +86,15 @@ export class LocalAiTranslator implements Translator {
     const from = baseOf(req.from);
     const to = baseOf(req.to);
     const text = from === 'es' ? plainSpanish(req.text) : req.text;
+    const lane = to === 'zh' ? 1 : 0;
+    const budget = answerBudget(text, from);
     try {
-      const out = clean(await this.engine.complete(hyMtPrompt(text, from, to, req.hits), req.signal, to === 'zh' ? 1 : 0, answerBudget(text, from)));
+      let out = '';
+      if (req.history?.length) {
+        out = clean(await this.engine.complete(hyMtContextPrompt(text, to, req.hits, req.history), req.signal, lane, budget));
+        if (looksOff(out, text, to, req.hits)) out = '';
+      }
+      if (!out) out = clean(await this.engine.complete(hyMtPrompt(text, from, to, req.hits), req.signal, lane, budget));
       if (!out) throw new Error('没有翻译结果');
       return out;
     } catch (err) {

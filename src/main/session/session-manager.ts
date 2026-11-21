@@ -9,6 +9,7 @@ import type { CorrectionRule } from '../../core/profile/profile';
 import type { Logger } from '../../core/log';
 import { slowTranslationNotice, type DirectionPipeline } from '../../core/pipeline/pipeline';
 import { createDirection } from '../../core/pipeline/direction';
+import { Talk } from '../../core/pipeline/talk';
 import type { Llm, StreamingAsr, Translator, Tts } from '../../core/providers/types';
 import { summarize, summaryToMarkdown, type MeetingSummary, type SummaryTemplate } from '../../core/session/summary';
 import { Transcript, toMarkdown, toSrt } from '../../core/session/transcript';
@@ -246,6 +247,8 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
         }
       }
 
+      // What both sides say, for the translations that depend on it (one per meeting).
+      const talk = new Talk();
       const makePipeline = (dir: Direction) => {
         const cfg = dir === 'out' ? settings.out : settings.in;
         const src = dir === 'out' ? selfLang : remoteLang;
@@ -253,6 +256,7 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
         const p = createDirection({
           dir,
           speaker: dir === 'out' ? 'me' : 'them',
+          talk,
           idPrefix: dir,
           srcLang: src,
           dstLang: dst || otherLanguage(src, remoteLang),
