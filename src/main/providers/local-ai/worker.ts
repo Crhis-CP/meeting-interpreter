@@ -4,24 +4,29 @@
  */
 import type { ParentPortLike } from '../local-asr/worker';
 
-export type AiRequest = { t: 'load'; modelPath: string; threads: number } | { t: 'complete'; id: number; prompt: string; maxTokens: number } | { t: 'cancel'; id: number };
+/** `lane`: one per direction (0: into the other language, 1: into Chinese), each with its own cached prefix. */
+export type AiRequest = { t: 'load'; modelPath: string; threads: number } | { t: 'complete'; id: number; prompt: string; maxTokens: number; lane?: number } | { t: 'cancel'; id: number };
 export type AiReply = { t: 'loaded'; gpu: string } | { t: 'result'; id: number; text: string } | { t: 'error'; id?: number; message: string };
 
 type Lib = typeof import('node-llama-cpp');
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** Wires the worker to its port; returns a function that frees the model (for the in-process worker). */
+const LANES = 2;
+
+/**
+ * Hy-MT's own chat format, exactly as its template writes one user turn (no system prompt: the
+ * library's default English one is not what the model was trained with, and costs ~55 tokens a
+ * sentence).
+ */
+const HY_TURN = (prompt: string) => `<｜hy_begin▁of▁sentence｜><｜hy_User｜>${prompt}<｜hy_Assistant｜>`;
+
 export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib> = () => import('node-llama-cpp')): () => Promise<void> {
+  type Lane = { complete: (prompt: string, maxTokens: number, signal: AbortSignal) => Promise<string>; chain: Promise<void>; current: { id: number; stop: AbortController } | null };
   let loaded: { model: { dispose(): Promise<void> }; ctx: { dispose(): Promise<void> } } | null = null;
-  let ready: Promise<{ lib: Lib; seq: import('node-llama-cpp').LlamaContextSequence }> | null = null;
-  let chain: Promise<void> = Promise.resolve();
+  let ready: Promise<{ lanes: Lane[]; gpu: string }> | null = null;
   /** Sentences the app gave up on (timed out) before their turn: skipped, never translated late. */
   const cancelled = new Set<number>();
-  /**
-   * The sentence being translated. Cancelling it stops the generation: on a slow computer, finishing
-   * translations nobody waits for any more would make every newer sentence time out behind them.
-   */
-  let current: { id: number; stop: AbortController } | null = null;
   const reply = (m: AiReply) => port.postMessage(m);
 
   port.on('message', (e) => {
@@ -32,42 +37,71 @@ export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib>
         // Prebuilt binaries only (never compile on the user's computer); Metal on Apple silicon.
         const llama = await lib.getLlama({ gpu: 'auto', build: 'never' });
         const model = await llama.loadModel({ modelPath: m.modelPath });
-        const ctx = await model.createContext({ contextSize: 2048, threads: m.threads });
+        // A sequence per direction: each keeps its instruction evaluated, so a new sentence only
+        // costs its own words (the library reuses the matching start of the previous prompt).
+        const ctx = await model.createContext({ contextSize: 2048, threads: m.threads, sequences: LANES });
         loaded = { model, ctx };
-        return { lib, seq: ctx.getSequence(), gpu: String(llama.gpu) };
+        const template = String((model.fileInfo.metadata as { tokenizer?: { chat_template?: unknown } } | undefined)?.tokenizer?.chat_template ?? '');
+        const hy = template.includes('<｜hy_User｜>');
+        const lanes: Lane[] = [];
+        for (let i = 0; i < LANES; i++) {
+          const seq = ctx.getSequence();
+          let complete: Lane['complete'];
+          if (hy) {
+            const completion = new lib.LlamaCompletion({ contextSequence: seq });
+            complete = (prompt, maxTokens, signal) => completion.generateCompletion(model.tokenize(HY_TURN(prompt), true), { temperature: 0, maxTokens, signal });
+          } else {
+            // Another model family: its own chat template, still without the default system prompt.
+            complete = async (prompt, maxTokens, signal) => {
+              const session = new lib.LlamaChatSession({ contextSequence: seq, autoDisposeSequence: false, systemPrompt: '' });
+              try {
+                return await session.prompt(prompt, { temperature: 0, maxTokens, signal });
+              } finally {
+                session.dispose({ disposeSequence: false });
+              }
+            };
+          }
+          lanes.push({ complete, chain: Promise.resolve(), current: null });
+        }
+        return { lanes, gpu: String(llama.gpu) };
       })();
       ready.then(
-        (r) => reply({ t: 'loaded', gpu: (r as unknown as { gpu: string }).gpu }),
+        (r) => reply({ t: 'loaded', gpu: r.gpu }),
         (err) => reply({ t: 'error', message: `本机 AI 翻译模型加载失败：${message(err)}` }),
       );
       return;
     }
     if (m?.t === 'cancel') {
-      if (current?.id === m.id) current.stop.abort();
-      else cancelled.add(m.id);
+      // Cancelling the sentence being translated stops its generation: on a slow computer,
+      // finishing translations nobody waits for would make every newer sentence time out too.
+      void ready?.then(({ lanes }) => {
+        const lane = lanes.find((l) => l.current?.id === m.id);
+        if (lane) lane.current!.stop.abort();
+        else cancelled.add(m.id);
+      });
       return;
     }
     if (m?.t === 'complete') {
-      // One sentence at a time on one context sequence; each starts from a clean history.
-      chain = chain.then(async () => {
-        if (cancelled.delete(m.id)) return;
-        if (!ready) return reply({ t: 'error', id: m.id, message: '模型还没有加载' });
-        let session: import('node-llama-cpp').LlamaChatSession | null = null;
-        const stop = new AbortController();
-        current = { id: m.id, stop };
-        try {
-          const { lib, seq } = await ready;
-          session = new lib.LlamaChatSession({ contextSequence: seq, autoDisposeSequence: false });
-          const text = await session.prompt(m.prompt, { temperature: 0, maxTokens: m.maxTokens, signal: stop.signal });
-          reply({ t: 'result', id: m.id, text });
-        } catch (err) {
-          reply({ t: 'error', id: m.id, message: stop.signal.aborted ? 'cancelled' : message(err) });
-        } finally {
-          current = null;
-          session?.dispose({ disposeSequence: false });
-          await ready?.then(({ seq }) => seq.clearHistory()).catch(() => undefined);
-        }
-      });
+      if (!ready) return reply({ t: 'error', id: m.id, message: '模型还没有加载' });
+      void ready.then(
+        (r) => {
+          // One sentence at a time per direction; the two directions run side by side.
+          const lane = r.lanes[Math.max(0, Math.min(LANES - 1, m.lane ?? 0))]!;
+          lane.chain = lane.chain.then(async () => {
+            if (cancelled.delete(m.id)) return;
+            const stop = new AbortController();
+            lane.current = { id: m.id, stop };
+            try {
+              reply({ t: 'result', id: m.id, text: await lane.complete(m.prompt, m.maxTokens, stop.signal) });
+            } catch (err) {
+              reply({ t: 'error', id: m.id, message: stop.signal.aborted ? 'cancelled' : message(err) });
+            } finally {
+              lane.current = null;
+            }
+          });
+        },
+        (err) => reply({ t: 'error', id: m.id, message: message(err) }),
+      );
     }
   });
   return async () => {

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { afterExitCommand, planUninstall, safeToDelete, writeBackup } from '../../src/main/uninstall';
+import { afterExitCommand, planUninstall, safeToDelete, windowsCleanupScript, writeBackup } from '../../src/main/uninstall';
 
 describe('彻底卸载', () => {
   it('lists what goes and what stays unless ticked, with sizes', () => {
@@ -45,9 +45,15 @@ describe('彻底卸载', () => {
     expect(mac.args[1]).toContain("rm -rf '/Users/li/Library/Application Support/MeetingInterpreter'");
     const win = afterExitCommand('win32', 7, "C:\\Users\\o'neil\\AppData\\Local\\MeetingInterpreter", 'C:\\Programs\\MeetingInterpreter\\Uninstall MeetingInterpreter.exe');
     expect(win.cmd).toBe('powershell.exe');
-    const script = win.args.at(-1)!;
+    // Handed on to a process outside the app's tree, as an encoded script…
+    const handOn = win.args.at(-1)!;
+    expect(handOn).toMatch(/^Start-Process -FilePath powershell\.exe .*-EncodedCommand','[A-Za-z0-9+/=]+'$/);
+    const script = Buffer.from(/EncodedCommand','([^']+)'/.exec(handOn)![1]!, 'base64').toString('utf16le');
+    expect(script).toBe(windowsCleanupScript(7, "C:\\Users\\o'neil\\AppData\\Local\\MeetingInterpreter", 'C:\\Programs\\MeetingInterpreter\\Uninstall MeetingInterpreter.exe'));
+    // …which waits, deletes (with retries) and runs the uninstaller quietly.
     expect(script).toContain('Wait-Process -Id 7');
     expect(script).toContain("'C:\\Users\\o''neil\\AppData\\Local\\MeetingInterpreter'"); // quoted for PowerShell
+    expect(script).toContain('$i -lt 30');
     expect(script).toContain("-ArgumentList '/S'");
   });
 });

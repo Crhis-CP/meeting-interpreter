@@ -9,7 +9,8 @@ import { ProviderError, type TranslateRequest, type Translator } from './types';
 
 /** Runs one prompt through the local model (in a worker process / via the desktop app). */
 export interface LocalAiEngine {
-  complete(prompt: string, signal?: AbortSignal): Promise<string>;
+  /** `lane`: 0 into the other language, 1 into Chinese (each direction keeps its own cached prefix). */
+  complete(prompt: string, signal?: AbortSignal, lane?: number): Promise<string>;
 }
 
 const NAME_ZH: Record<LangBase, string> = { zh: '中文', es: '西班牙语', en: '英语' };
@@ -43,7 +44,7 @@ export class LocalAiTranslator implements Translator {
     const to = baseOf(req.to);
     const text = from === 'es' ? plainSpanish(req.text) : req.text;
     try {
-      const out = clean(await this.engine.complete(hyMtPrompt(text, from, to, req.hits), req.signal));
+      const out = clean(await this.engine.complete(hyMtPrompt(text, from, to, req.hits), req.signal, to === 'zh' ? 1 : 0));
       if (!out) throw new Error('没有翻译结果');
       return out;
     } catch (err) {
