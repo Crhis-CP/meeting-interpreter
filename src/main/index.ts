@@ -1,8 +1,9 @@
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, protocol, safeStorage, session, shell, systemPreferences, Tray, utilityProcess } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
-import { constants as osConstants, cpus, release, setPriority, tmpdir, totalmem } from 'node:os';
-import { join } from 'node:path';
+import { constants as osConstants, cpus, homedir, release, setPriority, tmpdir, totalmem } from 'node:os';
+import { execFile, spawn } from 'node:child_process';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { PresetId } from '../core/config/presets';
 import { parseSettings, type AppSettings, type SecretName } from '../core/config/schema';
@@ -22,13 +23,14 @@ import { azureVoicesFor } from '../core/providers/azure';
 import { DashscopeTts, createClonedVoice, deleteClonedVoice, waitForVoice } from '../core/providers/dashscope';
 import type { SummaryTemplate } from '../core/session/summary';
 import type { Direction, TranscriptSegment } from '../core/types';
-import { IPC, type FromAudio, type ProfileView, type ReadinessItem, type RendererEvents, type StorageInfo, type StoredReview, type ToAudio } from '../shared/ipc';
+import { IPC, type FromAudio, type ProfileView, type ReadinessItem, type RendererEvents, type StorageInfo, type UninstallResult, type StoredReview, type ToAudio } from '../shared/ipc';
 import { detectMeetingApps } from './platform/meeting-apps';
 import { restoreAudioDefaults, savedAudioDefaults } from './platform/audio-defaults';
 import { KEY_NAMES, missingKeys } from '../core/config/readiness';
 import { collectStorage } from './storage';
 import { cleanupData, rotateLog } from './maintenance';
-import { installVirtualAudio } from './platform/virtual-audio';
+import { afterExitCommand, planUninstall, safeToDelete, writeBackup, type UninstallPlan } from './uninstall';
+import { installedVirtualAudio, installVirtualAudio, removeVirtualAudio } from './platform/virtual-audio';
 import { createNodeContext } from './platform/node-context';
 import { testDirection, testLlm } from './provider-test';
 import { LocalAsr } from './providers/local-asr/client';
@@ -74,7 +76,11 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 // Tests (and portable setups) can point the app at another data directory.
-if (process.env['MI_USER_DATA']) app.setPath('userData', process.env['MI_USER_DATA']);
+if (process.env['MI_USER_DATA']) {
+  app.setPath('userData', process.env['MI_USER_DATA']);
+  // (and keeps backups such as the one before uninstalling out of the real Downloads folder)
+  app.setPath('downloads', `${process.env['MI_USER_DATA']}-downloads`);
+}
 const dataDir = app.getPath('userData');
 mkdirSync(dataDir, { recursive: true });
 const logPath = join(dataDir, 'app.log');
@@ -626,6 +632,8 @@ const handlers: Record<string, Handler> = {
     if (aiPrefetch?.id === id) aiPrefetch.abort.abort();
   },
   'storage.openFolder': (which: 'data' | 'records') => openPathOrThrow(which === 'records' ? recordsDir() : dataDir),
+  'uninstall.plan': () => uninstallPlan(),
+  'uninstall.run': (opts: { records: boolean; driver: boolean; dryRun?: boolean }) => runUninstall(opts),
   'ai.status': async () => {
     const ids = Object.keys(AI_MODELS) as AiModelId[];
     for (const id of ids) if (aiModels.status(id) !== 'ready' && aiModels.missingBytes([id]) === 0) await aiModels.verifyExisting([id]);
@@ -871,6 +879,51 @@ async function downloadStored(id: string): Promise<void> {
   } else if (aiModels.ids().includes(id)) await (handlers['ai.download'] as (id: AiModelId) => Promise<void>)(id as AiModelId);
   else if (id === 'offline-mt') await prefetchOfflineMt();
   else throw new Error('这一项不需要下载');
+}
+
+/** The app on disk: the .app bundle (Mac) or the folder with its uninstaller (Windows); null when run from source. */
+function installedApp(): { path: string; uninstaller: string | null } | null {
+  if (!app.isPackaged) return null;
+  if (process.platform === 'darwin') return { path: resolve(process.execPath, '..', '..', '..'), uninstaller: null };
+  if (process.platform === 'win32') {
+    const u = join(dirname(process.execPath), `Uninstall ${app.getName()}.exe`);
+    return existsSync(u) ? { path: dirname(process.execPath), uninstaller: u } : null;
+  }
+  return null;
+}
+
+function uninstallPlan(): UninstallPlan {
+  return planUninstall({ dataDir, recordsDir: recordsDir(), downloadsDir: app.getPath('downloads'), appPath: installedApp()?.path ?? null, platform: process.platform, driverName: installedVirtualAudio() });
+}
+
+async function runUninstall(opts: { records: boolean; driver: boolean; dryRun?: boolean }): Promise<UninstallResult> {
+  if (sessionManager.active || room.active) throw new Error('请先结束会议或关闭现场房间，再卸载');
+  const plan = uninstallPlan();
+  const profile = profileStore.file();
+  const files = writeBackup(plan.backupDir, {
+    glossaries: glossaries.list(),
+    profileJson: existsSync(profile) ? readFileSync(profile, 'utf8') : null,
+    settingsJson: JSON.stringify(settings.get(), null, 2),
+  });
+  const target = installedApp();
+  const removed = [dataDir, ...(opts.records ? [recordsDir()] : []), ...(target ? [target.path] : [])];
+  const notes: string[] = [];
+  log.info(`uninstall${opts.dryRun ? ' (dry run)' : ''}: backup in ${plan.backupDir}; removing ${removed.join(', ')}`);
+  if (opts.dryRun) return { backupDir: plan.backupDir, files, removed, notes };
+  if (!safeToDelete(dataDir, homedir())) throw new Error(`数据文件夹的位置不寻常，为安全起见没有删除，请手动删除：${dataDir}`);
+  if (opts.records && existsSync(recordsDir())) await shell.trashItem(recordsDir());
+  if (opts.driver) notes.push((await removeVirtualAudio()).message);
+  // The key that encrypts the saved keys (Mac keychain); the keys themselves go with the data folder.
+  if (process.platform === 'darwin') await new Promise((r) => execFile('security', ['delete-generic-password', '-s', `${app.getName()} Safe Storage`], () => r(null)));
+  if (target && process.platform === 'darwin') await shell.trashItem(target.path).catch((err) => notes.push(`软件没能移到废纸篓，请手动删除：${err instanceof Error ? err.message : String(err)}`));
+  // The data folder (and the Windows uninstaller) once this process has quit.
+  const { cmd, args } = afterExitCommand(process.platform, process.pid, dataDir, target?.uninstaller ?? null);
+  spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  setTimeout(() => {
+    quitting = true;
+    app.quit();
+  }, 1500);
+  return { backupDir: plan.backupDir, files, removed, notes };
 }
 
 function usesOfflineMt(): boolean {

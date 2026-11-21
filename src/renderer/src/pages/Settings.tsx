@@ -4,7 +4,7 @@ import { PRESETS } from '@core/config/presets';
 import { accentsOf, lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import { LLM_PRESETS, llmPreset } from '@core/providers/openai-compatible';
 import type { VoiceInfo } from '@core/providers/types';
-import type { AiStatus, AppInfo, ProviderTestStep, StorageInfo, StorageItem } from '@shared/ipc';
+import type { AiStatus, AppInfo, ProviderTestStep, StorageInfo, StorageItem, UninstallPlan, UninstallResult } from '@shared/ipc';
 import { api, errMsg, useDevices, useEvent, useLlmReady, useSettings } from '../api';
 import { ExternalLink, Field, Toggle, FlashButton } from '../components/ui';
 import { ScreenPicker } from '../components/ScreenPicker';
@@ -950,6 +950,61 @@ function StorageTab() {
         </div>
         {error && <div className="callout err" role="alert" style={{ marginTop: 8 }}>{error}</div>}
       </div>
+      <UninstallCard />
+    </div>
+  );
+}
+
+/** 彻底卸载: back up what the user made, then remove everything the app put on this computer. */
+function UninstallCard() {
+  const [plan, setPlan] = useState<UninstallPlan | null>(null);
+  const [ticks, setTicks] = useState({ records: false, driver: false });
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<UninstallResult | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => void api.uninstall.plan().then(setPlan, () => setPlan(null)), []);
+  if (!plan) return null;
+  const chosen = plan.items.filter((i) => i.byDefault || (i.id in ticks && ticks[i.id as keyof typeof ticks]));
+  const run = async () => {
+    const list = chosen.map((i) => `· ${i.label}${i.bytes ? `（${size(i.bytes)}）` : ''}`).join('\n');
+    if (!confirm(`彻底卸载会删除：\n${list}\n\n删除前先把术语表、口音档案和设置备份到：\n${plan.backupDir}\n\n确定吗？软件会退出。`)) return;
+    setBusy(true);
+    setError('');
+    try {
+      setDone(await api.uninstall.run(ticks));
+    } catch (e) {
+      setError(errMsg(e));
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card" aria-labelledby="uninstall-title">
+      <h3 id="uninstall-title">彻底卸载</h3>
+      <div className="stack">
+        {plan.items.map((i) => (
+          <label key={i.id} className="row">
+            {i.byDefault ? (
+              <input type="checkbox" checked disabled aria-label={i.label} />
+            ) : (
+              <input type="checkbox" aria-label={i.label} checked={ticks[i.id as keyof typeof ticks]} onChange={(e) => setTicks((t) => ({ ...t, [i.id]: e.target.checked }))} />
+            )}
+            <span>{i.label}</span>
+            {i.bytes > 0 && <span className="muted small">{size(i.bytes)}</span>}
+            {i.note && <span className="muted small">{i.note}</span>}
+          </label>
+        ))}
+      </div>
+      {window.platform === 'win32' && <p className="muted small">虚拟声卡 VB-CABLE 要单独卸载：以管理员身份运行它的安装程序，点“Remove Driver”。不卸也不影响其他软件。</p>}
+      <p className="muted small">删除之前，先把术语表、口音档案和设置（不含 Key）备份到 {plan.backupDir}</p>
+      <button data-test="destructive" className="btn danger" disabled={busy} onClick={() => void run()}>
+        {busy ? '正在卸载…' : '彻底卸载…'}
+      </button>
+      {done && (
+        <div className="callout info" role="status" style={{ marginTop: 8 }}>
+          已备份到 {done.backupDir}。软件马上退出，剩下的文件会在退出后删除。{done.notes.join(' ')}
+        </div>
+      )}
+      {error && <div className="callout err" role="alert" style={{ marginTop: 8 }}>{error}</div>}
     </div>
   );
 }

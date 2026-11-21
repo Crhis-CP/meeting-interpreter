@@ -13,7 +13,7 @@
  */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Logger } from '../../core/log';
@@ -150,4 +150,32 @@ export async function installVirtualAudio(fetchImpl: typeof fetch, log: Logger, 
   if (process.platform === 'darwin') return installMac(fetchImpl, log, onProgress);
   if (process.platform === 'win32') return installWindows(fetchImpl, log, dataDir, onProgress);
   return installLinux();
+}
+
+const BLACKHOLE_DRIVER = '/Library/Audio/Plug-Ins/HAL/BlackHole2ch.driver';
+
+/** The virtual audio driver this app would install, if it is installed (name to show), else null. */
+export function installedVirtualAudio(): string | null {
+  if (process.platform === 'darwin') return existsSync(BLACKHOLE_DRIVER) ? 'BlackHole 2ch' : null;
+  return null;
+}
+
+/**
+ * Removes BlackHole 2ch (Mac; the system asks for the administrator password once; sound drops
+ * for a few seconds while the audio system restarts). Windows: VB-CABLE is removed with its own
+ * setup ("Remove Driver"), see the guide.
+ */
+export async function removeVirtualAudio(): Promise<InstallResult> {
+  if (process.platform !== 'darwin' || !existsSync(BLACKHOLE_DRIVER)) return { ok: false, message: '没有找到可以自动卸载的虚拟声卡' };
+  const shell = [
+    `/bin/rm -rf ${sq(BLACKHOLE_DRIVER)}`,
+    "(/usr/sbin/pkgutil --pkgs | /usr/bin/grep -i 'blackhole2ch' | while read p; do /usr/sbin/pkgutil --forget \"$p\"; done; true)",
+    '(/bin/launchctl kickstart -kp system/com.apple.audio.coreaudiod || /usr/bin/killall coreaudiod || true)',
+  ].join(' && ');
+  const r = await run('/usr/bin/osascript', ['-e', `do shell script ${JSON.stringify(shell)} with administrator privileges with prompt "会议同传助手要卸载虚拟声卡 BlackHole。卸载时电脑声音会中断几秒。"`]);
+  if (r.code !== 0) {
+    if (/-128|User canceled|用户已取消/i.test(r.out)) return { ok: false, message: '已取消卸载虚拟声卡' };
+    return { ok: false, message: `虚拟声卡没有卸载：${r.out.slice(0, 200)}` };
+  }
+  return { ok: true, message: '已卸载 BlackHole 2ch' };
 }

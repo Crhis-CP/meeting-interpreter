@@ -18,6 +18,7 @@ const api: RendererApi = {
   glossary: ns('glossary', ['list', 'save', 'remove', 'importCsv', 'exportCsv']),
   meeting: ns('meeting', ['start', 'stop', 'state', 'segments', 'readiness', 'setOut', 'setIn', 'setInSpeak', 'setPassthrough', 'pushToTalk', 'skip', 'setRecording']),
   storage: ns('storage', ['info', 'remove', 'download', 'cancel', 'openFolder']),
+  uninstall: ns('uninstall', ['plan', 'run']),
   meetings: ns('meetings', ['list', 'get', 'summarize', 'rename', 'remove', 'openFolder', 'openFile', 'fileUrl', 'editSegment', 'review', 'decide', 'undo', 'forgetTerm']),
   profile: ns('profile', ['get', 'script', 'calibrate', 'addCorrection', 'removeCorrection', 'exportFile', 'importFile', 'reset', 'openFolder']),
   providers: ns('providers', ['test', 'voices']),

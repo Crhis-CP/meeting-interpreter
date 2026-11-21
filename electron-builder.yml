@@ -58,6 +58,8 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: 会议同传助手
   differentialPackage: false
+  # Asks on uninstall whether to remove the models and settings too (see the file).
+  include: build/installer.nsh
 linux:
   target:
     - AppImage

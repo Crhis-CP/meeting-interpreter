@@ -179,6 +179,11 @@ export interface RendererApi {
     cancel(id: string): Promise<void>;
     openFolder(which: 'data' | 'records'): Promise<void>;
   };
+  uninstall: {
+    plan(): Promise<UninstallPlan>;
+    /** dryRun: only the backup, and what would be removed. */
+    run(opts: { records: boolean; driver: boolean; dryRun?: boolean }): Promise<UninstallResult>;
+  };
   meetings: {
     list(): Promise<MeetingListItem[]>;
     get(id: string): Promise<MeetingDetail | null>;
@@ -303,6 +308,29 @@ export interface StorageInfo {
   dataBytes: number;
   recordsBytes: number;
   items: StorageItem[];
+}
+
+export interface UninstallItem {
+  id: 'data' | 'records' | 'driver' | 'app';
+  label: string;
+  path: string | null;
+  bytes: number;
+  /** Deleted unless the user unticks it ('data', 'app'); kept unless ticked ('records', 'driver'). */
+  byDefault: boolean;
+  note?: string;
+}
+
+export interface UninstallPlan {
+  items: UninstallItem[];
+  /** Where the backup goes. */
+  backupDir: string;
+}
+
+export interface UninstallResult {
+  backupDir: string;
+  files: string[];
+  removed: string[];
+  notes: string[];
 }
 
 export interface ReadinessItem {

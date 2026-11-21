@@ -107,6 +107,8 @@ jobs:
             npx electron-builder --win --x64 --dir --publish never
           fi
           bash scripts/test-packaged.sh
+          # The installer itself (with its uninstall question) must compile, not only at release time.
+          if [ "$RUNNER_OS" = Windows ]; then npx electron-builder --win nsis --x64 --prepackaged release/win-unpacked --publish never; fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:
