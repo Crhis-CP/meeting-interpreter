@@ -218,6 +218,19 @@ describe('SessionManager start/stop edge cases', () => {
     expect(meta!.files.mix2).toBe('audio/mix-2.webm');
   });
 
+  it('without recording, the raw voice of each side is not kept', async () => {
+    const { dir, settings, sent } = base();
+    settings.recording.audio = false;
+    const providers = (): ProviderSet => ({ asr: () => new MockAsr(), mt: () => new MockTranslator(), tts: () => new MockTts(), llm: () => null, describe: () => ({}) });
+    const sm = new SessionManager({ settings: () => settings, glossary: () => [], providers, recordsDir: () => dir, toAudio: (m) => sent.push(m), broadcast: () => {}, log: createLogger('t') });
+    await sm.start({});
+    const folder = sm.currentFolder;
+    sm.handleAudio({ type: 'pcm', dir: 'out', pcm: new Int16Array(16000).buffer });
+    const meta = await sm.stop();
+    expect(meta!.files.mic).toBeUndefined();
+    expect(existsSync(join(folder, 'audio', 'mic.wav'))).toBe(false);
+  });
+
   it('a short meeting keeps its recording even when the only chunk arrives as the recorder stops', async () => {
     const { dir, settings, sent } = base();
     settings.recording.audio = true;

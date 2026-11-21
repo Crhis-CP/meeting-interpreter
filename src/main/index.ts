@@ -1,7 +1,7 @@
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, protocol, safeStorage, session, shell, systemPreferences, Tray, utilityProcess } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
-import { constants as osConstants, cpus, release, setPriority, totalmem } from 'node:os';
+import { constants as osConstants, cpus, release, setPriority, tmpdir, totalmem } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { PresetId } from '../core/config/presets';
@@ -27,6 +27,7 @@ import { detectMeetingApps } from './platform/meeting-apps';
 import { restoreAudioDefaults, savedAudioDefaults } from './platform/audio-defaults';
 import { KEY_NAMES, missingKeys } from '../core/config/readiness';
 import { collectStorage } from './storage';
+import { cleanupData, rotateLog } from './maintenance';
 import { installVirtualAudio } from './platform/virtual-audio';
 import { createNodeContext } from './platform/node-context';
 import { testDirection, testLlm } from './provider-test';
@@ -77,10 +78,14 @@ if (process.env['MI_USER_DATA']) app.setPath('userData', process.env['MI_USER_DA
 const dataDir = app.getPath('userData');
 mkdirSync(dataDir, { recursive: true });
 const logPath = join(dataDir, 'app.log');
+// At most two logs of 5 MB (about 20 meetings each): checked now and every few hundred lines.
+rotateLog(logPath);
+let logLines = 0;
 setLogSink((level, scope, line) => {
   const text = `${new Date().toISOString()} ${level.toUpperCase()} [${scope}] ${line}\n`;
   if (level !== 'debug') process.stdout.write(text);
   try {
+    if (++logLines % 500 === 0) rotateLog(logPath);
     appendFileSync(logPath, text);
   } catch {
     /* ignore */
@@ -1302,6 +1307,12 @@ app.whenReady().then(() => {
     autoReview(meta.id);
   });
   log.info(`started ${app.getVersion()} on ${process.platform} ${process.arch}`);
+  // Week-old interrupted downloads, files earlier versions left, old driver installers (after
+  // start-up, so it never slows the window down).
+  setTimeout(() => {
+    const r = cleanupData({ dataDir, tmpDir: tmpdir() });
+    if (r.removed.length) log.info(`cleaned up ${r.removed.length} leftover file(s), ${Math.round(r.bytes / 1_000_000)} MB`);
+  }, 20_000);
   void desktopBridge.start().catch((err) => log.warn('desktop bridge unavailable', err instanceof Error ? err.message : String(err)));
   // A quiet check for a newer release on GitHub (no auto-install: unsigned builds).
   setTimeout(() => {

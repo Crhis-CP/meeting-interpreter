@@ -233,11 +233,15 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
       const pushToTalk = settings.interpretation.outMode === 'push-to-talk';
       this.s.out.gate = this.s.out.enabled && !pushToTalk;
 
-      this.wav.out = new WavFileWriter(join(folder, 'audio', 'mic.wav'), 16000);
-      this.meta.files.mic = 'audio/mic.wav';
-      if (withIn) {
-        this.wav.in = new WavFileWriter(join(folder, 'audio', 'meeting.wav'), 16000);
-        this.meta.files.meeting = 'audio/meeting.wav';
+      // The raw voice of each side (16 kHz WAV, about 115 MB an hour each) only when the meeting
+      // is recorded: nothing else uses it.
+      if (settings.recording.audio) {
+        this.wav.out = new WavFileWriter(join(folder, 'audio', 'mic.wav'), 16000);
+        this.meta.files.mic = 'audio/mic.wav';
+        if (withIn) {
+          this.wav.in = new WavFileWriter(join(folder, 'audio', 'meeting.wav'), 16000);
+          this.meta.files.meeting = 'audio/meeting.wav';
+        }
       }
 
       const makePipeline = (dir: Direction) => {
@@ -418,6 +422,11 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     const cur = this.s.recording;
     if (cur.audio === want.audio && cur.screen === want.screen && !cur.screenError) return;
     this.s.recording = { audio: want.audio, screen: want.screen };
+    // Recording switched off: the raw voice stops being kept too (what was recorded stays).
+    if (!want.audio) {
+      for (const w of Object.values(this.wav)) w?.close();
+      this.wav = {};
+    }
     this.d.toAudio({ type: 'stopRecording' });
     if (want.audio || want.screen) this.d.toAudio({ type: 'startRecording', audio: want.audio, screen: want.screen, screenSourceId: want.screenSourceId });
     this.publish();

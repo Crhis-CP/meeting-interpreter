@@ -74,18 +74,19 @@ jobs:
       - run: npm ci
       - name: Make sure the Electron binary is downloaded
         run: node node_modules/electron/install.js
-      - name: Unit tests, with this computer's real voices
-        env:
-          MI_REAL_VOICES: '1'
-        run: npm test
-      - run: npm run build
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ai-model
           key: hy-mt2-1.8b-dc5f44fcf1fa496e
+      # Before the unit tests, so the ones that translate with the real model run too.
       - name: AI translation model (pinned commit, SHA-256 checked)
         shell: bash
         run: echo "MI_AI_MODEL=$(npx tsx --tsconfig tsconfig.node.json scripts/dev/fetch-ai-model.mts ai-model)" >> "$GITHUB_ENV"
+      - name: Unit tests, with this computer's real voices and the real AI model
+        env:
+          MI_REAL_VOICES: '1'
+        run: npm test
+      - run: npm run build
       - name: Desktop app end to end, including the real AI model
         run: npx playwright test e2e/app.spec.ts e2e/buttons.spec.ts e2e/devices.spec.ts e2e/storage.spec.ts e2e/profile.spec.ts e2e/restart.spec.ts e2e/local-ai.spec.ts --trace off
       - name: The packaged app (security fuses on, as installed) holds a meeting and translates
