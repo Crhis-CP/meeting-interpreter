@@ -63,7 +63,7 @@ export async function attachAppLogs(info: TestInfo): Promise<void> {
   }
 }
 
-export async function launchApp(settings: object = {}): Promise<{ app: ElectronApplication; dataDir: string; recordsDir: string }> {
+export async function launchApp(settings: object = {}, opts: { realProfile?: boolean } = {}): Promise<{ app: ElectronApplication; dataDir: string; recordsDir: string }> {
   const dataDir = mkdtempSync(join(tmpdir(), 'mi-e2e-data-'));
   launchedDataDirs.push(dataDir);
   const recordsDir = mkdtempSync(join(tmpdir(), 'mi-e2e-rec-'));
@@ -96,7 +96,8 @@ export async function launchApp(settings: object = {}): Promise<{ app: ElectronA
       '--disable-audio-output',
       '--disable-gpu',
     ],
-    env: { ...process.env, MI_USER_DATA: dataDir },
+    // realProfile: the app's own data folder of this computer (CI only: tests of where data lives).
+    env: { ...(process.env as Record<string, string>), ...(opts.realProfile ? {} : { MI_USER_DATA: dataDir }) },
   });
   for (const w of app.windows()) watchWindow(w);
   app.on('window', watchWindow);

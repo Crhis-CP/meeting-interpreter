@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { attachAppLogs, launchApp, mainWindow } from './helpers';
@@ -56,4 +56,19 @@ test('彻底卸载 for real (a test data folder): the app quits and its data fol
   await closed; // the app quits by itself
   await expect.poll(() => existsSync(dataDir), { timeout: 30_000 }).toBe(false);
   expect(existsSync(`${dataDir}-downloads`)).toBe(true); // the backup stays
+});
+
+test('Windows: an earlier install’s data folder moves from Roaming to Local (nothing downloaded again)', async () => {
+  test.skip(process.platform !== 'win32' || !process.env.CI, 'Windows CI only: it uses this computer’s real profile folders');
+  const roaming = join(process.env.APPDATA!, 'MeetingInterpreter');
+  const local = join(process.env.LOCALAPPDATA!, 'MeetingInterpreter');
+  rmSync(local, { recursive: true, force: true });
+  mkdirSync(join(roaming, 'models', 'sensevoice'), { recursive: true });
+  writeFileSync(join(roaming, 'models', 'sensevoice', 'tokens.txt'), 'downloaded by 0.8');
+  const { app } = await launchApp({}, { realProfile: true });
+  await mainWindow(app);
+  expect(existsSync(join(local, 'models', 'sensevoice', 'tokens.txt'))).toBe(true);
+  expect(existsSync(roaming)).toBe(false);
+  await app.close();
+  rmSync(local, { recursive: true, force: true });
 });

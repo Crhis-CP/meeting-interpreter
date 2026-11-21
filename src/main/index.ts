@@ -1,5 +1,5 @@
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, protocol, safeStorage, session, shell, systemPreferences, Tray, utilityProcess } from 'electron';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, appendFileSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import { constants as osConstants, cpus, homedir, release, setPriority, tmpdir, totalmem } from 'node:os';
 import { execFile, spawn } from 'node:child_process';
@@ -29,6 +29,7 @@ import { restoreAudioDefaults, savedAudioDefaults } from './platform/audio-defau
 import { KEY_NAMES, missingKeys } from '../core/config/readiness';
 import { collectStorage } from './storage';
 import { cleanupData, rotateLog } from './maintenance';
+import { windowsDataDir } from './data-location';
 import { afterExitCommand, planUninstall, safeToDelete, writeBackup, type UninstallPlan } from './uninstall';
 import { installedVirtualAudio, installVirtualAudio, removeVirtualAudio } from './platform/virtual-audio';
 import { createNodeContext } from './platform/node-context';
@@ -71,6 +72,14 @@ protocol.registerSchemesAsPrivileged([
 ]);
 const rendererDir = join(__dirname, '../renderer');
 
+// Windows: data in %LOCALAPPDATA% (not the roaming profile); an earlier install's folder is moved
+// over. Before the single-instance lock, which keeps a file open in the data folder.
+let movedData: ReturnType<typeof windowsDataDir> | null = null;
+if (process.platform === 'win32' && !process.env['MI_USER_DATA'] && process.env['LOCALAPPDATA']) {
+  movedData = windowsDataDir({ roaming: app.getPath('appData'), local: process.env['LOCALAPPDATA'], name: app.getName(), fs: { exists: existsSync, rename: renameSync } });
+  app.setPath('userData', movedData.dir);
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
@@ -98,6 +107,8 @@ setLogSink((level, scope, line) => {
   }
 });
 const log = createLogger('main');
+if (movedData?.moved) log.info(`moved the data folder to ${movedData.dir} (models, settings and keys came along)`);
+if (movedData?.error) log.warn(`could not move the data folder to Local, keeping ${movedData.dir}: ${movedData.error}`);
 
 // Never show Electron's modal error box in the middle of a meeting: log it and tell the window.
 process.on('uncaughtException', (err) => {
