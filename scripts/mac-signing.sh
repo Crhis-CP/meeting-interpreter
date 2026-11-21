@@ -10,14 +10,16 @@ if [ -z "${MI_MAC_CERT_P12:-}" ]; then
 fi
 KC="${RUNNER_TEMP:-/tmp}/mi-signing.keychain-db"
 KCPW="$(openssl rand -hex 16)"
-P12="$(mktemp)"
-trap 'rm -f "$P12"' EXIT
+TMPD="$(mktemp -d)"
+trap 'rm -rf "$TMPD"' EXIT
+# (security picks the format from the file name: it must end in .p12)
+P12="$TMPD/cert.p12"
 printf '%s' "$MI_MAC_CERT_P12" | base64 --decode > "$P12"
 security delete-keychain "$KC" 2>/dev/null || true
 security create-keychain -p "$KCPW" "$KC"
 security set-keychain-settings -lut 21600 "$KC"
 security unlock-keychain -p "$KCPW" "$KC"
-security import "$P12" -k "$KC" -P "${MI_MAC_CERT_PASSWORD:-}" -T /usr/bin/codesign
+security import "$P12" -k "$KC" -f pkcs12 -P "${MI_MAC_CERT_PASSWORD:-}" -T /usr/bin/codesign
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null
 # shellcheck disable=SC2046
 security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
