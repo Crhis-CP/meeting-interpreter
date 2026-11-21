@@ -9,6 +9,9 @@ cd "$(dirname "$0")/.."
 TMP=$(mktemp -d)
 case "$(uname -s)" in
   Darwin)
+    # The app as shipped must carry a valid signature: a broken one makes macOS call it
+    # "damaged" and refuse to open it (fuses flipped after signing did exactly that in 0.8.1).
+    codesign --verify --deep --strict --verbose=2 "$(ls -d release/mac*/*.app | head -1)"
     cp -R "$(ls -d release/mac*/*.app | head -1)" "$TMP/"
     APP=$(ls -d "$TMP"/*.app)
     FUSE_TARGET="$APP"

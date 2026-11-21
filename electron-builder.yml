@@ -65,14 +65,5 @@ linux:
   icon: build/icon.png
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
 publish: null
-# Lock the packaged binary down (Electron fuses): it cannot be reused as a plain Node.js runtime,
-# started with a debugger / NODE_OPTIONS, or made to load app code from outside the signed archive.
-electronFuses:
-  runAsNode: false
-  enableCookieEncryption: true
-  enableNodeOptionsEnvironmentVariable: false
-  enableNodeCliInspectArguments: false
-  enableEmbeddedAsarIntegrityValidation: true
-  onlyLoadAppFromAsar: true
-  loadBrowserProcessSpecificV8Snapshot: false
-  grantFileProtocolExtraPrivileges: false
+# Electron fuses are set in build/after-pack.cjs, before the macOS ad-hoc signature (not with
+# electron-builder's `electronFuses`, which flips them after the hook and breaks the signature).
