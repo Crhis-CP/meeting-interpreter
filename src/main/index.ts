@@ -36,7 +36,7 @@ import { createNodeContext } from './platform/node-context';
 import { testDirection, testLlm } from './provider-test';
 import { LocalAsr } from './providers/local-asr/client';
 import { ModelManager } from './providers/local-asr/model-manager';
-import { modelsForLang, modelsSize, type ModelId } from './providers/local-asr/models';
+import { modelsForLang, modelsSize, type ForeignModelId, type ModelId } from './providers/local-asr/models';
 import { SystemTts } from './providers/system-tts';
 import { RoomHost } from './room/room-host';
 import { AudioWindowMt } from './offline-mt';
@@ -240,12 +240,28 @@ function toAudio(msg: ToAudio): void {
 }
 
 const systemTts = () => new SystemTts();
-const localAsr = (dir: Direction) => {
+
+/**
+ * The Spanish / English recogniser in use: Parakeet; until it is downloaded, a Whisper model an
+ * earlier version downloaded stands in (Parakeet keeps downloading, the meeting page says so).
+ */
+function foreignAsr(): ForeignModelId {
+  const preferred = settings.get().local.esModel;
+  if (models.status(preferred) === 'ready') return preferred;
+  return (['whisper-small', 'whisper-base'] as const).find((id) => models.status(id) === 'ready') ?? preferred;
+}
+
+/** Whether recognition on this computer handles Spanish or English (not only Chinese). */
+function usesForeignAsr(): boolean {
   const s = settings.get();
+  return (s.out.asr === 'local' && baseOf(s.languages.self) !== 'zh') || (s.in.asr === 'local' && baseOf(s.languages.remote) !== 'zh');
+}
+
+const localAsr = (dir: Direction) => {
   void dir;
   return new LocalAsr({
     modelsDir,
-    esModel: s.local.esModel,
+    esModel: foreignAsr(),
     // Whisper: 4 threads where there is room (6 s of Spanish: ~1.7 s instead of ~2.2 s).
     numThreads: availableParallelism() >= 6 ? 4 : 2,
     spawn: () => forkWorker('local-asr-worker.js', 'local-asr'),
@@ -259,7 +275,7 @@ const desktopBridge = new DesktopBridge({
   enabled: () => settings.get().bridge.enabled,
   asr: () => localAsr('in'),
   tts: systemTts,
-  modelsReady: (base) => modelsForLang(base, settings.get().local.esModel).every((id) => models.status(id) === 'ready'),
+  modelsReady: (base) => modelsForLang(base, foreignAsr()).every((id) => models.status(id) === 'ready'),
   ensureModels: (base, onStatus) =>
     models.ensureFor(base, settings.get().local.esModel, (p) => {
       onStatus(`正在下载本机识别模型 ${p.file} ${p.total ? Math.round((p.received / p.total) * 100) : 0}%`);
@@ -849,8 +865,9 @@ async function reviewMeeting(id: string): Promise<StoredReview> {
 const STORAGE_NAMES: Record<string, string> = {
   'silero-vad': '语音检测（识别都要用）',
   sensevoice: '中文识别（SenseVoice）',
-  'whisper-small': '西语 / 英语识别（标准）',
-  'whisper-base': '西语 / 英语识别（轻量）',
+  'parakeet-v3': '西语 / 英语识别（Parakeet）',
+  'whisper-small': '西语 / 英语识别（旧版 Whisper small，换成 Parakeet 后可以删除）',
+  'whisper-base': '西语 / 英语识别（旧版 Whisper base，换成 Parakeet 后可以删除）',
   'hy-mt2-1.8b': '本机 AI 翻译（标准）',
   'hy-mt2-7b': '本机 AI 翻译（更准）',
 };
@@ -860,6 +877,7 @@ const asrDownloads = new Map<string, AbortController>();
 function storageInfo(): StorageInfo {
   const s = settings.get();
   const inUse = new Set<string>(localAsrNeeded('meeting'));
+  if (usesForeignAsr()) inUse.add(s.local.esModel); // Parakeet, also while a Whisper model stands in
   if (usesLocalAi()) inUse.add(s.local.aiModel);
   const bigMac = process.platform === 'darwin' && process.arch === 'arm64' && totalmem() >= 15 * 1024 ** 3;
   return collectStorage({
@@ -869,7 +887,8 @@ function storageInfo(): StorageInfo {
     ai: aiModels,
     inUse,
     names: STORAGE_NAMES,
-    onlyIfPresent: bigMac ? new Set() : new Set(['hy-mt2-7b']),
+    // (Whisper: only from earlier versions.)
+    onlyIfPresent: new Set(['whisper-small', 'whisper-base', ...(bigMac ? [] : ['hy-mt2-7b'])]),
     offlineMt: { totalBytes: OFFLINE_MT_TOTAL, inUse: usesOfflineMt(), downloading: !!mtPrefetch || asrDownloads.has('offline-mt') },
   });
 }
@@ -1164,8 +1183,8 @@ function localAsrNeeded(mode: 'meeting' | 'room'): ModelId[] {
   if (!usesLocalAsr()) return [];
   const s = settings.get();
   const needed = new Set<ModelId>();
-  if (s.out.asr === 'local') modelsForLang(s.languages.self, s.local.esModel).forEach((id) => needed.add(id));
-  if (s.in.asr === 'local') modelsForLang(s.languages.remote, s.local.esModel).forEach((id) => needed.add(id));
+  if (s.out.asr === 'local') modelsForLang(s.languages.self, foreignAsr()).forEach((id) => needed.add(id));
+  if (s.in.asr === 'local') modelsForLang(s.languages.remote, foreignAsr()).forEach((id) => needed.add(id));
   return [...needed];
 }
 
@@ -1183,6 +1202,11 @@ async function readiness(): Promise<ReadinessItem[]> {
   if (asrMissing) {
     if (!prefetching) void prefetchModels();
     items.push({ id: 'asr-models', text: `本机识别模型还在下载（还差约 ${Math.max(1, Math.round(asrMissing / 1_000_000))} MB）`, fix: 'providers', downloading: true });
+  } else if (usesForeignAsr() && foreignAsr() !== s.local.esModel) {
+    // Upgraded from a version with Whisper: meetings go on with it while Parakeet downloads.
+    if (!prefetching) void prefetchModels();
+    const left = models.missingBytes([s.local.esModel]);
+    items.push({ id: 'asr-upgrade', text: `更准、更快的西语 / 英语识别模型正在下载（还差约 ${Math.max(1, Math.round(left / 1_000_000))} MB）。下载好之前先用原来的识别模型，下载好后自动换上。`, downloading: true });
   }
   if (usesLocalAi() && !aiModelInUse()) {
     const id = s.local.aiModel;
@@ -1216,9 +1240,11 @@ async function requireLocalModels(mode: 'meeting' | 'room'): Promise<void> {
   if (!usesLocalAsr()) return;
   const s = settings.get();
   const needed = new Set<ModelId>();
-  if (s.out.asr === 'local') modelsForLang(s.languages.self, s.local.esModel).forEach((id) => needed.add(id));
-  if (s.in.asr === 'local' && mode === 'meeting') modelsForLang(s.languages.remote, s.local.esModel).forEach((id) => needed.add(id));
-  if (mode === 'room' && s.in.asr === 'local') modelsForLang(s.languages.remote, s.local.esModel).forEach((id) => needed.add(id));
+  const foreign = foreignAsr();
+  if (foreign !== s.local.esModel && usesForeignAsr() && !prefetching) void prefetchModels(); // Parakeet, while Whisper stands in
+  if (s.out.asr === 'local') modelsForLang(s.languages.self, foreign).forEach((id) => needed.add(id));
+  if (s.in.asr === 'local' && mode === 'meeting') modelsForLang(s.languages.remote, foreign).forEach((id) => needed.add(id));
+  if (mode === 'room' && s.in.asr === 'local') modelsForLang(s.languages.remote, foreign).forEach((id) => needed.add(id));
   let missing = [...needed].filter((id) => models.status(id) !== 'ready');
   // Files from before hashes were recorded only need a one-time check, not a download.
   if (missing.length && models.missingBytes(missing) === 0) {

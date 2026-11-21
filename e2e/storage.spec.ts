@@ -7,7 +7,7 @@ test.afterEach(async ({}, info) => attachAppLogs(info));
 
 test('存储空间: models on disk are listed with their size and state, and can be deleted', async () => {
   const { app, dataDir } = await launchApp();
-  // An earlier download the settings no longer use (the light Spanish model), half there.
+  // An earlier version's download the app no longer uses (Whisper, replaced by Parakeet), half there.
   const dir = join(dataDir, 'models', 'whisper-base');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'base-encoder.int8.onnx'), new Uint8Array(3_000_000));
@@ -16,7 +16,7 @@ test('存储空间: models on disk are listed with their size and state, and can
   await win.getByRole('navigation').getByRole('button', { name: '设置', exact: true }).click();
   await win.getByRole('tab', { name: '存储空间' }).click();
 
-  const row = win.getByLabel('西语 / 英语识别（轻量）');
+  const row = win.getByLabel('西语 / 英语识别（旧版 Whisper base，换成 Parakeet 后可以删除）');
   await expect(row).toBeVisible();
   await expect(row).toContainText('3 MB');
   await expect(row).toContainText('没下完');

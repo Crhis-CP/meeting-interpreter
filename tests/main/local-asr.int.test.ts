@@ -7,7 +7,7 @@ import { decodeWav, toMono } from '@core/audio/wav';
 import { ProviderError, type AsrEvents, type AsrSession } from '@core/providers/types';
 import { LocalAsr, type WorkerHandle } from '../../src/main/providers/local-asr/client';
 import { ModelManager, type DownloadProgress } from '../../src/main/providers/local-asr/model-manager';
-import { MODEL_BASE_URLS, type WhisperModelId } from '../../src/main/providers/local-asr/models';
+import { MODEL_BASE_URLS, type ForeignModelId, type WhisperModelId } from '../../src/main/providers/local-asr/models';
 import {
   cleanText,
   LocalRecognizer,
@@ -135,8 +135,22 @@ describe('LocalRecognizer (fake sherpa-onnx)', () => {
     });
   });
 
-  it('uses Whisper for Spanish (language es, transcribe), falling back to the Whisper model that is downloaded', () => {
-    const onlyBase: ModelLocator = { status: (id) => (id === 'whisper-small' ? 'missing' : 'ready'), pathOf: allReady.pathOf };
+  it('uses Parakeet for Spanish and English (a NeMo transducer that recognises the language itself)', () => {
+    for (const lang of ['es-AR', 'en-US']) {
+      const rec = new LocalRecognizer({ sherpa: fakeSherpa, lang, models: allReady, onFinal: () => undefined });
+      expect(rec.model).toBe('parakeet-v3');
+      expect(fake.asrConfigs.at(-1)!.modelConfig).toMatchObject({
+        transducer: { encoder: '/models/parakeet-v3/encoder.int8.onnx', decoder: '/models/parakeet-v3/decoder.int8.onnx', joiner: '/models/parakeet-v3/joiner.int8.onnx' },
+        modelType: 'nemo_transducer',
+        tokens: '/models/parakeet-v3/tokens.txt',
+      });
+    }
+  });
+
+  it('until Parakeet is downloaded, a Whisper model an earlier version downloaded stands in (small, else base)', () => {
+    const noParakeet: ModelLocator = { status: (id) => (id === 'parakeet-v3' ? 'missing' : 'ready'), pathOf: allReady.pathOf };
+    expect(new LocalRecognizer({ sherpa: fakeSherpa, lang: 'es-MX', models: noParakeet, onFinal: () => undefined }).model).toBe('whisper-small');
+    const onlyBase: ModelLocator = { status: (id) => (id === 'whisper-base' || id === 'silero-vad' ? 'ready' : 'missing'), pathOf: allReady.pathOf };
     const rec = new LocalRecognizer({ sherpa: fakeSherpa, lang: 'es-MX', models: onlyBase, onFinal: () => undefined });
     expect(rec.model).toBe('whisper-base');
     expect(fake.asrConfigs.at(-1)!.modelConfig).toMatchObject({
@@ -308,6 +322,7 @@ const MODELS_DIR = process.env.MI_MODELS_DIR;
 const TEST_WAVS = {
   zh: 'csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/test_wavs/zh.wav',
   es: 'csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/resolve/main/test_wavs/es.wav',
+  en: 'csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/resolve/main/test_wavs/en.wav',
 };
 
 async function downloadIfMissing(urlPath: string, dest: string): Promise<void> {
@@ -342,7 +357,7 @@ function progressLogger(): (p: DownloadProgress) => void {
   };
 }
 
-function transcribe(sherpa: SherpaOnnxModule, models: ModelManager, lang: string, pcm: Int16Array, esModel?: WhisperModelId) {
+function transcribe(sherpa: SherpaOnnxModule, models: ModelManager, lang: string, pcm: Int16Array, esModel?: ForeignModelId) {
   const t0 = performance.now();
   const finals: { text: string; start: number; end: number }[] = [];
   const rec = new LocalRecognizer({ sherpa, lang, models, esModel, onFinal: (text, start, end) => finals.push({ text, start, end }) });
@@ -364,8 +379,9 @@ describe.skipIf(!MODELS_DIR)('offline recognition with real sherpa-onnx models',
 
   beforeAll(async () => {
     models = new ModelManager(MODELS_DIR!);
-    await models.ensureFor('zh', 'whisper-small', progressLogger());
-    await downloadIfMissing(TEST_WAVS.zh, join(MODELS_DIR!, 'test_wavs', 'zh.wav'));
+    await models.ensureFor('zh', 'parakeet-v3', progressLogger());
+    await models.ensureFor('es', 'parakeet-v3', progressLogger());
+    for (const lang of ['zh', 'es', 'en'] as const) await downloadIfMissing(TEST_WAVS[lang], join(MODELS_DIR!, 'test_wavs', `${lang}.wav`));
     sherpa = loadSherpaOnnx();
     console.log(`[sherpa-onnx-node] version ${String(sherpa.version)}`);
   }, 30 * 60_000);
@@ -405,7 +421,26 @@ describe.skipIf(!MODELS_DIR)('offline recognition with real sherpa-onnx models',
     expect(events.slice(0, firstFinal).filter((e) => e.startsWith('p:')).length).toBeGreaterThan(0);
   }, 120_000);
 
-  // Whisper downloads are big (base ≈ 161 MB, small ≈ 375 MB): opt in with MI_WHISPER=whisper-base|whisper-small.
+  it('transcribes Spanish and English with Silero VAD + Parakeet, and reports the sentence while it is spoken', async () => {
+    const es = transcribe(sherpa, models, 'es-AR', read16k(join(MODELS_DIR!, 'test_wavs', 'es.wav')));
+    expect(es.map((f) => f.text).join(' ')).toMatch(/no preguntes qu[eé] puede hacer tu pa[ií]s por ti,? pregunta qu[eé] puedes hacer t[uú] por tu pa[ií]s/i);
+    const en = transcribe(sherpa, models, 'en-US', read16k(join(MODELS_DIR!, 'test_wavs', 'en.wav')));
+    expect(en.map((f) => f.text).join(' ')).toMatch(/ask not what your country can do for you\.? ask what you can do for your country/i);
+    // Through the worker, with partial results before the final (they let translation start early).
+    const asr = new LocalAsr({ modelsDir: MODELS_DIR!, spawn: () => createInProcessWorker() });
+    const session = await asr.start({ lang: 'es-AR', hotwords: [], sampleRate: 16000 });
+    const events: string[] = [];
+    session.events.on('partial', ({ text }) => events.push(`p:${text}`));
+    session.events.on('final', ({ text }) => events.push(`f:${text}`));
+    feedChunks(read16k(join(MODELS_DIR!, 'test_wavs', 'es.wav')), (c) => session.push(c));
+    await session.end();
+    console.log(events.join('\n'));
+    const firstFinal = events.findIndex((e) => e.startsWith('f:'));
+    expect(firstFinal).toBeGreaterThan(0);
+    expect(events.slice(0, firstFinal).some((e) => e.startsWith('p:'))).toBe(true);
+  }, 300_000);
+
+  // The stand-in from earlier versions (base ≈ 161 MB, small ≈ 375 MB): opt in with MI_WHISPER=whisper-base|whisper-small.
   it.skipIf(!process.env.MI_WHISPER)(
     'transcribes Spanish speech with Silero VAD + Whisper',
     async () => {

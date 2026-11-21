@@ -11,9 +11,11 @@ import type { LangCode } from '@core/types';
  * serves the same paths, can be used safely too.
  */
 
-export type ModelId = 'silero-vad' | 'sensevoice' | 'whisper-base' | 'whisper-small';
+export type ModelId = 'silero-vad' | 'sensevoice' | 'parakeet-v3' | 'whisper-base' | 'whisper-small';
 export type WhisperModelId = 'whisper-base' | 'whisper-small';
-export type ModelFileRole = 'vad' | 'model' | 'tokens' | 'encoder' | 'decoder';
+/** Spanish / English recognisers: Parakeet (default), or a Whisper model an earlier version downloaded. */
+export type ForeignModelId = 'parakeet-v3' | WhisperModelId;
+export type ModelFileRole = 'vad' | 'model' | 'tokens' | 'encoder' | 'decoder' | 'joiner';
 
 export interface ModelFile {
   role: ModelFileRole;
@@ -43,6 +45,7 @@ const VAD_REPO = 'csukuangfj/vad';
 const SENSEVOICE_REPO = 'csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17';
 const WHISPER_BASE_REPO = 'csukuangfj/sherpa-onnx-whisper-base';
 const WHISPER_SMALL_REPO = 'csukuangfj/sherpa-onnx-whisper-small';
+const PARAKEET_REPO = 'csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8';
 
 /** The repository commit each model is pinned to. */
 const REVISION: Record<string, string> = {
@@ -50,6 +53,7 @@ const REVISION: Record<string, string> = {
   [SENSEVOICE_REPO]: '2365baeacb507f821a0c8120fcee3d484dba7a07',
   [WHISPER_BASE_REPO]: 'bb53ee204431c90d314c1cc08d28d23e5b7927cc',
   [WHISPER_SMALL_REPO]: '8f3c18b358db4d1f2fc1eae49d75cd20989e4309',
+  [PARAKEET_REPO]: 'ed5d745623472f97cfc2e6c2916ee248798fc5a8',
 };
 
 function file(repo: string, role: ModelFileRole, name: string, size: number, sha256: string): ModelFile {
@@ -69,6 +73,20 @@ export const MODELS: Readonly<Record<ModelId, ModelSpec>> = {
     repo: SENSEVOICE_REPO,
     files: [file(SENSEVOICE_REPO, 'model', 'model.int8.onnx', 239_233_841, 'c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51'),
       file(SENSEVOICE_REPO, 'tokens', 'tokens.txt', 315_894, 'f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc'),
+    ],
+  },
+  // NVIDIA Parakeet-TDT 0.6B v3 (CC-BY-4.0), 25 European languages with punctuation. On 40
+  // Argentinian Spanish sentences: 2.7 % word errors in 0.34 s each, against Whisper small's 7.6 %
+  // in 1.35 s (docs/translation-benchmark.md).
+  'parakeet-v3': {
+    id: 'parakeet-v3',
+    label: '西语 / 英语识别（Parakeet）',
+    repo: PARAKEET_REPO,
+    files: [
+      file(PARAKEET_REPO, 'encoder', 'encoder.int8.onnx', 652_282_294, '1afbe69c1ffdabee94755f42e4daf1d93549131a3da11356bda84fcef0f2c479'),
+      file(PARAKEET_REPO, 'decoder', 'decoder.int8.onnx', 11_845_274, '0222a86147299d4dee90edf95b6d13827edb42ad8b7c9cf0b2582f030937c0b5'),
+      file(PARAKEET_REPO, 'joiner', 'joiner.int8.onnx', 6_355_277, 'cbd02f3696e9944970111fb439d9c3fd365a80374565f13f2b9c7007d253fc98'),
+      file(PARAKEET_REPO, 'tokens', 'tokens.txt', 93_939, 'd58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d'),
     ],
   },
   'whisper-base': {
@@ -93,23 +111,23 @@ export const MODELS: Readonly<Record<ModelId, ModelSpec>> = {
   },
 };
 
-export const DEFAULT_WHISPER: WhisperModelId = 'whisper-small';
+export const DEFAULT_FOREIGN: ForeignModelId = 'parakeet-v3';
 
-/** What each language needs. Spanish uses Whisper small; Whisper base is the lighter, faster option. */
+/** What each language needs: SenseVoice for Chinese, Parakeet for Spanish and English. */
 export const LANG_MODELS = {
   zh: { recommended: ['silero-vad', 'sensevoice'] },
-  es: { recommended: ['silero-vad', 'whisper-small'], light: ['silero-vad', 'whisper-base'] },
-  en: { recommended: ['silero-vad', 'whisper-small'], light: ['silero-vad', 'whisper-base'] },
-} as const satisfies Record<LangBase, { recommended: readonly ModelId[]; light?: readonly ModelId[] }>;
+  es: { recommended: ['silero-vad', 'parakeet-v3'] },
+  en: { recommended: ['silero-vad', 'parakeet-v3'] },
+} as const satisfies Record<LangBase, { recommended: readonly ModelId[] }>;
 
-/** The recogniser model for a language: SenseVoice for Chinese, Whisper for Spanish. */
-export function asrModelFor(lang: LangCode, whisper: WhisperModelId = DEFAULT_WHISPER): ModelId {
-  return baseOf(lang) === 'zh' ? 'sensevoice' : whisper;
+/** The recogniser model for a language: SenseVoice for Chinese, Parakeet (or `foreign`) for Spanish and English. */
+export function asrModelFor(lang: LangCode, foreign: ForeignModelId = DEFAULT_FOREIGN): ModelId {
+  return baseOf(lang) === 'zh' ? 'sensevoice' : foreign;
 }
 
 /** Every model a language needs (VAD + recogniser). */
-export function modelsForLang(lang: LangCode, whisper: WhisperModelId = DEFAULT_WHISPER): ModelId[] {
-  return ['silero-vad', asrModelFor(lang, whisper)];
+export function modelsForLang(lang: LangCode, foreign: ForeignModelId = DEFAULT_FOREIGN): ModelId[] {
+  return ['silero-vad', asrModelFor(lang, foreign)];
 }
 
 /** The file of a model that plays `role` (e.g. the Whisper encoder). */

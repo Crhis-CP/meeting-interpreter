@@ -443,20 +443,6 @@ function ProvidersTab({ s, update, go }: TabProps) {
         </div>
       )}
 
-      {uses('local') && (
-        <div className="card">
-          <h3>本机离线识别（免费）</h3>
-          <div className="grid2" style={{ marginBottom: 10 }}>
-            <Field label={`${fz}识别模型（Whisper）`}>
-              <select value={s.local.esModel} onChange={(e) => void update({ local: { esModel: e.target.value } })}>
-                <option value="whisper-small">Whisper small（更准，约 360MB）</option>
-                <option value="whisper-base">Whisper base（更快更小，约 150MB）</option>
-              </select>
-            </Field>
-          </div>
-        </div>
-      )}
-
       {(s.preset === 'free' || s.out.mt === 'local-ai' || s.in.mt === 'local-ai') && <AiMtCard s={s} update={update} />}
       <LocalModelsCard go={go} />
       {s.out.tts === 'dashscope' && <MyVoiceCard s={s} update={update} />}

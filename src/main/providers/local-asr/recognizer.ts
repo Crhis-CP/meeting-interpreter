@@ -3,7 +3,7 @@ import { ASR_RATE, int16ToFloat } from '@core/audio/pcm';
 import { baseOf, type LangBase } from '@core/lang/languages';
 import { ProviderError } from '@core/providers/types';
 import type { LangCode } from '@core/types';
-import { DEFAULT_WHISPER, MODELS, modelFile, type ModelId, type WhisperModelId } from './models';
+import { DEFAULT_FOREIGN, MODELS, modelFile, type ForeignModelId, type ModelId } from './models';
 import type { ModelStatus } from './model-manager';
 
 // ------------------------------------------------------------------ the parts of sherpa-onnx-node we use
@@ -47,6 +47,9 @@ export interface SherpaOfflineRecognizerConfig {
   modelConfig: {
     senseVoice?: { model: string; language: string; useInverseTextNormalization: number };
     whisper?: { encoder: string; decoder: string; language: string; task: string };
+    transducer?: { encoder: string; decoder: string; joiner: string };
+    /** 'nemo_transducer' for Parakeet. */
+    modelType?: string;
     tokens: string;
     numThreads: number;
     provider: string;
@@ -104,8 +107,8 @@ export interface VadTuning {
 }
 
 export const DEFAULT_VAD: VadTuning = { threshold: 0.5, minSilenceDuration: 0.5, minSpeechDuration: 0.25, maxSpeechDuration: 10 };
-/** Longest stretch Whisper gets before it is cut at a pause (see the constructor). */
-export const WHISPER_MAX_SPEECH = 6;
+/** Longest stretch of Spanish / English before it is cut at a pause (see the constructor). */
+export const FOREIGN_MAX_SPEECH = 6;
 
 export interface LocalRecognizerOptions {
   sherpa: SherpaOnnxModule;
@@ -114,15 +117,18 @@ export interface LocalRecognizerOptions {
   /** One finished sentence; times are seconds since the first sample fed. */
   onFinal: (text: string, startSec: number, endSec: number) => void;
   /**
-   * The sentence so far, while it is being spoken (Chinese / SenseVoice: cheap enough to decode
+   * The sentence so far, while it is being spoken (SenseVoice, Parakeet: cheap enough to decode
    * again every `partialEverySec`), so translation can start on its first clauses.
    */
   onPartial?: (text: string) => void;
-  /** Default 0.8 s; 0 turns partial results off. */
+  /** Default 0.8 s (SenseVoice) / 1 s (Parakeet); 0 turns partial results off. */
   partialEverySec?: number;
-  /** Whisper model for Spanish. Default whisper-small; falls back to the other Whisper model when only that one is downloaded. */
-  esModel?: WhisperModelId;
-  /** Threads for the Whisper recogniser (SenseVoice uses at most 2). Default 2. */
+  /**
+   * Recogniser for Spanish and English. Default Parakeet; until it is downloaded, a Whisper model
+   * an earlier version downloaded stands in (see pickForeign).
+   */
+  esModel?: ForeignModelId;
+  /** Threads for the Spanish / English recogniser (SenseVoice uses at most 2). Default 2. */
   numThreads?: number;
   vad?: Partial<VadTuning>;
 }
@@ -148,10 +154,11 @@ export function cleanText(raw: string, lang: LangBase): string {
   return text;
 }
 
-function pickWhisper(models: ModelLocator, preferred: WhisperModelId): WhisperModelId {
+/** The chosen recogniser if it is downloaded; otherwise the best one that is (Parakeet, then Whisper small, then base). */
+export function pickForeign(models: ModelLocator, preferred: ForeignModelId): ForeignModelId {
   if (models.status(preferred) === 'ready') return preferred;
-  const other: WhisperModelId = preferred === 'whisper-small' ? 'whisper-base' : 'whisper-small';
-  return models.status(other) === 'ready' ? other : preferred;
+  const order: ForeignModelId[] = ['parakeet-v3', 'whisper-small', 'whisper-base'];
+  return order.find((id) => models.status(id) === 'ready') ?? preferred;
 }
 
 /**
@@ -176,16 +183,15 @@ export class LocalRecognizer {
 
   constructor(private readonly opts: LocalRecognizerOptions) {
     this.lang = baseOf(opts.lang);
-    this.model = this.lang === 'zh' ? 'sensevoice' : pickWhisper(opts.models, opts.esModel ?? DEFAULT_WHISPER);
+    this.model = this.lang === 'zh' ? 'sensevoice' : pickForeign(opts.models, opts.esModel ?? DEFAULT_FOREIGN);
     const missing = (['silero-vad', this.model] as ModelId[]).filter((id) => opts.models.status(id) !== 'ready');
     if (missing.length) {
       throw new ProviderError(`本机离线识别模型还没有下载：${missing.map((id) => MODELS[id].label).join('、')}。请先下载模型再开始。`, 'local');
     }
-    // Whisper (Spanish, English): a long stretch of speech is cut at its next short pause after
-    // 6 s (Silero then raises its threshold), so the first part is recognised and translated while
-    // the speaker goes on. One Whisper decode of 6 s takes ~2 s on a 4-core computer, which is
-    // also why there are no partial results for these languages.
-    this.tuning = { ...DEFAULT_VAD, ...(this.model === 'sensevoice' ? {} : { maxSpeechDuration: WHISPER_MAX_SPEECH }), ...opts.vad };
+    // Spanish, English: a long stretch of speech is cut at its next short pause after 6 s (Silero
+    // then raises its threshold), so the first part is recognised and translated while the speaker
+    // goes on (Chinese has partial results for that instead).
+    this.tuning = { ...DEFAULT_VAD, ...(this.model === 'sensevoice' ? {} : { maxSpeechDuration: FOREIGN_MAX_SPEECH }), ...opts.vad };
     // A segment can start up to maxSpeechDuration (+ the silence that ends it) before the newest sample.
     this.history = new Float32Array(Math.ceil((this.tuning.maxSpeechDuration + 5) * ASR_RATE));
     const path = (id: ModelId, role: Parameters<typeof modelFile>[1]) => opts.models.pathOf(id, modelFile(id, role).name);
@@ -208,6 +214,16 @@ export class LocalRecognizer {
         ? {
             senseVoice: { model: path('sensevoice', 'model'), language: 'zh', useInverseTextNormalization: 1 },
             tokens: path('sensevoice', 'tokens'),
+            numThreads,
+            provider: 'cpu',
+            debug: false,
+          }
+        : this.model === 'parakeet-v3'
+        ? {
+            // Recognises the language itself (25 European languages), with punctuation.
+            transducer: { encoder: path('parakeet-v3', 'encoder'), decoder: path('parakeet-v3', 'decoder'), joiner: path('parakeet-v3', 'joiner') },
+            modelType: 'nemo_transducer',
+            tokens: path('parakeet-v3', 'tokens'),
             numThreads,
             provider: 'cpu',
             debug: false,
@@ -239,10 +255,14 @@ export class LocalRecognizer {
     this.partial();
   }
 
-  /** Decodes the sentence being spoken, at most every `partialEverySec`. */
+  /**
+   * Decodes the sentence being spoken, at most every `partialEverySec` (SenseVoice: 0.8 s;
+   * Parakeet: 1 s — it decodes a second of speech in ~70 ms on 4 cores). Whisper is too slow for this.
+   */
   private partial(): void {
-    const every = this.opts.partialEverySec ?? 0.8;
-    if (!this.opts.onPartial || every <= 0 || this.model !== 'sensevoice' || !this.vad.isDetected) return;
+    if (this.model !== 'sensevoice' && this.model !== 'parakeet-v3') return;
+    const every = this.opts.partialEverySec ?? (this.model === 'sensevoice' ? 0.8 : 1);
+    if (!this.opts.onPartial || every <= 0 || !this.vad.isDetected) return;
     if (!this.vad.isDetected()) {
       this.speechFrom = null;
       return;

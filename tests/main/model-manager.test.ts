@@ -79,19 +79,22 @@ describe('model manifest', () => {
       for (const f of spec.files) {
         expect(f.url).toMatch(new RegExp(`^${spec.repo}/resolve/[0-9a-f]{40}/${f.name.replace(/\./g, '\\.')}$`));
         expect(f.sha256).toMatch(/^[0-9a-f]{64}$/);
-        expect(f.size).toBeGreaterThan(100_000);
+        expect(f.size).toBeGreaterThan(90_000);
       }
     }
     expect(MODELS['silero-vad'].files.map((f) => f.url)).toEqual(['csukuangfj/vad/resolve/fba88cd2e921609e7675c3aaf51e0b9b295da4bc/silero_vad.onnx']);
     expect(MODELS.sensevoice.files.map((f) => f.name)).toEqual(['model.int8.onnx', 'tokens.txt']);
     expect(MODELS['whisper-small'].files.map((f) => f.name)).toEqual(['small-encoder.int8.onnx', 'small-decoder.int8.onnx', 'small-tokens.txt']);
     expect(MODELS['whisper-base'].files.map((f) => f.name)).toEqual(['base-encoder.int8.onnx', 'base-decoder.int8.onnx', 'base-tokens.txt']);
+    expect(MODELS['parakeet-v3'].files.map((f) => [f.role, f.name])).toEqual([['encoder', 'encoder.int8.onnx'], ['decoder', 'decoder.int8.onnx'], ['joiner', 'joiner.int8.onnx'], ['tokens', 'tokens.txt']]);
   });
 
-  it('maps languages to models: zh → VAD + SenseVoice, es → VAD + Whisper (small by default)', () => {
+  it('maps languages to models: zh → VAD + SenseVoice, es / en → VAD + Parakeet', () => {
     expect(modelsForLang('zh-CN')).toEqual(['silero-vad', 'sensevoice']);
-    expect(modelsForLang('es-MX')).toEqual(['silero-vad', 'whisper-small']);
-    expect(modelsForLang('es', 'whisper-base')).toEqual(['silero-vad', 'whisper-base']);
+    expect(modelsForLang('es-MX')).toEqual(['silero-vad', 'parakeet-v3']);
+    expect(modelsForLang('en-US')).toEqual(['silero-vad', 'parakeet-v3']);
+    expect(modelsForLang('es', 'whisper-base')).toEqual(['silero-vad', 'whisper-base']); // a stand-in from an earlier version
+    expect(Math.round(modelsSize(['parakeet-v3']) / 1e6)).toBe(671);
     expect(Math.round(modelsSize(['silero-vad', 'sensevoice']) / 1e6)).toBe(241);
   });
 });

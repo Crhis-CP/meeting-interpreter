@@ -17,4 +17,12 @@ describe('settings saved by older versions', () => {
     expect(s.onboarded).toBe(true);
     expect('platform' in s).toBe(false);
   });
+
+  it('moves Spanish / English recognition from Whisper to Parakeet (more accurate and faster); keeps the rest', () => {
+    for (const old of ['whisper-small', 'whisper-base']) {
+      const s = parseSettings({ local: { esModel: old, aiModel: 'hy-mt2-7b' } });
+      expect(s.local).toEqual({ esModel: 'parakeet-v3', aiModel: 'hy-mt2-7b' });
+    }
+    expect(parseSettings({}).local.esModel).toBe('parakeet-v3');
+  });
 });

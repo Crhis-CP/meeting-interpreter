@@ -40,6 +40,12 @@ export function migrateSettings(raw: unknown): unknown {
     for (const [k, old] of Object.entries(OLD_DEFAULT_SHORTCUTS)) if (sc[k] === old) sc[k] = DEFAULT_SHORTCUTS[k as keyof typeof DEFAULT_SHORTCUTS];
     r.shortcuts = sc;
   }
+  // 0.9: Parakeet recognises Spanish and English more accurately and faster than either Whisper
+  // model (the Whisper files already downloaded stand in until Parakeet is there).
+  if (r.local && typeof r.local === 'object') {
+    const local = r.local as Record<string, unknown>;
+    if (local.esModel === 'whisper-small' || local.esModel === 'whisper-base') r.local = { ...local, esModel: 'parakeet-v3' };
+  }
   return r;
 }
 
@@ -88,11 +94,12 @@ export const SettingsSchema = z.object({
   deepl: z.object({ useGlossary: z.boolean().default(true) }).default({ useGlossary: true }),
   local: z
     .object({
-      esModel: z.enum(['whisper-small', 'whisper-base']).default('whisper-small'),
+      /** Spanish / English recogniser. Whisper only from earlier versions (migrated to Parakeet). */
+      esModel: z.enum(['parakeet-v3', 'whisper-small', 'whisper-base']).default('parakeet-v3'),
       /** Local AI translation model: 1.8B (default) or 7B (more accurate; for Apple-silicon Macs). */
       aiModel: z.enum(['hy-mt2-1.8b', 'hy-mt2-7b']).default('hy-mt2-1.8b'),
     })
-    .default({ esModel: 'whisper-small', aiModel: 'hy-mt2-1.8b' }),
+    .default({ esModel: 'parakeet-v3', aiModel: 'hy-mt2-1.8b' }),
   interpretation: z
     .object({
       outMode: z.enum(['continuous', 'push-to-talk']).default('continuous'),

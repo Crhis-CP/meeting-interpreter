@@ -3,10 +3,12 @@ import { isLatin, type LangBase } from '../lang/languages';
 /**
  * Decides which pieces of recognised speech become translation units.
  *
- * Final sentences from the recogniser are always committed. In low-latency mode a long sentence is
- * also committed early, clause by clause: once a partial hypothesis has kept the same prefix up to
- * a clause mark (，、；：,;:) for `stableMs` and that prefix has enough content, the prefix goes out
- * (idea from Parrots' clause submission). The final then contributes only what was not committed.
+ * Final sentences from the recogniser are always committed. In low-latency mode a long stretch of
+ * speech is also committed early, clause by clause: once a partial hypothesis has kept the same
+ * prefix up to a clause or sentence mark (，、；：,;: and 。？！.?! — a Latin full stop only before a
+ * space, not inside 1.500) for `stableMs` and that prefix has enough content, the prefix goes out
+ * (idea from Parrots' clause submission). The final then contributes only what was not committed;
+ * accents the recogniser added or dropped in between (qué / que) do not count as a change.
  */
 export interface CommitterOptions {
   base: LangBase;
@@ -19,11 +21,16 @@ export interface CommitterOptions {
   minWords?: number;
 }
 
-const CLAUSE_MARKS = /[，、；：,;:]/g;
-const PUNCT_SPACE = /[\s，。、；：？！,.;:?!"'“”‘’«»…—\-()（）]/g;
+/** Where a partial can be cut: clause marks, and sentence ends (a Latin one only before a space). */
+const CLAUSE_MARKS = /[，、；：,;:。？！]|[.?!](?=\s)/g;
+const PUNCT_SPACE = /[\s，。、；：？！,.;:?!¿¡"'“”‘’«»…—\-()（）]/g;
 
 export function normalizeForCompare(s: string): string {
-  return s.replace(PUNCT_SPACE, '').toLowerCase();
+  return s
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(PUNCT_SPACE, '')
+    .toLowerCase();
 }
 
 /** Number of characters of `text` covered by `prefix` when both are compared without punctuation/space. */
@@ -33,9 +40,9 @@ function coveredLength(text: string, prefix: string): number {
   let n = 0;
   let i = 0;
   for (; i < text.length && n < target.length; i++) {
-    const c = text[i]!;
-    if (normalizeForCompare(c) === '') continue;
-    if (c.toLowerCase() !== target[n]) return -1;
+    const c = normalizeForCompare(text[i]!);
+    if (c === '') continue;
+    if (c !== target[n]) return -1;
     n++;
   }
   if (n < target.length) return -1;
@@ -51,9 +58,9 @@ function commonPrefixIn(b: string, a: string): number {
   let i = 0;
   let lastGood = 0;
   for (; i < b.length; i++) {
-    const c = b[i]!;
-    if (normalizeForCompare(c) === '') continue;
-    if (n < na.length && c.toLowerCase() === na[n]) {
+    const c = normalizeForCompare(b[i]!);
+    if (c === '') continue;
+    if (n < na.length && c === na[n]) {
       n++;
       lastGood = i + 1;
     } else break;

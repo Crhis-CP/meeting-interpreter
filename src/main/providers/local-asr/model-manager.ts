@@ -5,7 +5,7 @@ import { dirname, join, sep } from 'node:path';
 import { abortError, isAbortError } from '@core/events';
 import { ProviderError } from '@core/providers/types';
 import type { LangBase } from '@core/lang/languages';
-import { MODEL_BASE_URLS, MODELS, modelsForLang, type ModelId, type ModelSpec, type WhisperModelId } from './models';
+import { MODEL_BASE_URLS, MODELS, modelsForLang, type ForeignModelId, type ModelId, type ModelSpec } from './models';
 
 export type ModelStatus = 'missing' | 'ready';
 
@@ -207,7 +207,7 @@ export class ModelManager {
   }
 
   /** The models used with this Spanish model choice (VAD, Chinese, Spanish) and whether each is downloaded. */
-  statusList(esModel: WhisperModelId): ModelStatusRow[] {
+  statusList(esModel: ForeignModelId): ModelStatusRow[] {
     const ids: ModelId[] = ['silero-vad', 'sensevoice', esModel];
     return ids.map((id) => {
       const spec = this.spec(id);
@@ -217,7 +217,7 @@ export class ModelManager {
   }
 
   /** Downloads what recognising a language needs: zh → VAD + SenseVoice; es → VAD + the chosen Whisper model. */
-  ensureFor(base: LangBase, esModel: WhisperModelId, onProgress?: (p: DownloadProgress) => void, signal?: AbortSignal): Promise<void> {
+  ensureFor(base: LangBase, esModel: ForeignModelId, onProgress?: (p: DownloadProgress) => void, signal?: AbortSignal): Promise<void> {
     return this.ensure(modelsForLang(base, esModel), onProgress, signal);
   }
 

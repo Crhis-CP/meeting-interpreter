@@ -51,6 +51,25 @@ describe('Committer', () => {
     expect(c.onFinal('Muchas gracias por venir hoy, vamos a empezar.', 900)).toEqual(['vamos a empezar.']);
   });
 
+  it('cuts at a finished sentence inside a partial (Parakeet writes full stops), never inside a number', () => {
+    const c = new Committer({ base: 'es', stableMs: 700 });
+    expect(c.onPartial('No preguntes qué puede hacer tu país por ti. Pregunta.', 3200)).toEqual([]);
+    expect(c.onPartial('No preguntes qué puede hacer tu país por ti. Pregunta qué puedes hacer.', 4300)).toEqual(['No preguntes qué puede hacer tu país por ti.']);
+    // The final drops the accents and turns the full stop into a comma: still the same words, so
+    // only the rest goes (not the first half a second time).
+    expect(c.onFinal('No preguntes que puede hacer tu país por ti, pregunta que puedes hacer tú por tu país.', 5800)).toEqual(['pregunta que puedes hacer tú por tu país.']);
+    const n = new Committer({ base: 'es', stableMs: 0 });
+    n.onPartial('Son 1.500 dólares por cada unidad que', 0);
+    expect(n.onPartial('Son 1.500 dólares por cada unidad que', 100)).toEqual([]);
+  });
+
+  it('cuts Chinese at 。？！ inside a partial too', () => {
+    const c = new Committer({ base: 'zh', stableMs: 100 });
+    c.onPartial('第一批货三周内发出。价格', 0);
+    expect(c.onPartial('第一批货三周内发出。价格方面', 300)).toEqual(['第一批货三周内发出。']);
+    expect(c.onFinal('第一批货三周内发出。价格方面可以再谈。', 900)).toEqual(['价格方面可以再谈。']);
+  });
+
   it('ignores empty or punctuation-only finals', () => {
     const c = new Committer({ base: 'zh' });
     expect(c.onFinal('。', 0)).toEqual([]);

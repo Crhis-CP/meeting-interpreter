@@ -1,7 +1,7 @@
 import { Emitter } from '@core/events';
 import { ProviderError, type AsrEvents, type AsrSession, type AsrStartOptions, type StreamingAsr } from '@core/providers/types';
 import type { LangCode } from '@core/types';
-import type { WhisperModelId } from './models';
+import type { ForeignModelId } from './models';
 
 /** The worker process as seen from the main process. Electron's `UtilityProcess` fits as is. */
 export interface WorkerHandle {
@@ -13,7 +13,7 @@ export interface WorkerHandle {
 
 /** Main → worker. */
 export type WorkerRequest =
-  | { type: 'start'; lang: LangCode; modelsDir: string; esModel?: WhisperModelId; numThreads?: number }
+  | { type: 'start'; lang: LangCode; modelsDir: string; esModel?: ForeignModelId; numThreads?: number }
   | { type: 'pcm'; data: ArrayBuffer }
   | { type: 'end' };
 
@@ -29,8 +29,8 @@ export interface LocalAsrOptions {
   modelsDir: string;
   /** Starts a worker running `worker.ts` (the app: `utilityProcess.fork(...)`; tests/CLI: `createInProcessWorker()`). */
   spawn: () => WorkerHandle;
-  /** Whisper model for Spanish (settings `local.esModel`). Default whisper-small. */
-  esModel?: WhisperModelId;
+  /** Recogniser for Spanish and English (settings `local.esModel`). Default Parakeet. */
+  esModel?: ForeignModelId;
   /** Recogniser threads per session. Default 2. */
   numThreads?: number;
   /** Loading the models can take a while on slow disks. Default 120 s. */
