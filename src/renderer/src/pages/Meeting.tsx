@@ -6,6 +6,7 @@ import type { MeetingState } from '@shared/ipc';
 import { api, errMsg, useEvent } from '../api';
 import { Field, Level, SegmentView, StateBadge, Toggle } from '../components/ui';
 import { ScreenPicker } from '../components/ScreenPicker';
+import { DeviceCheck } from '../components/DeviceCheck';
 import type { Page } from '../App';
 
 function elapsed(ms: number | null): string {
@@ -140,6 +141,7 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
 
       {!active && (
         <section className="card" aria-label="会议准备">
+          <DeviceCheck s={settings} foreign={remoteName ?? '西语'} />
           {problems.map((p) => (
             <div key={p.text} className="callout warn row between" role="alert" style={{ marginBottom: 10 }}>
               <span>{p.text}</span>
@@ -237,6 +239,15 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
           <span>会议已结束</span>
           <button className="btn sm" onClick={() => go('history')}>
             查看会议记录
+          </button>
+        </div>
+      )}
+      {/* The meeting app now listens to the virtual mic: without this app running, nobody hears me. */}
+      {lastMeeting && !active && settings.devices.virtualMic && !settings.ui.dismissed.includes('switch-back') && (
+        <div className="callout row between" role="note" style={{ margin: '0 0 12px' }}>
+          <span>不用同传开会时，记得把会议软件的麦克风改回你自己的麦克风，否则对方听不到你。</span>
+          <button className="btn sm ghost" onClick={() => void api.settings.set({ ui: { dismissed: [...settings.ui.dismissed, 'switch-back'] } })}>
+            知道了，不再提示
           </button>
         </div>
       )}

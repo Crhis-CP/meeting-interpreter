@@ -1,3 +1,4 @@
+import { isOtherEnd, VIRTUAL_IN, VIRTUAL_OUT } from '@core/audio/device-check';
 /** Setup guides shown in the app. Chinese, short, step by step. */
 
 export interface MeetingAppGuide {
@@ -112,9 +113,8 @@ export const DRIVER_GUIDES: DriverGuide[] = [
   },
 ];
 
-/** Recognises virtual audio devices by label. */
-export const VIRTUAL_OUT = /(CABLE[- ]?(A |B )?Input|VB-Audio|BlackHole|Voicemeeter (Aux )?Input|VoiceMeeter|Hi-Fi Cable Input|MI_Translated|Loopback Audio|Soundflower|null sink)/i;
-export const VIRTUAL_IN = /(CABLE[- ]?(A |B )?Output|BlackHole|Voicemeeter Out|Hi-Fi Cable Output|MI_Mic|Loopback Audio|Soundflower|Monitor of)/i;
+/** Recognises virtual audio devices by label (shared with the device check). */
+export { VIRTUAL_IN, VIRTUAL_OUT };
 
 export function guessVirtualMic(outputs: MediaDeviceInfo[]): MediaDeviceInfo | undefined {
   return (
@@ -126,13 +126,8 @@ export function guessVirtualMic(outputs: MediaDeviceInfo[]): MediaDeviceInfo | u
 }
 
 export function guessMeetingDevice(inputs: MediaDeviceInfo[], virtualMicLabel?: string): MediaDeviceInfo | undefined {
-  const avoid = (d: MediaDeviceInfo) => {
-    // The meeting device must not be the other end of the virtual mic.
-    if (!virtualMicLabel) return false;
-    if (/BlackHole 2ch/i.test(virtualMicLabel)) return /BlackHole 2ch/i.test(d.label);
-    if (/^CABLE Input/i.test(virtualMicLabel)) return /^CABLE Output/i.test(d.label);
-    return false;
-  };
+  // The meeting device must not be the other end of the virtual mic.
+  const avoid = (d: MediaDeviceInfo) => !!virtualMicLabel && isOtherEnd(d.label, virtualMicLabel);
   return (
     inputs.find((d) => /BlackHole 16ch/i.test(d.label)) ??
     inputs.find((d) => /CABLE-A Output|Hi-Fi Cable Output|Voicemeeter Out/i.test(d.label)) ??

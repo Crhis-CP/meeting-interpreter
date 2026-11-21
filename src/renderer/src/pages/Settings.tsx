@@ -10,6 +10,8 @@ import { ExternalLink, Field, Toggle, FlashButton } from '../components/ui';
 import { ScreenPicker } from '../components/ScreenPicker';
 import { acceleratorOf } from '../lib/accelerator';
 import { DRIVER_GUIDES, guessMeetingDevice, guessVirtualMic } from '../content/guides';
+import { checkDevices } from '@core/audio/device-check';
+import { DeviceCheck } from '../components/DeviceCheck';
 import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../../browser/voice-sample';
 import { DriverInstaller } from '../components/DriverInstaller';
 import { AccentCalibrationCard, MyCorrectionsCard } from '../components/AccentCard';
@@ -543,7 +545,16 @@ function ProvidersTab({ s, update }: TabProps) {
 function DevicesTab({ s, update }: TabProps) {
   const foreign = foreignOf(s);
   const fz = foreign === 'en' ? '英语' : '西语';
-  const { inputs, outputs, refresh } = useDevices();
+  const { inputs, outputs, all, refresh } = useDevices();
+  const [refused, setRefused] = useState('');
+  // A choice that would make the app hear its own output is not saved (the engine would refuse it too).
+  const choose = (patch: Partial<AppSettings['devices']>) => {
+    const before = new Set(checkDevices(all, s.devices, fz).filter((i) => i.level === 'block').map((i) => i.id));
+    const loop = checkDevices(all, { ...s.devices, ...patch }, fz).find((i) => i.level === 'block' && !before.has(i.id));
+    if (loop) return setRefused(`没有改：${loop.text}`);
+    setRefused('');
+    void update({ devices: patch });
+  };
   const [platform, setPlatform] = useState('');
   useEffect(() => void api.app.info().then((i) => setPlatform(i.platform)), []);
   const os = platform === 'darwin' ? 'mac' : platform === 'win32' ? 'win' : 'linux';
@@ -589,9 +600,15 @@ function DevicesTab({ s, update }: TabProps) {
             </button>
           </div>
         </div>
+        <DeviceCheck s={s} foreign={fz} />
+        {refused && (
+          <div className="callout err" role="alert" style={{ marginBottom: 10 }}>
+            {refused}
+          </div>
+        )}
         <div className="grid2">
           <Field label="① 我的麦克风（我说中文）">
-            <select value={s.devices.mic} onChange={(e) => void update({ devices: { mic: e.target.value } })}>
+            <select value={s.devices.mic} onChange={(e) => choose({ mic: e.target.value })}>
               <option value="">系统默认麦克风</option>
               {inputs.map((d) => (
                 <option key={d.deviceId} value={d.deviceId}>
@@ -602,7 +619,7 @@ function DevicesTab({ s, update }: TabProps) {
           </Field>
           <Field label={`② 虚拟麦克风（${fz}译音送进会议）`}>
             <div className="row">
-              <select style={{ flex: 1 }} value={s.devices.virtualMic} onChange={(e) => void update({ devices: { virtualMic: e.target.value } })}>
+              <select style={{ flex: 1 }} value={s.devices.virtualMic} onChange={(e) => choose({ virtualMic: e.target.value })}>
                 <option value="">（未选择）</option>
                 {outputs.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
@@ -623,7 +640,7 @@ function DevicesTab({ s, update }: TabProps) {
           </Field>
           {s.devices.meetingSource === 'device' && (
             <Field label="虚拟扬声器">
-              <select value={s.devices.meetingDevice} onChange={(e) => void update({ devices: { meetingDevice: e.target.value } })}>
+              <select value={s.devices.meetingDevice} onChange={(e) => choose({ meetingDevice: e.target.value })}>
                 <option value="">（未选择）</option>
                 {inputs.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
@@ -636,7 +653,7 @@ function DevicesTab({ s, update }: TabProps) {
           )}
           <Field label="④ 我的耳机（听中文译音）">
             <div className="row">
-              <select style={{ flex: 1 }} value={s.devices.headphones} onChange={(e) => void update({ devices: { headphones: e.target.value } })}>
+              <select style={{ flex: 1 }} value={s.devices.headphones} onChange={(e) => choose({ headphones: e.target.value })}>
                 <option value="">系统默认输出</option>
                 {outputs.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>

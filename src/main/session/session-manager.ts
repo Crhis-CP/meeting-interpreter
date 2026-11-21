@@ -63,6 +63,7 @@ export function audioConfig(s: AppSettings, mode: 'meeting' | 'room'): AudioConf
     playOriginalIn: s.interpretation.playOriginalIn,
     originalInVolume: s.interpretation.originalInVolume,
     record: { audio: s.recording.audio, screen: s.recording.screen, screenSourceId: s.recording.screenSourceId },
+    foreignName: baseOf(s.languages.remote) === 'en' ? '英语' : '西语',
   };
 }
 

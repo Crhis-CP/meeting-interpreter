@@ -149,10 +149,13 @@ export const SettingsSchema = z.object({
           showOriginal: z.boolean().default(true),
         })
         .default({ enabled: true, fontSize: 22, opacity: 0.85, contentProtection: true, clickThrough: false, showOriginal: true }),
+      /** Notices the user answered "this is on purpose / don't show again" (keys include the device). */
+      dismissed: z.array(z.string().max(300)).max(100).default([]),
     })
     .default({
       language: 'zh',
       overlay: { enabled: true, fontSize: 22, opacity: 0.85, contentProtection: true, clickThrough: false, showOriginal: true },
+      dismissed: [],
     }),
   // Held only during meetings, and three modifiers so they never collide with everyday shortcuts
   // (Cmd/Ctrl+Shift+S is "Save As" everywhere, Cmd/Ctrl+Shift+M is Teams' own mute).

@@ -1,4 +1,5 @@
 import { OrderedPlayer } from '../../../browser/ordered-player';
+import { safeRouting } from '@core/audio/device-check';
 import type { AudioConfig, FromAudio, ToAudio } from '@shared/ipc';
 
 type Dir = 'out' | 'in';
@@ -106,26 +107,43 @@ export class AudioEngine {
     this.captureCtx = await makeContext(null);
     await this.captureCtx.audioWorklet.addModule(WORKLET_URL);
 
+    // What each path really uses now: an unplugged device falls back to the system default, and a
+    // path that would feed the app its own output (e.g. VB-CABLE became the default) is not opened.
+    let devices = await listDevices();
+    let route = safeRouting(devices, cfg, cfg.foreignName);
+
     // Microphone → "out".
-    try {
-      this.micStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: cfg.mic ? { exact: cfg.mic } : undefined,
-          echoCancellation: cfg.echoCancellation,
-          noiseSuppression: cfg.noiseSuppression,
-          autoGainControl: cfg.autoGainControl,
-          channelCount: 1,
-        },
-      });
-      this.capture(this.micStream, 'out');
-    } catch (err) {
-      warnings.push(`无法打开麦克风：${errText(err)}`);
+    if (route.mic !== null) {
+      try {
+        this.micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: route.mic ? { exact: route.mic } : undefined,
+            echoCancellation: cfg.echoCancellation,
+            noiseSuppression: cfg.noiseSuppression,
+            autoGainControl: cfg.autoGainControl,
+            channelCount: 1,
+          },
+        });
+      } catch (err) {
+        warnings.push(`无法打开麦克风：${errText(err)}`);
+      }
+      // Without permission the labels were hidden: judge again now that they can be read.
+      if (this.micStream && !devices.some((d) => d.label)) {
+        devices = await listDevices();
+        route = safeRouting(devices, cfg, cfg.foreignName);
+        if (route.mic === null) {
+          this.micStream.getTracks().forEach((t) => t.stop());
+          this.micStream = null;
+        }
+      }
+      if (this.micStream) this.capture(this.micStream, 'out');
     }
+    warnings.push(...route.warnings);
 
     // Meeting audio → "in".
     if (cfg.meetingSource === 'device') {
       if (!cfg.meetingDevice) warnings.push('未选择“会议声音”设备：请在设置里选择虚拟扬声器（如 BlackHole 16ch / CABLE-A Output），或改用“系统声音”。');
-      else {
+      else if (route.meetingDevice !== null) {
         try {
           this.meetingStream = await navigator.mediaDevices.getUserMedia({
             audio: { deviceId: { exact: cfg.meetingDevice }, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
@@ -162,11 +180,11 @@ export class AudioEngine {
     // Outputs.
     if (cfg.virtualMic) this.outSink = await this.makeSink(cfg.virtualMic);
     else if (cfg.mode === 'meeting') warnings.push('未选择“虚拟麦克风”输出设备：对方听不到译音（只记录文字）。');
-    this.inSink = await this.makeSink(cfg.headphones || '');
+    this.inSink = route.headphones === null ? null : await this.makeSink(route.headphones);
     this.players.out = this.outSink ? new OrderedPlayer(this.outSink.ctx, this.outSink.bus) : null;
     this.players.in = this.inSink ? new OrderedPlayer(this.inSink.ctx, this.inSink.bus, { onActivity: () => this.applyDuck() }) : null;
 
-    if (this.outSink && this.micStream) {
+    if (this.outSink && this.micStream && route.micToMeeting) {
       this.micToMeeting = this.outSink.ctx.createGain();
       // Start at the target level: a default gain of 1 would leak the raw voice into the meeting.
       this.micToMeeting.gain.value = this.passthrough ? 1 : cfg.originalMixOut;
@@ -381,10 +399,18 @@ export class AudioEngine {
   }
 
   private async testTone(target: 'virtualMic' | 'headphones', cfg: AudioConfig): Promise<void> {
-    const sinkId = target === 'virtualMic' ? cfg.virtualMic : cfg.headphones;
+    let sinkId = target === 'virtualMic' ? cfg.virtualMic : cfg.headphones;
     if (target === 'virtualMic' && !sinkId) {
       this.send({ type: 'error', message: '还没有选择虚拟麦克风输出设备' });
       return;
+    }
+    if (target === 'headphones') {
+      const route = safeRouting(await listDevices(), cfg, cfg.foreignName);
+      if (route.headphones === null) {
+        this.send({ type: 'error', message: route.warnings.find((w) => w.startsWith('中文译音不播放')) ?? '耳机设备不能用' });
+        return;
+      }
+      sinkId = route.headphones;
     }
     const ctx = await makeContext(sinkId || '');
     const osc = ctx.createOscillator();
@@ -399,6 +425,10 @@ export class AudioEngine {
     osc.stop(ctx.currentTime + 1.05);
     osc.onended = () => void ctx.close();
   }
+}
+
+async function listDevices(): Promise<MediaDeviceInfo[]> {
+  return navigator.mediaDevices.enumerateDevices().catch(() => []);
 }
 
 function errText(err: unknown): string {

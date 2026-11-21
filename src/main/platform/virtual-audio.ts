@@ -5,7 +5,8 @@
  *    verified before installing; the system asks for the administrator password once.
  *  - Windows: VB-CABLE (vb-audio.com, donationware), pinned by SHA-256; the setup's hash and
  *    Authenticode signature (VB-Audio's author) are checked again right before Windows asks for
- *    permission once.
+ *    permission once. The default playback/recording devices are put back afterwards (Windows
+ *    often makes the new cable the default, which silences every app).
  * Downloads go to a fresh private temp folder, and the check happens in the same elevated
  * command that installs, so nothing can swap the file in between.
  *  - Linux: a PulseAudio / PipeWire null sink plus a source from its monitor (no install).
@@ -16,6 +17,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Logger } from '../../core/log';
+import { restoreAudioDefaults, saveAudioDefaults } from './audio-defaults';
 
 const BLACKHOLE_FALLBACK = {
   url: 'https://existential.audio/downloads/BlackHole2ch-0.7.1.pkg',
@@ -83,7 +85,7 @@ async function installMac(fetchImpl: typeof fetch, log: Logger, onProgress: (t: 
     `/usr/sbin/installer -pkg ${sq(path)} -target /`,
     '(/bin/launchctl kickstart -kp system/com.apple.audio.coreaudiod || /usr/bin/killall coreaudiod || true)',
   ].join(' && ');
-  const script = `do shell script ${JSON.stringify(shell)} with administrator privileges with prompt "会议同传助手要安装虚拟声卡 BlackHole（让会议软件听到译音）。"`;
+  const script = `do shell script ${JSON.stringify(shell)} with administrator privileges with prompt "会议同传助手要安装虚拟声卡 BlackHole（让会议软件听到译音）。安装时电脑声音会中断几秒。"`;
   const r = await run('/usr/bin/osascript', ['-e', script]);
   if (r.code !== 0) {
     if (/-128|User canceled|用户已取消/i.test(r.out)) return { ok: false, message: '已取消安装' };
@@ -93,7 +95,7 @@ async function installMac(fetchImpl: typeof fetch, log: Logger, onProgress: (t: 
   return { ok: true, message: '已安装 BlackHole 2ch' };
 }
 
-async function installWindows(fetchImpl: typeof fetch, onProgress: (t: string) => void): Promise<InstallResult> {
+async function installWindows(fetchImpl: typeof fetch, log: Logger, dataDir: string, onProgress: (t: string) => void): Promise<InstallResult> {
   const zip = await download(fetchImpl, VBCABLE.url, onProgress);
   if (createHash('sha256').update(zip).digest('hex') !== VBCABLE.sha256) throw new Error(`下载的安装包校验不通过（官网的文件和我们核对过的不一样），已停止安装。${MANUAL_HINT}`);
   const dir = mkdtempSync(join(tmpdir(), 'mi-driver-'));
@@ -107,6 +109,9 @@ async function installWindows(fetchImpl: typeof fetch, onProgress: (t: string) =
   if (x.code !== 0) throw new Error(`解压失败：${x.out.slice(0, 200)}`);
   const want = process.arch === 'ia32' ? VBCABLE.setup.x86 : VBCABLE.setup.x64;
   const setup = join(out, want.name);
+  // Windows may make the new cable the default device (every app goes silent): remember the
+  // current defaults to put them back afterwards.
+  const saved = await saveAudioDefaults(dataDir).catch((err) => (log.warn('could not read the default audio devices', String(err)), false));
   onProgress('正在安装（请在弹出的窗口里点“是”，如果出现安装界面再点“Install Driver”）…');
   // Hash and signature are checked in the same command that asks Windows for permission.
   const r = await ps(
@@ -123,6 +128,10 @@ async function installWindows(fetchImpl: typeof fetch, onProgress: (t: string) =
     if (/canceled|取消/i.test(r.out)) return { ok: false, message: '已取消安装' };
     throw new Error(`安装没有完成：${r.out.slice(0, 200)}`);
   }
+  if (saved) {
+    const back = await restoreAudioDefaults(dataDir).catch((err) => (log.warn('could not restore the default audio devices', String(err)), []));
+    if (back.length) log.info('restored the default audio devices after installing VB-CABLE', back.join(', '));
+  }
   return { ok: true, message: '已安装 VB-CABLE（如果设备列表里还没有，重启电脑后再看）' };
 }
 
@@ -137,8 +146,8 @@ async function installLinux(): Promise<InstallResult> {
   return { ok: true, message: '已创建虚拟麦克风 MI_Translated_Mic（重启电脑后需要再点一次）' };
 }
 
-export async function installVirtualAudio(fetchImpl: typeof fetch, log: Logger, onProgress: (text: string) => void): Promise<InstallResult> {
+export async function installVirtualAudio(fetchImpl: typeof fetch, log: Logger, dataDir: string, onProgress: (text: string) => void): Promise<InstallResult> {
   if (process.platform === 'darwin') return installMac(fetchImpl, log, onProgress);
-  if (process.platform === 'win32') return installWindows(fetchImpl, onProgress);
+  if (process.platform === 'win32') return installWindows(fetchImpl, log, dataDir, onProgress);
   return installLinux();
 }

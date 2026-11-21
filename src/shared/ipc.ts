@@ -224,6 +224,9 @@ export interface RendererApi {
     testTone(target: 'virtualMic' | 'headphones'): Promise<void>;
     /** Downloads (from the vendor) and installs the virtual audio device for this OS. */
     installDriver(): Promise<{ ok: boolean; message: string }>;
+    /** Windows: the default devices from before the VB-CABLE install are known and can be put back. */
+    canRestoreSystemDefaults(): Promise<boolean>;
+    restoreSystemDefaults(): Promise<string>;
   };
   room: {
     start(): Promise<RoomState>;
@@ -283,6 +286,8 @@ export interface AudioConfig {
   playOriginalIn: boolean;
   originalInVolume: number;
   record: { audio: boolean; screen: boolean; screenSourceId: string };
+  /** The other side's language, for messages ("西语" / "英语"). */
+  foreignName: string;
 }
 
 /** main → audio window */

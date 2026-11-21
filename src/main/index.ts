@@ -23,6 +23,7 @@ import type { SummaryTemplate } from '../core/session/summary';
 import type { Direction, TranscriptSegment } from '../core/types';
 import { IPC, type FromAudio, type ProfileView, type RendererEvents, type StoredReview, type ToAudio } from '../shared/ipc';
 import { detectMeetingApps } from './platform/meeting-apps';
+import { restoreAudioDefaults, savedAudioDefaults } from './platform/audio-defaults';
 import { installVirtualAudio } from './platform/virtual-audio';
 import { createNodeContext } from './platform/node-context';
 import { testDirection, testLlm } from './provider-test';
@@ -186,7 +187,12 @@ function toAudio(msg: ToAudio): void {
     // one. Start, reconfigure (may restart capture) and stop share one ordered queue there.
     void audioWindow.webContents
       .executeJavaScript(`window.__miAudio && window.__miAudio.handle(${JSON.stringify(msg)})`, true)
-      .catch((err) => log.error('audio command failed', err instanceof Error ? err.message : String(err)));
+      .catch((err) => {
+        const m = err instanceof Error ? err.message : String(err);
+        // While quitting (or when the audio window goes away) the last command can't finish: expected.
+        if (quitting || !audioWindow || audioWindow.isDestroyed() || /disposed|destroyed/i.test(m)) log.debug('audio command dropped', m);
+        else log.error('audio command failed', m);
+      });
     return;
   }
   audioWindow.webContents.send(IPC.toAudio, msg);
@@ -597,7 +603,16 @@ const handlers: Record<string, Handler> = {
   },
   'ai.download': (id?: AiModelId) => prefetchAi(id && id in AI_MODELS ? id : settings.get().local.aiModel),
   'mt.download': () => offlineMt.download(),
-  'audio.installDriver': () => installVirtualAudio(proxiedFetch, log.child('driver'), (text) => broadcast('driver-progress', { text })),
+  'audio.installDriver': () => {
+    // Installing makes the system's sound drop for a moment (and may switch devices): never mid-meeting.
+    if (sessionManager.active || room.active) throw new Error('会议进行中不能安装虚拟声卡，请先结束会议');
+    return installVirtualAudio(proxiedFetch, log.child('driver'), app.getPath('userData'), (text) => broadcast('driver-progress', { text }));
+  },
+  'audio.canRestoreSystemDefaults': () => process.platform === 'win32' && !!savedAudioDefaults(app.getPath('userData')),
+  'audio.restoreSystemDefaults': async () => {
+    const back = await restoreAudioDefaults(app.getPath('userData'));
+    return back.length ? `已改回：${back.join('、')}` : '默认设备已经是原来的了';
+  },
   'audio.testTone': (target: 'virtualMic' | 'headphones') => {
     toAudio({ type: 'testTone', target, config: audioConfig(settings.get(), 'meeting') });
   },

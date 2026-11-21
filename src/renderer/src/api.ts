@@ -34,7 +34,7 @@ export function useMeetingState(): MeetingState | null {
 }
 
 /** Audio devices with labels (asks for microphone access once so labels are visible). */
-export function useDevices(): { inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[]; refresh: () => void } {
+export function useDevices(): { inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[]; all: MediaDeviceInfo[]; refresh: () => void } {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const refresh = async () => {
     try {
@@ -58,6 +58,8 @@ export function useDevices(): { inputs: MediaDeviceInfo[]; outputs: MediaDeviceI
   return {
     inputs: devices.filter((d) => d.kind === 'audioinput' && real(d)),
     outputs: devices.filter((d) => d.kind === 'audiooutput' && real(d)),
+    /** Including the system's "default" entries (what the default device is right now). */
+    all: devices,
     refresh: () => void refresh(),
   };
 }

@@ -63,7 +63,7 @@ export function GuidePage() {
             </ol>
             <div className="row">
               {d.links.map((l) => (
-                <button key={l.url} className="btn sm" onClick={() => void api.app.openExternal(l.url)}>
+                <button key={l.url} data-test="safe" className="btn sm" onClick={() => void api.app.openExternal(l.url)}>
                   {l.label}
                 </button>
               ))}
@@ -99,6 +99,8 @@ export function GuidePage() {
         <h3>常见问题</h3>
         <ul className="steps">
           <li><b>对方听不到译音？</b>检查会议软件的麦克风是否选了虚拟声卡的另一端（Mac：BlackHole 2ch；Windows：CABLE Output），并在设置里点“试音”。</li>
+          <li><b>不用同传时对方听不到我？</b>会议软件的麦克风还选着虚拟声卡：改回你自己的麦克风。Teams、腾讯会议等可以在会议里临时切换设备，只对这场会生效，会后不用改回。</li>
+          <li><b>装了虚拟声卡以后电脑没声音？</b>Windows 有时会把 VB-CABLE 设成默认设备。本软件会在装完后自动改回；如果还是没声音，会议页会提示，点“改回原来的设备”即可。</li>
           <li><b>译音断断续续或很小声？</b>把会议软件的“降噪”调低或关闭，关闭“自动调节麦克风音量”。</li>
           <li><b>翻译了自己的译音 / 重复翻译？</b>请戴耳机；Mac 需 14.2 以上才能在“系统声音”模式下排除自己的声音，否则改用“虚拟扬声器”模式。</li>
           <li><b>原声和中文译音叠在一起听不清？</b>“系统声音”模式下原声由会议软件直接播放，本软件无法自动压低：把会议软件的音量调小一些，或改用“虚拟扬声器”模式（会在播放中文时自动压低原声）。</li>
