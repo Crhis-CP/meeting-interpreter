@@ -5,6 +5,7 @@ import type { WorkerHandle } from '../../src/main/providers/local-asr/client';
 import type { ParentPortLike } from '../../src/main/providers/local-asr/worker';
 import { NeuralTts, type NeuralTtsOptions } from '../../src/main/providers/neural-tts/client';
 import { NEURAL_VOICES, TTS_MODELS, neuralVoice } from '../../src/main/providers/neural-tts/models';
+import { join } from 'node:path';
 import { attachTtsWorker, kokoroConfig } from '../../src/main/providers/neural-tts/worker';
 
 interface GenCall {
@@ -125,7 +126,7 @@ describe('natural voices: catalogue', () => {
   it('configures Kokoro with the files of its folder', () => {
     const c = JSON.stringify(kokoroConfig('/m/kokoro-v1.0', 4));
     for (const f of TTS_MODELS['kokoro-v1.0'].files.filter((x) => !x.name.startsWith('dict/'))) expect(c).toContain(f.name);
-    expect(c).toContain('"dictDir":"/m/kokoro-v1.0/dict"');
+    expect((kokoroConfig('/m/kokoro-v1.0', 4) as { model: { kokoro: { dictDir: string } } }).model.kokoro.dictDir).toBe(join('/m/kokoro-v1.0', 'dict'));
   });
 });
 
@@ -273,5 +274,41 @@ describe('natural voices: choosing them', () => {
     const mine = { id: 'local', voices: () => [], synthesize: async function* () {} };
     expect(createProviders(s, {}, fakeContext(), () => [], { localTts: () => mine }).tts('out')).toBe(mine);
     expect(() => createProviders(s, {}, fakeContext(), () => []).tts('in')).toThrow('电脑版');
+  });
+});
+
+describe('natural voices: a computer too slow for them', () => {
+  /** A worker whose sentences take `ms` to make, each 1.5 s long. */
+  function slowWorker(ms: number[]): WorkerHandle {
+    const fns: ((m: unknown) => void)[] = [];
+    let n = 0;
+    return {
+      postMessage: (m: any) => {
+        if (m.t !== 'synth') return;
+        const took = ms[Math.min(n++, ms.length - 1)]!;
+        setImmediate(() => {
+          fns.forEach((f) => f({ t: 'chunk', id: m.id, pcm: new Int16Array(36000).buffer, sampleRate: 24000, ms: took }));
+          fns.forEach((f) => f({ t: 'done', id: m.id }));
+        });
+      },
+      on: (ev: 'message' | 'exit', fn: (x: any) => void) => void (ev === 'message' && fns.push(fn)),
+      kill: () => undefined,
+    };
+  }
+  const say = (tts: NeuralTts) => collect(tts.synthesize({ text: '好。', lang: 'zh-CN', rate: 1 }));
+
+  it('steps aside after three sentences in a row that took longer to make than to say', async () => {
+    const tts = new NeuralTts({ dir: () => '/m', ready: () => true, threads: 2, spawn: () => slowWorker([2000]) });
+    for (let i = 0; i < 3; i++) await say(tts);
+    expect(tts.tooSlow).toBe(true);
+    await expect(say(tts)).rejects.toThrow('跟不上说话速度');
+    tts.dispose(); // the next meeting tries again
+    expect(tts.tooSlow).toBe(false);
+  });
+
+  it('one sentence that kept up starts the count again (a moment of load is not a slow computer)', async () => {
+    const tts = new NeuralTts({ dir: () => '/m', ready: () => true, threads: 2, spawn: () => slowWorker([2000, 2000, 500, 2000, 2000]) });
+    for (let i = 0; i < 5; i++) await say(tts);
+    expect(tts.tooSlow).toBe(false);
   });
 });

@@ -16,7 +16,8 @@ export type TtsWorkerRequest =
   | { t: 'cancel'; id: number };
 export type TtsWorkerReply =
   | { t: 'loaded'; dir: string; ms: number }
-  | { t: 'chunk'; id: number; pcm: ArrayBuffer; sampleRate: number }
+  /** `ms`: how long this sentence took to make (the app compares it with how long it lasts). */
+  | { t: 'chunk'; id: number; pcm: ArrayBuffer; sampleRate: number; ms: number }
   | { t: 'done'; id: number }
   | { t: 'error'; id?: number; message: string };
 
@@ -88,16 +89,19 @@ export function attachTtsWorker(port: ParentPortLike, loadLib: () => SherpaOnnxM
   const synth = async (m: Extract<TtsWorkerRequest, { t: 'synth' }>) => {
     if (cancelled.delete(m.id)) return reply({ t: 'done', id: m.id });
     const tts = await model(m.dir, m.threads);
+    let since = Date.now();
     const onProgress = (info: { samples: Float32Array }) => {
       if (cancelled.has(m.id) || disposed) return 0; // stop after this sentence
       const pcm = toPcm(info.samples);
-      reply({ t: 'chunk', id: m.id, pcm, sampleRate: tts.sampleRate });
+      reply({ t: 'chunk', id: m.id, pcm, sampleRate: tts.sampleRate, ms: Date.now() - since });
+      since = Date.now();
       return 1;
     };
     if (m.phonemes) {
       // Spanish: our own phonemes, one entry per sentence.
       for (const ph of m.phonemes) {
         if (cancelled.has(m.id) || disposed) break;
+        since = Date.now();
         const codepoints = [[...ph].map((c) => c.codePointAt(0)!)];
         const g = await tts.generateAsync({ text: '', sid: m.sid, speed: m.speed, generationConfig: { sid: m.sid, speed: m.speed, phonemeCodepoints: codepoints } });
         if (!cancelled.has(m.id) && g.samples.length) onProgress(g);

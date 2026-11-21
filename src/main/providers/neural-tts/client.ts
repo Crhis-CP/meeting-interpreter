@@ -29,6 +29,22 @@ export interface NeuralTtsOptions {
   onError?: (message: string) => void;
 }
 
+/**
+ * Sentences in a row that took longer to make than to say, after which this computer is too slow
+ * for the natural voices: speech would fall further and further behind, so they step aside (the
+ * system voice speaks; FallbackTts) for the rest of the meeting.
+ */
+export const SLOW_SENTENCES = 3;
+/** Making a sentence takes longer than this share of its length: too slow (some margin for pauses). */
+export const SLOW_RATIO = 1.1;
+
+/** Thrown before a sentence when this computer makes speech slower than it is spoken. */
+export class TooSlowError extends ProviderError {
+  constructor() {
+    super('这台电脑生成自然人声跟不上说话速度', 'local');
+  }
+}
+
 interface Pending {
   chunk(c: PcmChunk): void;
   end(err?: Error): void;
@@ -40,12 +56,19 @@ export class NeuralTts implements Tts {
   private seq = 0;
   private idle: ReturnType<typeof setTimeout> | null = null;
   private readonly pending = new Map<number, Pending>();
+  /** Recent sentences that took longer to make than to say (reset by one that kept up). */
+  private slowInRow = 0;
 
   constructor(private readonly o: NeuralTtsOptions) {}
 
   voices(lang: LangCode): VoiceInfo[] {
     const base = baseOf(lang);
     return NEURAL_VOICES.filter((v) => v.lang === base).map((v) => ({ id: v.gender, name: v.gender === 'female' ? '女声' : '男声', lang, gender: v.gender }));
+  }
+
+  /** This computer makes the voices slower than they speak (they step aside until the process is next stopped). */
+  get tooSlow(): boolean {
+    return this.slowInRow >= SLOW_SENTENCES;
   }
 
   /** Whether the voices for this language can speak now (downloaded). */
@@ -68,7 +91,13 @@ export class NeuralTts implements Tts {
     w.on('message', (m: TtsWorkerReply) => {
       if (m.t === 'loaded') this.o.onLoaded?.(m.ms);
       else if (m.t === 'error' && m.id === undefined) this.o.onError?.(m.message);
-      else if (m.t === 'chunk') this.pending.get(m.id)?.chunk({ samples: new Int16Array(m.pcm), sampleRate: m.sampleRate });
+      else if (m.t === 'chunk') {
+        const samples = new Int16Array(m.pcm);
+        const seconds = samples.length / m.sampleRate;
+        // (Very short pieces say little about speed: a word costs about as much to start as to make.)
+        if (seconds >= 1) this.slowInRow = m.ms / 1000 > seconds * SLOW_RATIO ? this.slowInRow + 1 : 0;
+        this.pending.get(m.id)?.chunk({ samples, sampleRate: m.sampleRate });
+      }
       else if (m.t === 'done') this.pending.get(m.id)?.end();
       else if (m.t === 'error') this.pending.get(m.id!)?.end(new ProviderError(`自然人声出错：${m.message}`, 'local'));
     });
@@ -90,6 +119,7 @@ export class NeuralTts implements Tts {
     const base = baseOf(req.lang);
     const voice = neuralVoice(base, req.voice);
     if (!this.o.ready(voice.model)) throw new ProviderError('自然人声模型还没下载好', 'local');
+    if (this.tooSlow) throw new TooSlowError();
     const input = kokoroInput(req.text, base);
     if ('text' in input ? !input.text : !input.phonemes.length) return;
     if (req.signal?.aborted) return;
@@ -155,6 +185,8 @@ export class NeuralTts implements Tts {
   }
 
   dispose(): void {
+    // A computer that was busy (or slow) gets another chance with the next meeting.
+    this.slowInRow = 0;
     if (this.idle) clearTimeout(this.idle);
     this.idle = null;
     const w = this.worker;

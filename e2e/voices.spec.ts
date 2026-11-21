@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, symlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { attachAppLogs, launchApp, mainWindow } from './helpers';
 
@@ -7,7 +7,8 @@ test.afterEach(async ({}, info) => attachAppLogs(info));
 
 // Needs the natural voices downloaded and checked: MI_MODELS_DIR=/path with kokoro-v1.0 in it (the
 // Mac / Windows CI job has it from the unit tests, tests/main/neural-tts.int.test.ts).
-const SRC = process.env.MI_MODELS_DIR ? join(process.env.MI_MODELS_DIR, 'kokoro-v1.0') : '';
+// (Absolute: CI gives a relative folder, and a link stores its target as given.)
+const SRC = process.env.MI_MODELS_DIR ? resolve(process.env.MI_MODELS_DIR, 'kokoro-v1.0') : '';
 test.skip(!SRC || !existsSync(join(SRC, 'model.onnx.sha256')), 'natural voices not downloaded (MI_MODELS_DIR)');
 
 test('natural voices: 女声 / 男声 to choose, and 试听 speaks with the model in its own process', async () => {

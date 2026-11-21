@@ -38,7 +38,7 @@ import { LocalAsr } from './providers/local-asr/client';
 import { ModelManager } from './providers/local-asr/model-manager';
 import { modelsForLang, modelsSize, type ForeignModelId, type ModelId } from './providers/local-asr/models';
 import { stopSpeechHost, SystemTts } from './providers/system-tts';
-import { NeuralTts } from './providers/neural-tts/client';
+import { NeuralTts, TooSlowError } from './providers/neural-tts/client';
 import { TTS_MODELS, type TtsModelId } from './providers/neural-tts/models';
 import { FallbackTts } from '../core/providers/fallback-tts';
 import { RoomHost } from './room/room-host';
@@ -258,8 +258,16 @@ const neuralTts = new NeuralTts({
   onError: (message) => log.warn(`natural voices: ${message}`),
 });
 /** The free voices: natural, with the system's own voice standing in until they are downloaded (or if they fail). */
+let slowVoiceNoticeAt = 0;
 const localTts = () =>
-  new FallbackTts(neuralTts, systemTts(), (err) => log.info('natural voices unavailable, using the system voice:', err instanceof Error ? err.message : String(err)));
+  new FallbackTts(neuralTts, systemTts(), (err) => {
+    log.info('natural voices unavailable, using the system voice:', err instanceof Error ? err.message : String(err));
+    // Said once (both directions step aside at about the same time).
+    if (err instanceof TooSlowError && Date.now() - slowVoiceNoticeAt > 60_000) {
+      slowVoiceNoticeAt = Date.now();
+      broadcast('toast', { level: 'warn', message: '这台电脑生成自然人声跟不上说话的速度，这场会议改用电脑自带的声音，免得译音越拖越晚。' });
+    }
+  });
 
 /**
  * The Spanish / English recogniser in use: Parakeet; until it is downloaded, a Whisper model an
