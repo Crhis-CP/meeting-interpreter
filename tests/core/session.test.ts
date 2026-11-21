@@ -60,6 +60,11 @@ describe('exports', () => {
     expect(md).toContain('> Hola a todos');
     expect(md).toContain('（翻译失败）');
   });
+
+  it('marks a draft-only translation in the markdown (shown, not spoken)', () => {
+    const md = toMarkdown([{ ...segs[0]!, dstText: 'Hola todos', draft: true }], meta);
+    expect(md).toContain('> Hola todos （草稿，没有念）');
+  });
 });
 
 describe('summary', () => {

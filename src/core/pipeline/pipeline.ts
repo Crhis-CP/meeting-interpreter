@@ -337,16 +337,17 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
           })
           .catch(() => undefined)
       : Promise.resolve();
-    const useDraft = async (why: string): Promise<string | null> => {
+    // Accuracy first: when the real translation does not come, the draft stays as a subtitle
+    // (marked as a draft) and is never spoken — the other side would hear a ~67 % translation as
+    // if it were right. It does not feed the next sentences' context either.
+    const keepDraft = async (why: string): Promise<boolean> => {
       await Promise.race([draftDone, sleep(3000)]);
-      if (!draft) return null;
-      this.log.warn(`using the offline draft: ${why}`);
+      if (!draft) return false;
+      this.log.warn(`only the offline draft (shown, not spoken): ${why}`);
       final = true;
-      job.seg = { ...job.seg, dstText: draft, draft: undefined, status: job.skipped ? 'skipped' : 'done' };
-      this.context.push({ src: job.seg.srcText, dst: draft });
-      if (this.context.length > 6) this.context.shift();
+      job.seg = { ...job.seg, dstText: draft, draft: true, status: job.skipped ? 'skipped' : 'done' };
       this.emit('segment', job.seg);
-      return draft;
+      return true;
     };
     let lastError = '';
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -373,10 +374,7 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
         await sleep(400, this.abort.signal).catch(() => undefined);
       }
     }
-    if (this.o.draft) {
-      const used = await useDraft(lastError);
-      if (used !== null) return used;
-    }
+    if (this.o.draft && (await keepDraft(lastError))) return null;
     job.seg = { ...job.seg, status: 'failed', error: lastError };
     this.log.warn('translation failed', lastError);
     this.emit('segment', job.seg);

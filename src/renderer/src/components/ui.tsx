@@ -69,6 +69,7 @@ export const SegmentView = memo(function SegmentView({ seg, onClick }: { seg: Tr
         <div className="meta">
           {name} · {clock(seg.start)}
           {seg.status === 'skipped' && ' · 已跳过语音'}
+          {seg.status === 'done' && seg.draft && ' · 草稿（准确的译文没来得及出来，没有念）'}
           {seg.edits?.length ? ` · 术语纠正 ${seg.edits.map((e) => `${e.from}→${e.to}`).join('，')}` : ''}
         </div>
       </div>

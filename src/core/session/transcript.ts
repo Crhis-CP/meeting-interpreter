@@ -126,9 +126,9 @@ export function speakerLabel(seg: TranscriptSegment, lang: UiLang = 'zh'): strin
 }
 
 const MD_LABELS = {
-  zh: { title: '会议记录', date: '时间', langs: '语言', platform: '会议软件', body: '双语逐句记录', failed: '（翻译失败）', locale: 'zh-CN' },
-  es: { title: 'Acta de la reunión', date: 'Fecha', langs: 'Idiomas', platform: 'Plataforma', body: 'Transcripción bilingüe', failed: '(traducción fallida)', locale: 'es-ES' },
-  en: { title: 'Meeting transcript', date: 'Date', langs: 'Languages', platform: 'Platform', body: 'Bilingual transcript', failed: '(translation failed)', locale: 'en-US' },
+  zh: { title: '会议记录', date: '时间', langs: '语言', platform: '会议软件', body: '双语逐句记录', failed: '（翻译失败）', draft: '（草稿，没有念）', locale: 'zh-CN' },
+  es: { title: 'Acta de la reunión', date: 'Fecha', langs: 'Idiomas', platform: 'Plataforma', body: 'Transcripción bilingüe', failed: '(traducción fallida)', draft: '(borrador, no se leyó)', locale: 'es-ES' },
+  en: { title: 'Meeting transcript', date: 'Date', langs: 'Languages', platform: 'Platform', body: 'Bilingual transcript', failed: '(translation failed)', draft: '(draft, not spoken)', locale: 'en-US' },
 } as const;
 
 /** Bilingual transcript as Markdown. */
@@ -148,7 +148,8 @@ export function toMarkdown(segs: TranscriptSegment[], meta: MeetingMeta, uiLang:
     const who = speakerLabel(s, uiLang);
     lines.push(`**[${formatClock(s.start)}] ${who}**  `);
     lines.push(`${s.srcText}  `);
-    if (s.dstText) lines.push(`> ${s.dstText}`);
+    // A draft (the real translation never came) is marked: it was shown, not spoken, and may be rough.
+    if (s.dstText) lines.push(`> ${s.dstText}${s.draft ? ` ${T.draft}` : ''}`);
     else if (s.status === 'failed') lines.push(`> ${T.failed}`);
     lines.push('');
   }

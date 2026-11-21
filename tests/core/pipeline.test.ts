@@ -253,15 +253,16 @@ describe('offline draft in front of a slow or failing translator', () => {
     expect(tts.calls[0]!.text).toBe('Hola, versión final.');
   });
 
-  it('uses the draft when the main translator fails', async () => {
+  it('when the main translator fails, the draft stays as a subtitle marked as a draft and is never spoken', async () => {
     const failing: Translator = { id: 'x', translate: async () => { throw Object.assign(new Error('429 rate limited'), { retryable: true }); } };
     const { p, asr, tts, segments } = make({ translator: failing, draft: quick('Hola desde el borrador.') });
     await p.start();
     asr.last.final('你好。');
-    await waitFor(() => tts.calls.length === 1);
+    await waitFor(() => segments.some((s) => s.id === 'out-1' && s.status === 'done'));
     const last = segments.filter((s) => s.id === 'out-1').at(-1)!;
-    expect(last).toMatchObject({ status: 'done', dstText: 'Hola desde el borrador.' });
-    expect(last.draft).toBeUndefined();
+    expect(last).toMatchObject({ status: 'done', dstText: 'Hola desde el borrador.', draft: true });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(tts.calls).toHaveLength(0); // the other side never hears a draft
   });
 });
 
