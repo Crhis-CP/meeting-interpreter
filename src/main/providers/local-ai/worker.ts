@@ -41,7 +41,8 @@ export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib>
         // costs its own words (the library reuses the matching start of the previous prompt).
         const ctx = await model.createContext({ contextSize: 2048, threads: m.threads, sequences: LANES });
         loaded = { model, ctx };
-        const template = String((model.fileInfo.metadata as { tokenizer?: { chat_template?: unknown } } | undefined)?.tokenizer?.chat_template ?? '');
+        const meta = (model as { fileInfo?: { metadata?: { tokenizer?: { chat_template?: unknown } } } }).fileInfo?.metadata;
+        const template = String(meta?.tokenizer?.chat_template ?? '');
         const hy = template.includes('<｜hy_User｜>');
         const lanes: Lane[] = [];
         for (let i = 0; i < LANES; i++) {
