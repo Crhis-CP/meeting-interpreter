@@ -68,6 +68,8 @@ interface Participant {
   lang: string;
   talking: boolean;
   pipeline: DirectionPipeline | null;
+  /** Pipelines made for this participant so far: a new one (after a quiet minute) numbers its sentences apart. */
+  generation: number;
   /** Releases the pipeline (and its recogniser) after a quiet minute. */
   idleTimer?: ReturnType<typeof setTimeout>;
 }
@@ -263,14 +265,22 @@ export class RoomHost {
     this.tunnel.stop();
     this.publicUrl = null;
     this.publicStatus = 'off';
-    this.wss?.close();
-    await new Promise<void>((r) => this.server!.close(() => r()));
-    this.server = null;
-    this.wss = null;
+    // The meeting record is written first: a locked phone must not keep it waiting.
     if (this.startedSession) {
       this.startedSession = false;
       await this.d.session.stop();
     }
+    // A phone that is locked or in the background never answers the close handshake (the ws
+    // library would wait 30 s): give everyone a moment, then cut what is left, joined or not.
+    const wss = this.wss;
+    const server = this.server;
+    this.wss = null;
+    this.server = null;
+    await new Promise((r) => setTimeout(r, 300));
+    for (const ws of wss?.clients ?? []) ws.terminate();
+    wss?.close();
+    (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
+    await new Promise<void>((r) => server.close(() => r()));
     await this.publishState();
   }
 
@@ -398,7 +408,7 @@ export class RoomHost {
         settle();
         const reqLang = typeof msg.lang === 'string' ? msg.lang : '';
         const code = LANGUAGES[reqLang] ? reqLang : reqLang.toLowerCase().startsWith('zh') ? 'zh-CN' : this.d.settings().languages.remote;
-        me = { id: randomBytes(3).toString('hex'), ws, name: String(msg.name ?? '').trim().slice(0, 24) || (baseOf(code) === 'zh' ? '参会者' : baseOf(code) === 'en' ? 'Guest' : 'Invitado'), lang: code, talking: false, pipeline: null, alive: true };
+        me = { id: randomBytes(3).toString('hex'), ws, name: String(msg.name ?? '').trim().slice(0, 24) || (baseOf(code) === 'zh' ? '参会者' : baseOf(code) === 'en' ? 'Guest' : 'Invitado'), lang: code, talking: false, pipeline: null, generation: 0, alive: true };
         this.participants.set(me.id, me);
         const remote = this.d.settings().languages.remote;
         const history = this.d.session.segments().slice(-50);
@@ -472,10 +482,12 @@ export class RoomHost {
     // A Chinese speaker uses the "out" providers (zh → es); a Spanish speaker the "in" ones.
     const dir: Direction = baseOf(p.lang) === baseOf(s.languages.self) ? 'out' : 'in';
     const dstLang = otherLanguage(p.lang, s.languages.remote);
+    // Sentence ids must never repeat within the meeting, or a later sentence replaces an earlier one.
+    p.generation++;
     const pipeline = createDirection({
       dir: 'room',
       speaker: p.name,
-      idPrefix: `room-${p.id}`,
+      idPrefix: p.generation > 1 ? `room-${p.id}.${p.generation}` : `room-${p.id}`,
       srcLang: p.lang,
       dstLang,
       asr: providers.asr(dir),

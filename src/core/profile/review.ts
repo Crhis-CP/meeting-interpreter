@@ -3,7 +3,7 @@
  * words the recogniser most likely mis-heard. Suggestions are only kept when the word is really in
  * that sentence and sounds like the replacement; the user confirms each one before it is learned.
  */
-import { baseOf } from '../lang/languages';
+import { baseOf, type LangBase } from '../lang/languages';
 import type { Llm } from '../providers/types';
 import type { TranscriptSegment } from '../types';
 import { soundsAlike, tokens } from './learn';
@@ -34,6 +34,15 @@ export function reviewMeeting(llm: Llm, segs: TranscriptSegment[], opts: { terms
 
 const FOREIGN_NAME = { es: 'Spanish', en: 'English' } as const;
 const HAN_RUN = /^\p{Script=Han}[\p{Script=Han}A-Za-z0-9·\-\s]{1,15}$/u;
+const HAN = /\p{Script=Han}/gu;
+/**
+ * Single characters (的/得/地, 在/再, 做/作) are never learned as fixes: as a rule they would rewrite
+ * every occurrence in every later meeting. A Chinese fix needs at least two characters on both sides.
+ */
+export function learnableFix(heard: string, meant: string, base: LangBase): boolean {
+  if (base !== 'zh') return heard.length >= 2 && meant.length >= 2;
+  return (heard.match(HAN)?.length ?? 0) >= 2 && (meant.match(HAN)?.length ?? 0) >= 2;
+}
 
 async function review(
   llm: Llm,
@@ -84,6 +93,7 @@ async function review(
       const heard = typeof it.heard === 'string' ? it.heard.trim() : '';
       const meant = typeof it.meant === 'string' ? it.meant.trim() : '';
       if (!seg || !heard || !meant || heard === meant || heard.length > 20 || meant.length > 20) continue;
+      if (!learnableFix(heard, meant, base)) continue;
       if (!seg.srcText.includes(heard)) continue;
       if (!soundsAlike(tokens(heard, base), tokens(meant, base), base)) continue;
       if (out.some((o) => o.segId === seg.id && o.heard === heard)) continue;

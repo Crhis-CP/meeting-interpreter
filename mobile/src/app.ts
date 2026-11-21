@@ -128,6 +128,8 @@ let status: 'idle' | 'starting' | 'listening' | 'speaking' | 'error' = 'idle';
 let statusText = '';
 const segs = new Map<string, TranscriptSegment>();
 let partial = '';
+/** Conversations started so far: after pause → start, sentences continue (new ids, later times). */
+let run = 0;
 
 /** While the phone is talking (and a moment after), the microphone is ignored. */
 const TAIL_S = 0.35;
@@ -148,12 +150,15 @@ async function start() {
     const providers = createProviders(s, secrets, pctx, () => [], { offlineMt: { translate: (text, from, to) => offline.translate(text, from, to) } });
     const shared = new SharedAsr(providers.asr('out'), 'zh-CN', settings.remote);
     const t0 = Date.now();
+    run++;
+    // Continue after the sentences already on screen (they are kept across pause and start).
+    const offset = Math.max(0, ...[...segs.values()].map((x) => x.end ?? x.start ?? 0));
     const draft = settings.mt !== 'offline' && settings.provider !== 'demo' && !(await offline.missingBytes().catch(() => 1)) ? new OfflineTranslator({ translate: (t, f, to) => offline.translate(t, f, to) }) : undefined;
     const make = (side: 'zh' | 'foreign') =>
       createDirection({
         dir: side === 'zh' ? 'out' : 'in',
         speaker: side === 'zh' ? 'me' : 'them',
-        idPrefix: side === 'zh' ? 'zh' : 'fx',
+        idPrefix: `${side === 'zh' ? 'zh' : 'fx'}${run > 1 ? `.${run}` : ''}`,
         srcLang: side === 'zh' ? 'zh-CN' : settings.remote,
         dstLang: side === 'zh' ? settings.remote : 'zh-CN',
         asr: shared.view(side),
@@ -165,7 +170,7 @@ async function start() {
         glossary: () => [],
         personal: () => personalFor(profile, side === 'zh' ? 'zh' : lang(settings.remote).base),
         interpretation: { pinyinFuzzy: true, lowLatency: true },
-        clock: () => (Date.now() - t0) / 1000,
+        clock: () => offset + (Date.now() - t0) / 1000,
         // One shared recogniser for both languages: always open.
         idleCloseMs: 0,
         log: log.child(side),

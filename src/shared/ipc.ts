@@ -77,7 +77,7 @@ export interface MeetingDetail {
 export interface StoredReview {
   at: number;
   /** Likely mis-hearings in my sentences; applied automatically (`auto`) and can be undone. */
-  suggestions: (ReviewSuggestion & { decision?: 'accepted' | 'ignored' | 'undone'; auto?: boolean })[];
+  suggestions: (ReviewSuggestion & { decision?: 'accepted' | 'ignored' | 'undone'; auto?: boolean; /** The sentence before the fix, for an exact undo. */ before?: string; after?: string })[];
   /** Terms learned from this meeting and added to the “自动术语” glossary. */
   terms?: LearnedTerm[];
 }

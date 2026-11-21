@@ -96,22 +96,44 @@ async function stop() {
 }
 
 async function finish(meeting: SavedMeeting | null, tabId: number | null) {
-  if (meeting) await saveMeeting(meeting);
-  if (tabId !== null) await chrome.tabs.sendMessage(tabId, { type: 'engine-stop' }).catch(() => undefined);
-  await closeOffscreen();
-  await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: (await chrome.declarativeNetRequest.getSessionRules()).map((r) => r.id) });
-  await setState({ ...IDLE_STATE, lastMeetingId: meeting?.meta.id });
+  // Whatever fails here, the extension must end up idle again (never stuck in "stopping").
+  let error: string | undefined;
+  try {
+    if (meeting) await saveMeeting(meeting);
+  } catch (err) {
+    error = `这场会议没能保存：${err instanceof Error ? err.message : String(err)}`;
+  }
+  try {
+    if (tabId !== null) await chrome.tabs.sendMessage(tabId, { type: 'engine-stop' }).catch(() => undefined);
+    await closeOffscreen();
+    await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: (await chrome.declarativeNetRequest.getSessionRules()).map((r) => r.id) });
+  } finally {
+    await setState({ ...IDLE_STATE, lastMeetingId: error ? undefined : meeting?.meta.id, ...(error ? { error } : {}) });
+  }
 }
 
 async function closeOffscreen() {
   if (await hasOffscreen()) await chrome.offscreen.closeDocument().catch(() => undefined);
 }
 
+/**
+ * Keeps the newest meetings. The extension's storage is limited (about 10 MB): when it is full, the
+ * oldest meetings make room for the new one, never the other way round.
+ */
 async function saveMeeting(m: SavedMeeting) {
   const r = await chrome.storage.local.get('meetings');
-  const list = ((r.meetings as SavedMeeting[] | undefined) ?? []).filter((x) => x.meta.id !== m.meta.id);
+  let list = ((r.meetings as SavedMeeting[] | undefined) ?? []).filter((x) => x.meta.id !== m.meta.id);
   list.unshift(m);
-  await chrome.storage.local.set({ meetings: list.slice(0, MAX_SAVED_MEETINGS) });
+  list = list.slice(0, MAX_SAVED_MEETINGS);
+  for (;;) {
+    try {
+      await chrome.storage.local.set({ meetings: list });
+      return;
+    } catch (err) {
+      if (list.length <= 1 || !/quota/i.test(err instanceof Error ? err.message : String(err))) throw err;
+      list = list.slice(0, Math.max(1, Math.floor(list.length * 0.7)));
+    }
+  }
 }
 
 /** Stable small rule id per WebSocket endpoint. */

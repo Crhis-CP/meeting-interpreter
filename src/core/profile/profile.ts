@@ -126,7 +126,10 @@ export interface CorrectionRule {
 export function applyCorrections(text: string, rules: readonly CorrectionRule[], base: LangBase): { text: string; edits: { from: string; to: string }[] } {
   const edits: { from: string; to: string }[] = [];
   let out = text;
-  for (const r of rules.filter((r) => r.lang === base).sort((a, b) => b.heard.length - a.heard.length)) {
+  // A one-character Chinese rule (e.g. 的→得, learned by older versions) would rewrite every
+  // occurrence: such rules are ignored.
+  const usable = rules.filter((r) => r.lang === base && (base !== 'zh' || [...r.heard].length >= 2));
+  for (const r of usable.sort((a, b) => b.heard.length - a.heard.length)) {
     if (base === 'zh') {
       if (out.includes(r.heard)) {
         out = out.split(r.heard).join(r.meant);

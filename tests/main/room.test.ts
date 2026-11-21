@@ -230,13 +230,43 @@ describe('room resources', () => {
     await c.opened();
     c.send({ t: 'join', name: 'a', lang: 'zh-CN', token: url.searchParams.get('t'), v: ROOM_PROTOCOL_VERSION });
     await waitFor(() => c.msgs.some((m) => m.t === 'welcome'));
-    const me = () => [...((room as any).participants as Map<string, { pipeline: unknown }>).values()][0]!;
+    const me = () => [...((room as any).participants as Map<string, { id: string; pipeline: unknown }>).values()][0]!;
+    const prefix = () => (me().pipeline as { o: { idPrefix: string } }).o.idPrefix;
     c.send({ t: 'talk', on: true });
     await waitFor(() => !!me().pipeline);
+    const first = prefix();
     c.send({ t: 'talk', on: false });
     await waitFor(() => me().pipeline === null);
     c.send({ t: 'talk', on: true });
     await waitFor(() => !!me().pipeline);
+    // The new pipeline numbers its sentences apart, so it never replaces the earlier ones.
+    expect(first).toBe(`room-${me().id}`);
+    expect(prefix()).toBe(`room-${me().id}.2`);
     await room.stop();
+  });
+});
+
+describe('closing the room', () => {
+  it('finishes at once even when a phone is locked (never answers the close handshake)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mi-room-stop-'));
+    const staticDir = mkdtempSync(join(tmpdir(), 'mi-static-'));
+    writeFileSync(join(staticDir, 'room.html'), 'ok');
+    const settings = applyPreset(defaultSettings(), 'demo');
+    settings.room.port = 0;
+    const providers = { asr: () => new MockAsr('self'), mt: () => new MockTranslator(), tts: () => new MockTts(), llm: () => null, describe: () => ({}) } as ProviderSet;
+    const log = createLogger('test');
+    const session = new SessionManager({ settings: () => settings, glossary: () => [], providers: () => providers, recordsDir: () => dir, toAudio: () => {}, broadcast: () => {}, log });
+    const room = new RoomHost({ settings: () => settings, session, providers: () => providers as never, glossary: () => [], toAudio: () => {}, broadcast: () => {}, log, dataDir: dir, staticDir: () => staticDir, devUrl: () => undefined, insecure: true });
+    const st = await room.start();
+    const url = new URL(st.urls[0]!);
+    const c = new Client(`ws://127.0.0.1:${url.port}/ws`);
+    await c.opened();
+    c.send({ t: 'join', name: 'a', lang: 'zh-CN', token: url.searchParams.get('t'), v: ROOM_PROTOCOL_VERSION });
+    await waitFor(() => c.msgs.some((m) => m.t === 'welcome'));
+    (c as unknown as { ws: { _socket: { pause(): void } } }).ws._socket.pause(); // the phone sleeps
+    const t0 = Date.now();
+    await room.stop();
+    expect(Date.now() - t0).toBeLessThan(3000);
+    expect(session.active).toBe(false);
   });
 });

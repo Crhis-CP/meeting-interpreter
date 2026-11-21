@@ -416,8 +416,13 @@ const handlers: Record<string, Handler> = {
     const seg = detail.segments.find((s) => s.id === segId);
     if (seg) {
       profileStore.update((p) => removeCorrection(p, baseOf(seg.srcLang), item.heard));
-      const i = seg.srcText.indexOf(item.meant);
-      if (i >= 0) await editSegment(id, segId, seg.srcText.slice(0, i) + item.heard + seg.srcText.slice(i + item.meant.length), { learn: false });
+      if (item.before !== undefined && seg.srcText === item.after) {
+        await editSegment(id, segId, item.before, { learn: false });
+      } else {
+        // Edited since (or saved by an older version): put back the fixed place only.
+        const i = seg.srcText.indexOf(item.meant);
+        if (i >= 0) await editSegment(id, segId, seg.srcText.slice(0, i) + item.heard + seg.srcText.slice(i + item.meant.length), { learn: false });
+      }
     }
     item.decision = 'undone';
     meetings.saveReview(id, review);
@@ -728,7 +733,10 @@ async function reviewMeeting(id: string): Promise<StoredReview> {
     const seg = meetings.get(id)?.segments.find((s) => s.id === sg.segId);
     if (!seg || !seg.srcText.includes(sg.heard)) continue;
     profileStore.update((p) => addCorrections(p, [{ heard: sg.heard, meant: sg.meant }], baseOf(seg.srcLang), 'review'));
-    await editSegment(id, sg.segId, seg.srcText.split(sg.heard).join(sg.meant), { learn: false }).catch((err) => log.warn('auto correction failed', err instanceof Error ? err.message : String(err)));
+    // Only the place the review pointed at (the first occurrence), and remembered for an exact undo.
+    sg.before = seg.srcText;
+    sg.after = seg.srcText.replace(sg.heard, sg.meant);
+    await editSegment(id, sg.segId, sg.after, { learn: false }).catch((err) => log.warn('auto correction failed', err instanceof Error ? err.message : String(err)));
     sg.decision = 'accepted';
     sg.auto = true;
   }

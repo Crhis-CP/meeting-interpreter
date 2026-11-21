@@ -9,31 +9,28 @@ const Bi = z.object({ zh: z.string().default(''), es: z.string().default(''), en
 const EMPTY = { zh: '', es: '', en: '' };
 const Evidence = z.array(z.string()).default([]);
 
+const Topic = z.object({
+  start: z.number().default(0),
+  title: Bi.default(EMPTY),
+  summary: Bi.default(EMPTY),
+  points: z.array(z.object({ text: Bi, evidence: Evidence })).default([]),
+});
+const Decision = z.object({ text: Bi, evidence: Evidence });
+const Todo = z.object({
+  text: Bi,
+  owner: z.string().nullable().default(null),
+  due: z.string().nullable().default(null),
+  evidence: Evidence,
+});
+const Term = z.object({ zh: z.string().default(''), es: z.string().default(''), en: z.string().default(''), note: z.string().default('') });
+
 export const MeetingSummarySchema = z.object({
   title: Bi.default(EMPTY),
   summary: Bi.default(EMPTY),
-  topics: z
-    .array(
-      z.object({
-        start: z.number().default(0),
-        title: Bi.default(EMPTY),
-        summary: Bi.default(EMPTY),
-        points: z.array(z.object({ text: Bi, evidence: Evidence })).default([]),
-      }),
-    )
-    .default([]),
-  decisions: z.array(z.object({ text: Bi, evidence: Evidence })).default([]),
-  todos: z
-    .array(
-      z.object({
-        text: Bi,
-        owner: z.string().nullable().default(null),
-        due: z.string().nullable().default(null),
-        evidence: Evidence,
-      }),
-    )
-    .default([]),
-  terms: z.array(z.object({ zh: z.string().default(''), es: z.string().default(''), en: z.string().default(''), note: z.string().default('') })).default([]),
+  topics: z.array(Topic).default([]),
+  decisions: z.array(Decision).default([]),
+  todos: z.array(Todo).default([]),
+  terms: z.array(Term).default([]),
 });
 
 export type MeetingSummary = z.infer<typeof MeetingSummarySchema>;
@@ -108,13 +105,38 @@ export function parseSummary(raw: string): MeetingSummary {
   } catch {
     throw new Error('纪要模型返回的 JSON 无法解析');
   }
-  return MeetingSummarySchema.parse(normalize(data));
+  const norm = normalize(data);
+  const whole = MeetingSummarySchema.safeParse(norm);
+  if (whole.success) return whole.data;
+  // One odd item must not cost the whole summary: keep every item that is fine.
+  const lists = { topics: Topic, decisions: Decision, todos: Todo, terms: Term } as const;
+  const o = norm && typeof norm === 'object' && !Array.isArray(norm) ? { ...(norm as Record<string, unknown>) } : {};
+  for (const [k, schema] of Object.entries(lists)) {
+    o[k] = Array.isArray(o[k]) ? (o[k] as unknown[]).filter((x) => schema.safeParse(x).success) : [];
+  }
+  for (const k of ['title', 'summary']) if (!Bi.safeParse(o[k]).success) delete o[k];
+  const kept = MeetingSummarySchema.safeParse(o);
+  if (!kept.success) throw new Error('纪要模型返回的内容格式不对，请再生成一次');
+  return kept.data;
+}
+
+/** "01:15", "1:02:03" or "75" → seconds; anything else → 0. */
+function seconds(v: unknown): number {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v !== 'string') return 0;
+  const parts = v.trim().split(':').map(Number);
+  if (!parts.length || parts.some((n) => !Number.isFinite(n))) return 0;
+  return parts.reduce((acc, n) => acc * 60 + n, 0);
 }
 
 /** Accepts plain strings where bilingual objects are expected (some models drop one language). */
 function normalize(v: unknown, key = ''): unknown {
   const biKeys = new Set(['title', 'summary', 'text']);
   if (typeof v === 'string' && biKeys.has(key)) return { zh: v, es: v, en: v };
+  // Models often copy the transcript's look: "01:15" for a time, "L3" for the evidence list.
+  if (key === 'start') return seconds(v);
+  if (key === 'evidence') return Array.isArray(v) ? v.map(String) : typeof v === 'string' || typeof v === 'number' ? [String(v)] : [];
+  if ((key === 'owner' || key === 'due') && v !== null && typeof v !== 'string') return typeof v === 'number' ? String(v) : null;
   if (Array.isArray(v)) return v.map((x) => normalize(x, key === 'evidence' ? 'evidence' : ''));
   if (v && typeof v === 'object') {
     const out: Record<string, unknown> = {};

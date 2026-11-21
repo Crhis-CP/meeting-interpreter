@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Llm, LlmRequest } from '@core/providers/types';
 import type { TranscriptSegment } from '@core/types';
 import { reviewMeeting, reviewTranscript } from '@core/profile/review';
+import { applyCorrections } from '@core/profile/profile';
 
 const seg = (id: string, dir: 'out' | 'in', srcText: string, srcLang = dir === 'out' ? 'zh-CN' : 'es-AR'): TranscriptSegment => ({
   id, dir, speaker: dir === 'out' ? 'me' : 'them', seq: 1, start: 0, end: 1, srcLang, srcText, dstLang: 'x', dstText: 'x', status: 'done',
@@ -87,5 +88,19 @@ describe('learned terms are never mis-hearings', () => {
     const r = await reviewMeeting(llm, segs, { terms: [], foreign: 'es' });
     expect(r.suggestions).toHaveLength(1);
     expect(r.terms).toEqual([]);
+  });
+});
+
+describe('single-character fixes are never learned', () => {
+  it('drops 的→得 and 在→再 from the review, keeps real word fixes', async () => {
+    const segs = [seg('out-1', 'out', '我在公司的会议室等你的河同。')];
+    const reply = JSON.stringify({ items: [{ line: 1, heard: '的', meant: '得' }, { line: 1, heard: '在', meant: '再' }, { line: 1, heard: '河同', meant: '合同' }] });
+    const r = await reviewMeeting(new FakeLlm(reply), segs, { terms: [], foreign: 'es' });
+    expect(r.suggestions.map((s) => `${s.heard}→${s.meant}`)).toEqual(['河同→合同']);
+  });
+
+  it('a one-character rule learned by an older version is ignored', () => {
+    const rules = [{ heard: '的', meant: '得', lang: 'zh' as const }, { heard: '河同', meant: '合同', lang: 'zh' as const }];
+    expect(applyCorrections('我的河同', rules, 'zh').text).toBe('我的合同');
   });
 });

@@ -7,6 +7,32 @@ import { Toggle } from '../components/ui';
 
 const split = (s: string) => s.split(/[;；,，、]/).map((x) => x.trim()).filter(Boolean);
 
+/**
+ * A list typed as text ("报价；报价单", "plazo de entrega; entrega"): the text is kept as typed and
+ * split only when the field is left, so separators and spaces can be typed normally.
+ */
+function ListInput({ value, sep, label, onChange }: { value: string[]; sep: string; label: string; onChange: (v: string[]) => void }) {
+  const [text, setText] = useState(value.join(sep));
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    if (!editing) setText(value.join(sep));
+  }, [value, sep, editing]);
+  return (
+    <input
+      type="text"
+      aria-label={label}
+      value={text}
+      placeholder={sep.trim()}
+      onFocus={() => setEditing(true)}
+      onChange={(ev) => setText(ev.target.value)}
+      onBlur={() => {
+        setEditing(false);
+        onChange(split(text));
+      }}
+    />
+  );
+}
+
 export function GlossaryPage() {
   const [settings] = useSettings();
   // Only the language now translated to is shown (the other one's terms are kept).
@@ -165,13 +191,13 @@ export function GlossaryPage() {
                     )}
                   </td>
                   <td>
-                    <input type="text" aria-label="中文常被听成" value={e.aliasesZh.join('；')} placeholder="；" onChange={(ev) => setEntry(e.id, { aliasesZh: split(ev.target.value) })} />
+                    <ListInput label="中文常被听成" sep="；" value={e.aliasesZh} onChange={(v) => setEntry(e.id, { aliasesZh: v })} />
                   </td>
                   <td>
                     {en ? (
-                      <input type="text" aria-label="English 常被听成" value={(e.aliasesEn ?? []).join('; ')} onChange={(ev) => setEntry(e.id, { aliasesEn: split(ev.target.value) })} />
+                      <ListInput label="English 常被听成" sep="; " value={e.aliasesEn ?? []} onChange={(v) => setEntry(e.id, { aliasesEn: v })} />
                     ) : (
-                      <input type="text" aria-label="Español 常被听成" value={e.aliasesEs.join('; ')} onChange={(ev) => setEntry(e.id, { aliasesEs: split(ev.target.value) })} />
+                      <ListInput label="Español 常被听成" sep="; " value={e.aliasesEs} onChange={(v) => setEntry(e.id, { aliasesEs: v })} />
                     )}
                   </td>
                   <td>
