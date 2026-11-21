@@ -3,6 +3,7 @@ import { baseOf } from '@core/lang/languages';
 import { summaryToMarkdown, TEMPLATE_NAMES, type SummaryTemplate } from '@core/session/summary';
 import type { MeetingDetail, MeetingListItem } from '@shared/ipc';
 import { api, errMsg, useEvent } from '../api';
+import { fileLabel } from '../lib/file-label';
 import { FlashButton, Markdown } from '../components/ui';
 import { EditableSegment, ReviewPanel } from '../components/TranscriptFixes';
 
@@ -69,6 +70,8 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
   const [d, setD] = useState<MeetingDetail | null>(null);
   const [tab, setTab] = useState<'transcript' | 'summary-zh' | 'summary-foreign' | 'media' | 'files'>('transcript');
   const [template, setTemplate] = useState<SummaryTemplate>('general');
+  // Starts from the default template chosen in 设置 › 录制与纪要 (one setting, not two).
+  useEffect(() => void api.settings.get().then((s) => setTemplate(s.summary.template), () => undefined), []);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
@@ -242,7 +245,8 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
           {d.files.map((f) => (
             <div key={f.rel} className="list-item" onClick={() => void api.meetings.openFile(id, f.rel)}>
               <div className="grow">
-                <div>{f.rel}</div>
+                <div>{fileLabel(f.rel)}</div>
+                <div className="muted small mono">{f.rel}</div>
               </div>
               <span className="muted small">{f.size > 1048576 ? `${(f.size / 1048576).toFixed(1)} MB` : `${Math.ceil(f.size / 1024)} KB`}</span>
             </div>

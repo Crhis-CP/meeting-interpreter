@@ -485,7 +485,7 @@ function ProvidersTab({ s, update, go }: TabProps) {
                   <select value={c.mt} onChange={(e) => void update({ [d]: { mt: e.target.value }, preset: 'custom' })}>
                     <option value="qwen-mt">通义 Qwen-MT（百炼）</option>
                     <option value="local-ai">本机 AI 翻译（免费，准确率接近大模型）</option>
-                    <option value="offline">离线翻译（免费，最快）</option>
+                    {c.mt === 'offline' && <option value="offline">离线翻译（准确率低，只建议作草稿）</option>}
                     <option value="llm">大模型（上面配置的）</option>
                     <option value="deepl">DeepL</option>
                     <option value="azure-translator">Azure 翻译</option>
@@ -751,7 +751,8 @@ function RecordTab({ s, update, go }: TabProps) {
         </div>
       </div>
       <div className="card">
-        <h3>默认录制</h3>
+        <h3>录音和录屏</h3>
+        <p className="small muted">和会议页上的“录音”“录屏”开关是同一个设置，会议中也可以随时开关。</p>
         <div className="stack">
           <Toggle checked={s.recording.audio} onChange={(v) => void update({ recording: { audio: v } })} label="录音" />
           <Toggle checked={s.recording.screen} onChange={(v) => void update({ recording: { screen: v } })} label="录屏" />

@@ -72,13 +72,6 @@ export function RoomPage({ settings, state, go }: { settings: AppSettings; state
       </header>
       {error && <div className="callout err" role="alert" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {room && !room.active && !meetingActive && (
-        <div className="card qr-placeholder" aria-hidden="true">
-          <span className="qr-box">▦</span>
-          <span>手机扫码加入</span>
-        </div>
-      )}
-
       {room?.active && (
         <div className="grid2">
           <div className="card" style={{ textAlign: 'center' }}>
@@ -125,7 +118,7 @@ export function RoomPage({ settings, state, go }: { settings: AppSettings; state
                 <span>🖥️ 主持人（本机）</span>
                 <span className="badge">{lang(settings.languages.self).nameNative}</span>
                 {state && <StateBadge state={state.out.state} message={state.out.message} />}
-                <Level db={levels.mic} label="主持人麦克风音量" />
+                <Level db={levels.mic} label="我的麦克风音量" />
               </div>
               {room.participants.map((p) => (
                 <div key={p.id} className="row">
@@ -138,7 +131,7 @@ export function RoomPage({ settings, state, go }: { settings: AppSettings; state
             </div>
             {state && (
               <div className="row" style={{ marginTop: 14 }}>
-                <Toggle checked={state.out.enabled} onChange={(v) => void api.meeting.setOut(v)} label="主持人麦克风" />
+                <Toggle checked={state.out.enabled} onChange={(v) => void api.meeting.setOut(v)} label="翻译我的发言" />
               </div>
             )}
           </div>

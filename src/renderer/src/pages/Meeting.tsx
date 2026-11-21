@@ -265,7 +265,7 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
                   {state.out.gate ? '正在说…松开结束' : '按住说话'}
                 </button>
               )}
-              <Toggle checked={state.out.passthrough} onChange={(v) => void api.meeting.setPassthrough(v)} label={`我自己说${remoteName}`} />
+              <Toggle checked={state.out.passthrough} onChange={(v) => void api.meeting.setPassthrough(v)} label={`我直接说${remoteName}（暂停翻译）`} />
             </div>
             {state.out.message && state.out.state === 'error' && <div className="callout err" role="alert" style={{ marginTop: 8 }}>{state.out.message}</div>}
           </div>

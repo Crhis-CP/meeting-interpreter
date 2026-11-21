@@ -171,7 +171,7 @@ async function render() {
           void render();
         },
       }),
-      '我直接说外语（不翻译）',
+      '我直接说外语（暂停翻译）',
     ),
     h('button', {
       class: 'big stop',

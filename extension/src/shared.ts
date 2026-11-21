@@ -103,7 +103,7 @@ export function toAppSettings(s: ExtSettings): AppSettings {
 }
 
 /** The provider sets as the popup and the options page name them. */
-export const PLAN_NAMES: Record<ProviderSet, string> = { free: '免费', dashscope: '高级 · 最准', azure: 'Azure', custom: '自己组合', demo: '演示' };
+export const PLAN_NAMES: Record<ProviderSet, string> = { free: '免费方案', dashscope: '阿里云百炼', azure: 'Azure 语音', custom: '自己组合', demo: '演示' };
 
 /** Where to get the key each tier needs (opened in a new tab). */
 export const KEY_LINKS = {

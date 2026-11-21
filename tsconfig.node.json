@@ -48,6 +48,7 @@
     "e2e/mobile.spec.ts",
     "tests/core/offline-translator.test.ts",
     "tests/browser-ordered-player.test.ts",
-    "tests/accelerator.test.ts"
+    "tests/accelerator.test.ts",
+    "tests/file-label.test.ts"
   ]
 }

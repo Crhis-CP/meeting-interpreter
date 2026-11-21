@@ -37,6 +37,6 @@
     "src/renderer/**/*",
     "src/shared/**/*",
     "tests/core/offline-translator.test.ts",
-    "tests/browser-ordered-player.test.ts", "tests/accelerator.test.ts"
+    "tests/browser-ordered-player.test.ts", "tests/accelerator.test.ts", "tests/file-label.test.ts"
   ]
 }
