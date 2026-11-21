@@ -110,7 +110,9 @@ describe.skipIf(!MODEL || !existsSync(MODEL))('local AI translation with the rea
     const toMain = new EventEmitter();
     attachAiWorker({ on: (_e, fn) => void toWorker.on('m', (d) => fn({ data: d })), postMessage: (m) => void setImmediate(() => toMain.emit('message', m)) });
     const handle = { postMessage: (m: unknown) => void setImmediate(() => toWorker.emit('m', m)), on: (e: string, fn: (...a: any[]) => void) => void toMain.on(e, fn), kill: () => {} } as WorkerHandle;
-    const client = new LocalAiClient({ modelPath: MODEL!, threads: 4, spawn: () => handle });
+    // This checks what is translated, not how fast: CI's Mac VMs (virtual GPU) need over 30 s for
+    // the first sentence while Metal compiles its shaders. Speed is measured separately.
+    const client = new LocalAiClient({ modelPath: MODEL!, threads: 4, spawn: () => handle, requestTimeoutMs: 180_000 });
     await client.ready();
     const t = new LocalAiTranslator(client);
     const entry = { id: '1', zh: '星云平台', es: 'Plataforma Nébula', aliasesZh: [], aliasesEs: [], note: '', enabled: true };
@@ -122,5 +124,5 @@ describe.skipIf(!MODEL || !existsSync(MODEL))('local AI translation with the rea
     const en = await t.translate({ text: '第一批货可以在三周内发出。', from: 'zh-CN', to: 'en-US', hits: [], context: [] });
     expect(en.toLowerCase()).toContain('three weeks');
     console.log({ es, zh, en });
-  }, 120_000);
+  }, 600_000);
 });
