@@ -970,7 +970,20 @@ function showMain(): void {
 function showOverlay(force = false): void {
   const o = settings.get().ui.overlay;
   if (!o.enabled && !force) return;
-  if (!overlayWindow || overlayWindow.isDestroyed()) overlayWindow = createOverlayWindow({ contentProtection: o.contentProtection, clickThrough: o.clickThrough });
+  if (!overlayWindow || overlayWindow.isDestroyed()) {
+    const win = createOverlayWindow({ contentProtection: o.contentProtection, clickThrough: o.clickThrough, bounds: o.bounds });
+    // Remember where the user puts it (saved once the move or resize settles).
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const remember = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!win.isDestroyed()) settings.set({ ui: { overlay: { bounds: win.getBounds() } } });
+      }, 600);
+    };
+    win.on('move', remember);
+    win.on('resize', remember);
+    overlayWindow = win;
+  }
   overlayWindow.setContentProtection(o.contentProtection);
   overlayWindow.showInactive();
 }

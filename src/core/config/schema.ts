@@ -147,14 +147,16 @@ export const SettingsSchema = z.object({
           contentProtection: z.boolean().default(true),
           clickThrough: z.boolean().default(false),
           showOriginal: z.boolean().default(true),
+          /** Where the user last put the subtitle window (null: the default place). */
+          bounds: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }).nullable().default(null),
         })
-        .default({ enabled: true, fontSize: 22, opacity: 0.85, contentProtection: true, clickThrough: false, showOriginal: true }),
+        .default({ enabled: true, fontSize: 22, opacity: 0.85, contentProtection: true, clickThrough: false, showOriginal: true, bounds: null }),
       /** Notices the user answered "this is on purpose / don't show again" (keys include the device). */
       dismissed: z.array(z.string().max(300)).max(100).default([]),
     })
     .default({
       language: 'zh',
-      overlay: { enabled: true, fontSize: 22, opacity: 0.85, contentProtection: true, clickThrough: false, showOriginal: true },
+      overlay: { enabled: true, fontSize: 22, opacity: 0.85, contentProtection: true, clickThrough: false, showOriginal: true, bounds: null },
       dismissed: [],
     }),
   // Held only during meetings, and three modifiers so they never collide with everyday shortcuts

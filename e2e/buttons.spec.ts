@@ -131,6 +131,14 @@ test('字幕窗: buttons always visible, ✕ hides it, and it goes away when the
 
   await win.getByRole('button', { name: '开始同传' }).click();
   await expect.poll(overlayVisible).toBe(true);
+  // It starts clear of the meeting app's toolbar at the bottom of the screen.
+  const gap = await app.evaluate(({ BrowserWindow, screen }) => {
+    const w = BrowserWindow.getAllWindows().find((x) => x.getTitle() === '同传字幕')!;
+    const a = screen.getPrimaryDisplay().workArea;
+    const b = w.getBounds();
+    return a.y + a.height - (b.y + b.height);
+  });
+  expect(gap).toBeGreaterThanOrEqual(140);
   await expect.poll(() => app.windows().some((p) => p.url().includes('overlay'))).toBe(true);
   const overlay = app.windows().find((p) => p.url().includes('overlay'))!;
   await expect(overlay.getByRole('button', { name: '关闭字幕窗' })).toBeVisible(); // no hover needed

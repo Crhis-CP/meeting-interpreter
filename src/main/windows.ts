@@ -2,6 +2,7 @@ import { BrowserWindow, screen, shell } from 'electron';
 import { join } from 'node:path';
 import { appPageUrl, isAppUrl, type AppPage } from './app-protocol';
 import { devRendererUrl } from './dev-url';
+import { overlayDefaultBounds, visibleBounds, type Bounds } from './overlay-bounds';
 
 const preload = (name: string) => join(__dirname, '../preload', `${name}.js`);
 
@@ -75,22 +76,20 @@ export function createAudioWindow(): BrowserWindow {
   return win;
 }
 
-export function createOverlayWindow(opts: { contentProtection: boolean; clickThrough: boolean }): BrowserWindow {
-  const area = screen.getPrimaryDisplay().workArea;
-  const width = Math.min(1000, Math.round(area.width * 0.7));
-  const height = 190;
+export function createOverlayWindow(opts: { contentProtection: boolean; clickThrough: boolean; bounds?: Bounds | null }): BrowserWindow {
+  const areas = screen.getAllDisplays().map((d) => d.workArea);
+  const b = visibleBounds(opts.bounds, areas) ?? overlayDefaultBounds(screen.getPrimaryDisplay().workArea);
   const win = new BrowserWindow({
-    x: Math.round(area.x + (area.width - width) / 2),
-    y: area.y + area.height - height - 40,
-    width,
-    height,
+    ...b,
     frame: false,
     transparent: true,
     resizable: true,
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
-    focusable: true,
+    // Clicking or dragging the subtitles never takes the keyboard from the meeting app (its
+    // shortcuts, e.g. space to unmute, keep working). Linux needs focus to take clicks at all.
+    focusable: process.platform === 'linux',
     // macOS: the first click on ✕ acts instead of only bringing the app forward.
     acceptFirstMouse: true,
     show: false,
@@ -103,7 +102,9 @@ export function createOverlayWindow(opts: { contentProtection: boolean; clickThr
       backgroundThrottling: false,
     },
   });
-  win.setAlwaysOnTop(true, 'screen-saver');
+  // Above normal windows (also a full-screen meeting), but below the system's menus, the meeting
+  // app's share toolbar and notifications (the 'screen-saver' level covered all of those).
+  win.setAlwaysOnTop(true, 'floating');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   // Keep subtitles out of screen sharing and our own screen recording unless the user opts in.
   win.setContentProtection(opts.contentProtection);
