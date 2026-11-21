@@ -136,12 +136,12 @@
     <a class="item" data-asset="linux-x86_64.AppImage"><b>Linux</b><span>AppImage</span></a>
   </div>
   <div id="phone" class="phone-note" hidden>
-    <b>苹果手机：</b>不用下载。在电脑上的会议同传助手里打开 <b>“现场房间”</b>，手机扫二维码，就能在浏览器里用。<a href="app/">先看看手机版界面（演示）→</a>
+    <b id="phone-who">苹果手机：</b>不用下载。在电脑上的会议同传助手里打开 <b>“现场房间”</b>，手机扫二维码，就能在浏览器里用。<a href="app/">先看看手机版界面（演示）→</a>
   </div>
   <p class="tip">
     <b>Mac 第一次打开：</b>提示“无法验证开发者”时，打开 系统设置 › 隐私与安全性，点“仍要打开”。
     <b>Windows：</b>出现蓝色提示时，点“更多信息” › “仍要运行”。
-    <b>安卓：</b>提示“禁止安装未知应用”时，按提示允许即可。
+    <b>安卓：</b>提示“禁止安装未知应用”时，按提示允许即可。华为鸿蒙 4 及以前也装安卓版（开着“纯净模式”时按提示允许安装）；鸿蒙 5（NEXT）装不了安卓应用，扫码在浏览器里用。
     <b>插件：</b>解压 zip → Chrome 打开 <code>chrome://extensions</code> → 打开“开发者模式” → “加载已解压的扩展程序”。
   </p>
 </main>
@@ -159,7 +159,11 @@
   const RELEASES = 'https://github.com/Crhis-CP/meeting-interpreter/releases/latest';
   const ua = navigator.userAgent;
   const isAndroid = /Android/i.test(ua);
-  const isPhone = /iPhone|iPad|iPod|Android/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  // HarmonyOS NEXT (5+) browsers say OpenHarmony / HarmonyOS / ArkWeb and not Android: they cannot
+  // install Android apps, so they get the "scan to join" path like an iPhone.
+  const isHarmonyNext = !isAndroid && /OpenHarmony|HarmonyOS|ArkWeb/i.test(ua);
+  const isIos = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isPhone = isAndroid || isHarmonyNext || isIos || /\bMobile\b/i.test(ua);
   const isWin = /Windows/i.test(ua);
   const isMac = /Macintosh|Mac OS X/i.test(ua) && !isPhone;
   // Apple silicon cannot be told apart from Intel by the user agent; WebGL's renderer usually can.
@@ -189,8 +193,10 @@
   };
   if (isAndroid) set('下载安卓版', '下载后点“安装”', url('android'));
   else if (isPhone) {
+    const who = isHarmonyNext ? '华为手机' : isIos ? '苹果手机' : '手机';
+    document.getElementById('phone-who').textContent = `${who}：`;
     document.getElementById('phone').hidden = false;
-    set('苹果手机怎么用', '扫码就能用，不用下载', '#download');
+    set(`${who}怎么用`, '扫码就能用，不用下载', '#download');
   } else if (isWin) set('下载 Windows 版', 'Windows 10 / 11', url('windows-x64-setup.exe'));
   else if (isMac) set('下载 Mac 版', appleSilicon ? 'Apple 芯片（M1–M4）· Intel 芯片见下方' : 'Intel 芯片 · Apple 芯片见下方', url(appleSilicon ? 'mac-arm64.dmg' : 'mac-x64.dmg'));
   else set('下载 Linux 版', 'AppImage', url('linux-x86_64.AppImage'));
