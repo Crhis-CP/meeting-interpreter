@@ -8,7 +8,7 @@ import { defaultSettings } from '@core/config/schema';
 import { concatInt16, silence, tone } from '@core/audio/pcm';
 import { createLogger } from '@core/log';
 import { MockAsr, MockLlm, MockTranslator, MockTts } from '@core/providers/mock';
-import { decodeFrame, encodeAudioUp, encodeTtsFrame, ROOM_PROTOCOL_VERSION, type ServerMessage } from '@core/room/protocol';
+import { decodeFrame, encodeAudioUp, encodeTtsFrame, encodeUp, ROOM_PROTOCOL_VERSION, type ServerMessage } from '@core/room/protocol';
 import { SessionManager, type ProviderSet } from '../../src/main/session/session-manager';
 import { RoomHost } from '../../src/main/room/room-host';
 import type { ToAudio } from '../../src/shared/ipc';
@@ -268,5 +268,112 @@ describe('closing the room', () => {
     await room.stop();
     expect(Date.now() - t0).toBeLessThan(3000);
     expect(session.active).toBe(false);
+  });
+});
+
+/** A phone on the plain-HTTPS fallback: event stream down, ordered POSTs up. */
+class HttpClient {
+  msgs: ServerMessage[] = [];
+  tts: string[] = [];
+  sid = '';
+  ended = false;
+  private ctrl = new AbortController();
+  constructor(private readonly base: string) {}
+  async open(token: string): Promise<number> {
+    const r = await fetch(`${this.base}/rt/open?t=${encodeURIComponent(token)}`, { method: 'POST' });
+    if (!r.ok) return r.status;
+    this.sid = ((await r.json()) as { sid: string }).sid;
+    const down = await fetch(`${this.base}/rt/down?sid=${this.sid}`, { signal: this.ctrl.signal });
+    void (async () => {
+      const reader = down.body!.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          for (let i = buf.indexOf('\n\n'); i >= 0; i = buf.indexOf('\n\n')) {
+            this.event(buf.slice(0, i));
+            buf = buf.slice(i + 2);
+          }
+        }
+      } catch {
+        /* aborted */
+      }
+      this.ended = true;
+    })();
+    return 200;
+  }
+  private event(ev: string): void {
+    let type = 'message';
+    let data = '';
+    for (const line of ev.split('\n')) {
+      if (line.startsWith('event: ')) type = line.slice(7);
+      else if (line.startsWith('data: ')) data += line.slice(6);
+    }
+    if (!data) return;
+    if (type === 'b') {
+      const f = decodeFrame(new Uint8Array(Buffer.from(data, 'base64')));
+      if (f?.kind === 'tts') this.tts.push(f.segmentId);
+    } else this.msgs.push(JSON.parse(data) as ServerMessage);
+  }
+  async up(items: (object | Uint8Array)[]): Promise<number> {
+    const enc = new TextEncoder();
+    const body = encodeUp(items.map((i) => (i instanceof Uint8Array ? { binary: true, data: i } : { binary: false, data: enc.encode(JSON.stringify(i)) })));
+    return (await fetch(`${this.base}/rt/up?sid=${this.sid}`, { method: 'POST', body })).status;
+  }
+  close(): void {
+    this.ctrl.abort();
+  }
+}
+
+describe('room without WebSocket (Safari on iPhone refuses wss:// to the self-signed certificate)', () => {
+  it('a phone joins, talks and listens over plain HTTPS, next to a WebSocket phone', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mi-room-http-'));
+    const staticDir = mkdtempSync(join(tmpdir(), 'mi-static-'));
+    writeFileSync(join(staticDir, 'room.html'), 'ok');
+    const settings = applyPreset(defaultSettings(), 'demo');
+    settings.room.port = 0;
+    const providers: ProviderSet = { asr: (d) => new MockAsr(d === 'out' ? 'self' : 'remote'), mt: () => new MockTranslator(), tts: () => new MockTts(), llm: () => null, describe: () => ({}) } as ProviderSet;
+    const log = createLogger('test');
+    const session = new SessionManager({ settings: () => settings, glossary: () => [], providers: () => providers, recordsDir: () => dir, toAudio: () => {}, broadcast: () => {}, log });
+    const room = new RoomHost({ settings: () => settings, session, providers: () => providers as never, glossary: () => [], toAudio: () => {}, broadcast: () => {}, log, dataDir: dir, staticDir: () => staticDir, devUrl: () => undefined, insecure: true });
+    const st = await room.start();
+    const url = new URL(st.urls[0]!);
+    const token = url.searchParams.get('t')!;
+    const base = `http://127.0.0.1:${url.port}`;
+
+    // Without the room link's token there is no connection at all; unknown sessions are gone.
+    expect(await new HttpClient(base).open('guess')).toBe(403);
+    expect((await fetch(`${base}/rt/up?sid=nope`, { method: 'POST', body: new Uint8Array(1) })).status).toBe(404);
+
+    const iphone = new HttpClient(base);
+    expect(await iphone.open(token)).toBe(200);
+    expect(await iphone.up([{ t: 'join', name: '王经理', lang: 'zh-CN', token, v: ROOM_PROTOCOL_VERSION }])).toBe(204);
+    const es = new Client(`ws://127.0.0.1:${url.port}/ws`);
+    await es.opened();
+    es.send({ t: 'join', name: 'Carlos', lang: 'es-AR', token, v: ROOM_PROTOCOL_VERSION });
+    await waitFor(() => iphone.msgs.some((m) => m.t === 'welcome') && es.msgs.some((m) => m.t === 'welcome'));
+    expect(await iphone.up([new Uint8Array([7, 7, 7])])).toBe(204); // not a frame: ignored
+    expect((await fetch(`${base}/rt/up?sid=${iphone.sid}`, { method: 'POST', body: new Uint8Array([9, 0, 0]) })).status).toBe(400);
+
+    // Talking: the "talk" message and the audio go up together, in order, in a few POSTs.
+    const speech = concatInt16([tone(1, 300, 16000), silence(1, 16000)]);
+    const frames = [] as Uint8Array[];
+    for (let i = 0; i < speech.length; i += 1600) frames.push(new Uint8Array(encodeAudioUp(speech.slice(i, i + 1600))));
+    await iphone.up([{ t: 'talk', on: true }, ...frames.slice(0, 10)]);
+    await iphone.up(frames.slice(10));
+    await waitFor(() => es.msgs.some((m) => m.t === 'segment' && m.seg.status === 'done' && m.seg.speaker === '王经理'), 5000);
+
+    // Listening: translated speech comes down the event stream.
+    es.send({ t: 'talk', on: true });
+    for (const f of frames) es.ws.send(f);
+    await waitFor(() => iphone.tts.length > 0, 5000);
+
+    await room.stop();
+    await waitFor(() => iphone.ended);
+    expect(iphone.msgs.some((m) => m.t === 'ended')).toBe(true);
+    iphone.close();
   });
 });

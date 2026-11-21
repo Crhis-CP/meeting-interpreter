@@ -81,3 +81,34 @@ export function decodeFrame(data: Uint8Array): DecodedFrame | null {
   }
   return null;
 }
+
+// ------------------------------------------------------------------ HTTPS fallback
+
+/** Upload body: repeated [kind: 0 text | 1 binary][length: uint32 BE][bytes]. */
+export function encodeUp(items: { binary: boolean; data: Uint8Array }[]): Uint8Array {
+  const out = new Uint8Array(items.reduce((n, i) => n + 5 + i.data.byteLength, 0));
+  const view = new DataView(out.buffer);
+  let o = 0;
+  for (const i of items) {
+    out[o] = i.binary ? 1 : 0;
+    view.setUint32(o + 1, i.data.byteLength);
+    out.set(i.data, o + 5);
+    o += 5 + i.data.byteLength;
+  }
+  return out;
+}
+
+export function decodeUp(buf: Uint8Array): { binary: boolean; data: Uint8Array }[] | null {
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const items: { binary: boolean; data: Uint8Array }[] = [];
+  let o = 0;
+  while (o < buf.byteLength) {
+    if (o + 5 > buf.byteLength) return null;
+    const kind = buf[o]!;
+    const len = view.getUint32(o + 1);
+    if (kind > 1 || o + 5 + len > buf.byteLength) return null;
+    items.push({ binary: kind === 1, data: buf.subarray(o + 5, o + 5 + len) });
+    o += 5 + len;
+  }
+  return items;
+}

@@ -18,8 +18,9 @@ const WINDOWS_AFTER_CABLE = [
 /** Replaces the window's device list (and tells it the devices changed). */
 async function fakeDevices(page: Page, list: typeof WINDOWS_AFTER_CABLE): Promise<void> {
   await page.evaluate((l) => {
-    const md = navigator.mediaDevices;
-    md.enumerateDevices = async () => l.map((d) => ({ ...d, toJSON: () => d }) as unknown as MediaDeviceInfo);
+    // (This runs in the page; the test's own types have no DOM.)
+    const md = (globalThis as unknown as { navigator: { mediaDevices: { enumerateDevices: () => Promise<unknown[]>; dispatchEvent: (e: unknown) => void } } }).navigator.mediaDevices;
+    md.enumerateDevices = async () => l.map((d) => ({ ...d, toJSON: () => d }));
     md.dispatchEvent(new Event('devicechange'));
   }, list);
 }
@@ -65,7 +66,7 @@ test('设备检查: the audio engine never opens a loop, and says why', async ()
   await win.waitForLoadState('domcontentloaded');
   await expect.poll(() => app.windows().some((p) => p.url().includes('audio'))).toBe(true);
   const audio = app.windows().find((p) => p.url().includes('audio'))!;
-  await audio.waitForFunction(() => 'mediaDevices' in navigator);
+  await audio.waitForFunction(() => 'mediaDevices' in (globalThis as unknown as { navigator: object }).navigator);
   await fakeDevices(audio, WINDOWS_AFTER_CABLE);
 
   await win.getByRole('button', { name: '开始同传' }).click();

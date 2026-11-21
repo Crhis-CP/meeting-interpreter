@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import QRCode from 'qrcode';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 import type { AppSettings } from '../../core/config/schema';
 import type { GlossaryEntry } from '../../core/glossary/types';
 import { baseOf, lang, LANGUAGES, otherLanguage, type LangBase } from '../../core/lang/languages';
@@ -17,6 +17,7 @@ import type { Direction, TranscriptSegment } from '../../core/types';
 import type { FromAudio, RendererEvents, RoomState, ToAudio } from '../../shared/ipc';
 import type { SessionManager } from '../session/session-manager';
 import { lanAddresses, roomCertificate } from './cert';
+import { HttpSocket, type RoomConn } from './http-socket';
 import { TunnelManager } from './tunnel';
 
 export interface RoomDeps {
@@ -63,7 +64,8 @@ const DEFAULT_LIMITS: RoomLimits = { participants: 30, talkers: 3, pending: 20, 
 interface Participant {
   id: string;
   alive: boolean;
-  ws: WebSocket;
+  /** WebSocket, or the plain-HTTPS fallback for browsers that refuse wss:// to a self-signed certificate. */
+  ws: RoomConn;
   name: string;
   lang: string;
   talking: boolean;
@@ -97,6 +99,7 @@ const MIME: Record<string, string> = {
 export class RoomHost {
   private server: Server | import('node:http').Server | null = null;
   private wss: WebSocketServer | null = null;
+  private httpSockets = new Map<string, HttpSocket>();
   private token = '';
   private readonly limits: RoomLimits;
   private badJoins = new Map<string, number>();
@@ -162,7 +165,8 @@ export class RoomHost {
     }
     this.token = randomBytes(16).toString('base64url');
     this.badJoins.clear();
-    const handler = (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => this.serveStatic(req, res);
+    const handler = (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) =>
+      (req.url ?? '').startsWith('/rt/') ? this.serveHttpConn(req, res) : this.serveStatic(req, res);
     if (this.d.insecure) {
       const { createServer: createHttp } = await import('node:http');
       this.server = createHttp(handler);
@@ -171,7 +175,7 @@ export class RoomHost {
       this.server = createServer({ key, cert }, handler);
     }
     this.wss = new WebSocketServer({ server: this.server as Server, path: '/ws', maxPayload: 1 << 20 });
-    this.wss.on('connection', (ws, req) => this.onConnection(ws, req.socket.remoteAddress ?? ''));
+    this.wss.on('connection', (ws, req) => this.onConnection(ws as unknown as RoomConn, req.socket.remoteAddress ?? ''));
     // Phones that went to sleep or lost Wi-Fi never close their socket: ping and drop them.
     this.heartbeat = setInterval(() => {
       for (const p of this.participants.values()) {
@@ -278,6 +282,8 @@ export class RoomHost {
     this.server = null;
     await new Promise((r) => setTimeout(r, 300));
     for (const ws of wss?.clients ?? []) ws.terminate();
+    for (const h of [...this.httpSockets.values()]) h.terminate();
+    this.httpSockets.clear();
     wss?.close();
     (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
     await new Promise<void>((r) => server.close(() => r()));
@@ -289,6 +295,53 @@ export class RoomHost {
   }
 
   // ------------------------------------------------------------------ HTTP
+
+  /**
+   * The connection over plain HTTPS (see http-socket.ts): POST /rt/open?t=TOKEN → { sid };
+   * GET /rt/down?sid= (event stream); POST /rt/up?sid= (messages); POST /rt/close?sid=.
+   */
+  private serveHttpConn(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse): void {
+    const noStore = { 'Cache-Control': 'no-store' };
+    let u: URL;
+    try {
+      u = new URL(req.url ?? '/', 'http://x');
+    } catch {
+      return void res.writeHead(400, noStore).end();
+    }
+    if (u.pathname === '/rt/open' && req.method === 'POST') {
+      // The room link's token: no connection (and no slot) for anyone without it.
+      if (u.searchParams.get('t') !== this.token) return void res.writeHead(403, noStore).end();
+      if (this.httpSockets.size >= this.limits.participants + this.limits.pending) return void res.writeHead(503, noStore).end();
+      const sock = new HttpSocket(randomBytes(16).toString('base64url'));
+      this.httpSockets.set(sock.sid, sock);
+      sock.on('close', () => this.httpSockets.delete(sock.sid));
+      this.onConnection(sock, req.socket.remoteAddress ?? '');
+      if (sock.readyState !== 1) return void res.writeHead(503, noStore).end();
+      return void res.writeHead(200, { 'Content-Type': 'application/json', ...noStore }).end(JSON.stringify({ sid: sock.sid }));
+    }
+    const sock = this.httpSockets.get(u.searchParams.get('sid') ?? '');
+    if (!sock) return void res.writeHead(404, noStore).end();
+    if (u.pathname === '/rt/down' && req.method === 'GET') return sock.attach(req, res);
+    if (u.pathname === '/rt/up' && req.method === 'POST') {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      req.on('data', (c: Buffer) => {
+        size += c.length;
+        if (size > (1 << 20) + 4096) req.destroy(); // same limit as a WebSocket message
+        else chunks.push(c);
+      });
+      req.on('end', () => {
+        const ok = sock.receive(new Uint8Array(Buffer.concat(chunks)));
+        res.writeHead(ok ? 204 : 400, noStore).end();
+      });
+      return;
+    }
+    if (u.pathname === '/rt/close' && req.method === 'POST') {
+      sock.close();
+      return void res.writeHead(204, noStore).end();
+    }
+    res.writeHead(404, noStore).end();
+  }
 
   private serveStatic(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse): void {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -345,7 +398,7 @@ export class RoomHost {
     return [{ id: 'host', name: '主持人', lang: this.d.settings().languages.self, talking: false, host: true }, ...[...this.participants.values()].map((p) => ({ id: p.id, name: p.name, lang: p.lang, talking: p.talking }))];
   }
 
-  private onConnection(ws: WebSocket, address: string): void {
+  private onConnection(ws: RoomConn, address: string): void {
     let me: Participant | null = null;
     const refuse = (message: string, code: number) => {
       ws.send(JSON.stringify({ t: 'error', message, fatal: true } satisfies ServerMessage));
@@ -373,7 +426,8 @@ export class RoomHost {
       if (me) me.alive = true;
       if (isBinary) {
         if (!me || !me.talking) return;
-        const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+        const raw = data as Buffer | ArrayBuffer | Buffer[] | string;
+        const buf = Array.isArray(raw) ? Buffer.concat(raw) : Buffer.isBuffer(raw) ? raw : typeof raw === 'string' ? Buffer.from(raw) : Buffer.from(raw);
         const now = Date.now();
         budget = Math.min(burst, budget + ((now - budgetAt) / 1000) * this.limits.audioBytesPerSecond);
         budgetAt = now;

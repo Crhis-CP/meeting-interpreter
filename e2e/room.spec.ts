@@ -23,6 +23,23 @@ test('room: a Chinese phone speaks, a Spanish phone sees the translation', async
   const ctx = await browser.newContext({ ignoreHTTPSErrors: true, permissions: ['microphone'], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const zh = await ctx.newPage();
   const es = await ctx.newPage();
+  // The Chinese phone behaves like Safari on an iPhone: its WebSocket to the room's self-signed
+  // certificate never opens. It must still join, talk and listen (over plain HTTPS).
+  await zh.addInitScript(() => {
+    class RefusedWebSocket {
+      readyState = 0;
+      onclose: (() => void) | null = null;
+      constructor() {
+        setTimeout(() => {
+          this.readyState = 3;
+          this.onclose?.();
+        }, 50);
+      }
+      send(): void {}
+      close(): void {}
+    }
+    (globalThis as unknown as { WebSocket: unknown }).WebSocket = RefusedWebSocket;
+  });
 
   for (const [page, lang, name] of [[zh, '中文', '王经理'], [es, 'Español', 'Carlos']] as const) {
     await page.goto(url);

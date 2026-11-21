@@ -2,6 +2,7 @@ import { OrderedPlayer } from '../../../browser/ordered-player';
 import { useEffect, useRef, useState } from 'react';
 import { decodeFrame, encodeAudioUp, ROOM_PROTOCOL_VERSION, type RoomPeer, type ServerMessage } from '@core/room/protocol';
 import type { TranscriptSegment } from '@core/types';
+import { openHttp, openWebSocket, type RoomSocket } from './transport';
 
 type UiLang = 'zh' | 'es' | 'en';
 
@@ -25,6 +26,8 @@ const T = {
     translating: '翻译中…',
     failed: '（翻译失败）',
     host: '主持人',
+    unreachable: '连不上主持人的电脑：请确认手机和电脑连着同一个 Wi-Fi；还不行就请主持人发“公网链接”。',
+    wechat: '在微信里可能用不了麦克风：点右上角“…”，选“在浏览器打开”。',
   },
   es: {
     title: 'Sala de interpretación',
@@ -45,6 +48,8 @@ const T = {
     translating: 'Traduciendo…',
     failed: '(traducción fallida)',
     host: 'Anfitrión',
+    unreachable: 'No se puede conectar con el ordenador del anfitrión: comprueba que estáis en la misma Wi-Fi, o pide al anfitrión el “enlace público”.',
+    wechat: 'En WeChat el micrófono puede no funcionar: toca “…” arriba a la derecha y elige “Abrir en el navegador”.',
   },
   en: {
     title: 'Interpreting room',
@@ -65,6 +70,8 @@ const T = {
     translating: 'Translating…',
     failed: '(translation failed)',
     host: 'Host',
+    unreachable: "Cannot reach the host's computer: check that you are on the same Wi-Fi, or ask the host for the public link.",
+    wechat: 'The microphone may not work inside WeChat: tap “…” at the top right and choose “Open in browser”.',
   },
 };
 const LANG_NAMES = { zh: '中文', es: 'Español', en: 'English' } as const;
@@ -91,7 +98,11 @@ export function RoomClient() {
   const [voiceOn, setVoiceOn] = useState(true);
   const t = T[ui];
 
-  const ws = useRef<WebSocket | null>(null);
+  const ws = useRef<RoomSocket | null>(null);
+  /** Plain HTTPS instead of WebSocket (the browser would not open one; Safari on iPhone with the room's certificate). */
+  const useHttp = useRef(false);
+  /** Attempts in a row that never got through. */
+  const failures = useRef(0);
   const ctx = useRef<AudioContext | null>(null);
   const micNode = useRef<AudioWorkletNode | null>(null);
   const micStream = useRef<MediaStream | null>(null);
@@ -135,27 +146,29 @@ export function RoomClient() {
   };
 
   const connect = () => {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const sock = new WebSocket(`${proto}://${location.host}/ws`);
-    sock.binaryType = 'arraybuffer';
+    const sock = useHttp.current ? openHttp(token) : openWebSocket();
     ws.current = sock;
+    let opened = false;
     sock.onopen = () => {
+      opened = true;
+      failures.current = 0;
       retry.current = 0;
       sock.send(JSON.stringify({ t: 'join', name, lang: ui === 'zh' ? 'zh-CN' : remoteCode, token, v: ROOM_PROTOCOL_VERSION }));
     };
-    sock.onmessage = (e) => {
-      if (e.data instanceof ArrayBuffer) {
-        const f = decodeFrame(new Uint8Array(e.data));
+    sock.onmessage = (data) => {
+      if (data instanceof ArrayBuffer) {
+        const f = decodeFrame(new Uint8Array(data));
         if (f?.kind === 'tts') play(f.segmentId, f.pcm, f.sampleRate);
         return;
       }
-      const msg = JSON.parse(e.data as string) as ServerMessage;
+      const msg = JSON.parse(data) as ServerMessage;
       switch (msg.t) {
         case 'audioEnd':
           player.current?.end(msg.segmentId);
           break;
         case 'welcome':
           myId.current = msg.id;
+          setError('');
           setJoined(true);
           setJoining(false);
           setStatus('ok');
@@ -193,6 +206,17 @@ export function RoomClient() {
     sock.onclose = () => {
       if (leaving.current) return;
       setStatus('reconnecting');
+      if (!opened) {
+        failures.current++;
+        // A WebSocket that never opened: the browser refuses it (or the network does). Plain
+        // HTTPS to the same address works where the page itself loaded: switch at once.
+        if (sock.kind === 'ws' && !useHttp.current) {
+          useHttp.current = true;
+          setTimeout(connect, 0);
+          return;
+        }
+        if (failures.current >= 3) setError(t.unreachable);
+      }
       const delay = Math.min(10000, 1000 * 2 ** retry.current++);
       setTimeout(connect, delay);
     };
@@ -288,6 +312,7 @@ export function RoomClient() {
     return (
       <main className="join">
         <h1>中文 ⇄ {LANG_NAMES[foreign]}</h1>
+        {/MicroMessenger/i.test(navigator.userAgent) && <p role="note" className="err">{t.wechat}</p>}
         <div className="label" id="pick">{t.pick}</div>
         <div className="choices" role="radiogroup" aria-labelledby="pick">
           {(['zh', foreign] as const).map((l) => (
