@@ -33,9 +33,18 @@ test('设备检查: after VB-CABLE took over the defaults, loops are shown with 
   await win.waitForLoadState('domcontentloaded');
   await expect(win.getByRole('button', { name: '开始同传' })).toBeVisible();
   await fakeDevices(win, WINDOWS_AFTER_CABLE);
+  // Open the page again so the check reads the list afresh (not only on the change event).
+  const nav = (name: RegExp) => win.getByRole('navigation').getByRole('button', { name });
+  await nav(/^术语表/).click();
+  await nav(/^会议同传/).click();
 
   const check = win.getByLabel('设备检查');
-  await expect(check.getByText(/它是虚拟麦克风的另一端/)).toBeVisible();
+  await expect(check.getByText(/它是虚拟麦克风的另一端/))
+    .toBeVisible()
+    .catch(async (err: unknown) => {
+      const seen = await win.evaluate(async () => JSON.stringify(await (globalThis as unknown as { navigator: { mediaDevices: { enumerateDevices(): Promise<unknown> } } }).navigator.mediaDevices.enumerateDevices()));
+      throw new Error(`${String(err)}\ndevices seen by the page: ${seen}\nsettings: ${JSON.stringify(settingsOf(dataDir).devices)}`);
+    });
   await expect(check.getByText(/给你听的中文会被送进会议/)).toBeVisible();
   await expect(check.getByText(/电脑的默认播放设备是虚拟声卡/)).toBeVisible();
 
