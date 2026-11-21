@@ -15,6 +15,11 @@ export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib>
   let chain: Promise<void> = Promise.resolve();
   /** Sentences the app gave up on (timed out) before their turn: skipped, never translated late. */
   const cancelled = new Set<number>();
+  /**
+   * The sentence being translated. Cancelling it stops the generation: on a slow computer, finishing
+   * translations nobody waits for any more would make every newer sentence time out behind them.
+   */
+  let current: { id: number; stop: AbortController } | null = null;
   const reply = (m: AiReply) => port.postMessage(m);
 
   port.on('message', (e) => {
@@ -35,7 +40,8 @@ export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib>
       return;
     }
     if (m?.t === 'cancel') {
-      cancelled.add(m.id);
+      if (current?.id === m.id) current.stop.abort();
+      else cancelled.add(m.id);
       return;
     }
     if (m?.t === 'complete') {
@@ -44,14 +50,17 @@ export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib>
         if (cancelled.delete(m.id)) return;
         if (!ready) return reply({ t: 'error', id: m.id, message: '模型还没有加载' });
         let session: import('node-llama-cpp').LlamaChatSession | null = null;
+        const stop = new AbortController();
+        current = { id: m.id, stop };
         try {
           const { lib, seq } = await ready;
           session = new lib.LlamaChatSession({ contextSequence: seq, autoDisposeSequence: false });
-          const text = await session.prompt(m.prompt, { temperature: 0, maxTokens: m.maxTokens });
+          const text = await session.prompt(m.prompt, { temperature: 0, maxTokens: m.maxTokens, signal: stop.signal });
           reply({ t: 'result', id: m.id, text });
         } catch (err) {
-          reply({ t: 'error', id: m.id, message: message(err) });
+          reply({ t: 'error', id: m.id, message: stop.signal.aborted ? 'cancelled' : message(err) });
         } finally {
+          current = null;
           session?.dispose({ disposeSequence: false });
           await ready?.then(({ seq }) => seq.clearHistory()).catch(() => undefined);
         }

@@ -65,6 +65,37 @@ describe('local AI translation client', () => {
     expect(seen).toEqual(['load', 'complete', 'cancel']);
   });
 
+  it('cancelling a sentence stops its generation, so newer sentences do not wait behind it', async () => {
+    // A stand-in for node-llama-cpp: "slow" never finishes on its own, only when aborted.
+    const lib = {
+      getLlama: async () => ({ gpu: false, loadModel: async () => ({ createContext: async () => ({ getSequence: () => ({ clearHistory: async () => {} }) }) }) }),
+      LlamaChatSession: class {
+        async prompt(text: string, o: { signal: AbortSignal }) {
+          if (text === 'slow') await new Promise((_r, reject) => o.signal.addEventListener('abort', () => reject(new Error('aborted'))));
+          return `译:${text}`;
+        }
+        dispose() {}
+      },
+    };
+    const replies: AiReply[] = [];
+    let onMsg: (e: { data: unknown }) => void = () => {};
+    attachAiWorker({ on: (_e, fn) => void (onMsg = fn), postMessage: (m) => void replies.push(m as AiReply) }, async () => lib as never);
+    const send = (m: AiRequest) => onMsg({ data: m });
+    const until = async (ok: () => boolean) => {
+      for (let i = 0; i < 100 && !ok(); i++) await new Promise((r) => setTimeout(r, 10));
+      return ok();
+    };
+    send({ t: 'load', modelPath: '/m.gguf', threads: 2 });
+    expect(await until(() => replies.some((r) => r.t === 'loaded'))).toBe(true);
+    send({ t: 'complete', id: 1, prompt: 'slow', maxTokens: 64 });
+    send({ t: 'complete', id: 2, prompt: '你好', maxTokens: 64 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(replies.some((r) => r.t === 'result')).toBe(false); // 2 waits behind the stuck 1
+    send({ t: 'cancel', id: 1 });
+    expect(await until(() => replies.some((r) => r.t === 'result' && r.id === 2))).toBe(true);
+    expect(replies.find((r) => r.t === 'error' && r.id === 1)).toMatchObject({ message: 'cancelled' });
+  });
+
   it('the Mozilla translation stands in while the model loads', async () => {
     const t = new LocalAiTranslator({ complete: async () => { throw new LocalAiLoadingError(); } }, { id: 'offline', translate: async () => 'borrador' });
     expect(await t.translate({ text: '你好', from: 'zh-CN', to: 'es-AR', hits: [], context: [] })).toBe('borrador');
