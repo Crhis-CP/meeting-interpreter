@@ -125,6 +125,34 @@ describe('ModelManager', () => {
     ]);
   });
 
+  it('knows what each model takes on disk, and deletes one (never while it downloads)', async () => {
+    const dir = tmp();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const { fn } = fakeFetch(async (url) => {
+      if (url.includes('sense-voice')) await gate;
+      return streamed(bodyFor(url));
+    });
+    const mm = new ModelManager(dir, fn, { models: SMALL });
+    await mm.ensure(['silero-vad']);
+    expect(mm.bytesOnDisk('silero-vad')).toBeGreaterThanOrEqual(1000);
+    expect(mm.totalBytes('sensevoice')).toBe(2100);
+    expect(mm.bytesOnDisk('sensevoice')).toBe(0);
+
+    const downloading = mm.ensure(['sensevoice']);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mm.downloading('sensevoice')).toBe(true);
+    await expect(mm.remove('sensevoice')).rejects.toThrow(/正在下载/);
+    release();
+    await downloading;
+    expect(mm.downloading('sensevoice')).toBe(false);
+
+    await mm.remove('silero-vad');
+    expect(mm.status('silero-vad')).toBe('missing');
+    expect(mm.bytesOnDisk('silero-vad')).toBe(0);
+    expect(mm.status('sensevoice')).toBe('ready'); // the others stay
+  });
+
   it('describes the models for the settings page with real sizes', () => {
     const rows = new ModelManager(tmp()).statusList('whisper-base');
     expect(rows).toEqual([

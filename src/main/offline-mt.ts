@@ -17,7 +17,7 @@ export class AudioWindowMt implements OfflineMtEngine {
     private readonly onProgress: (p: { received: number; total: number; file: string }) => void,
   ) {}
 
-  private request(msg: { type: 'mt'; text: string; from: LangBase; to: LangBase } | { type: 'mtStatus' } | { type: 'mtDownload' }, timeoutMs: number): Promise<Reply> {
+  private request(msg: { type: 'mt'; text: string; from: LangBase; to: LangBase } | { type: 'mtStatus' } | { type: 'mtDownload' } | { type: 'mtClear' }, timeoutMs: number): Promise<Reply> {
     const id = ++this.seq;
     return new Promise<Reply>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -54,6 +54,12 @@ export class AudioWindowMt implements OfflineMtEngine {
     const r = await this.request({ type: 'mtStatus' }, 15_000);
     if (r.error) throw new Error(r.error);
     return r.missingBytes ?? 0;
+  }
+
+  /** Deletes the downloaded models. */
+  async clear(): Promise<void> {
+    const r = await this.request({ type: 'mtClear' }, 30_000);
+    if (r.error) throw new Error(r.error);
   }
 
   async download(): Promise<void> {

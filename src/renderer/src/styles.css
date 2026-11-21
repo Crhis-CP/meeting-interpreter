@@ -941,3 +941,9 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   flex-basis: 100%;
   margin-top: 10px;
 }
+
+/* A path or other machine text shown to the user. */
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+}

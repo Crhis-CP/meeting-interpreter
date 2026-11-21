@@ -4,7 +4,7 @@ import { PRESETS } from '@core/config/presets';
 import { accentsOf, lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import { LLM_PRESETS, llmPreset } from '@core/providers/openai-compatible';
 import type { VoiceInfo } from '@core/providers/types';
-import type { AiStatus, AppInfo, LocalModelStatus, ProviderTestStep } from '@shared/ipc';
+import type { AiStatus, AppInfo, ProviderTestStep, StorageInfo, StorageItem } from '@shared/ipc';
 import { api, errMsg, useDevices, useEvent, useLlmReady, useSettings } from '../api';
 import { ExternalLink, Field, Toggle, FlashButton } from '../components/ui';
 import { ScreenPicker } from '../components/ScreenPicker';
@@ -16,7 +16,7 @@ import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../../brows
 import { DriverInstaller } from '../components/DriverInstaller';
 import { AccentCalibrationCard, MyCorrectionsCard } from '../components/AccentCard';
 
-type Tab = 'providers' | 'devices' | 'interp' | 'record' | 'overlay' | 'shortcuts' | 'about';
+type Tab = 'providers' | 'devices' | 'interp' | 'record' | 'overlay' | 'shortcuts' | 'storage' | 'about';
 
 const TABS: [Tab, string][] = [
   ['providers', '翻译服务'],
@@ -25,6 +25,7 @@ const TABS: [Tab, string][] = [
   ['record', '录制与纪要'],
   ['overlay', '字幕窗'],
   ['shortcuts', '快捷键'],
+  ['storage', '存储空间'],
   ['about', '关于'],
 ];
 
@@ -52,12 +53,13 @@ export function SettingsPage() {
           </button>
         ))}
       </div>
-      {tab === 'providers' && <ProvidersTab s={s} update={update} />}
+      {tab === 'providers' && <ProvidersTab s={s} update={update} go={setTab} />}
       {tab === 'devices' && <DevicesTab s={s} update={update} />}
       {tab === 'interp' && <InterpTab s={s} update={update} go={setTab} />}
       {tab === 'record' && <RecordTab s={s} update={update} go={setTab} />}
       {tab === 'overlay' && <OverlayTab s={s} update={update} />}
       {tab === 'shortcuts' && <ShortcutsTab s={s} update={update} />}
+      {tab === 'storage' && <StorageTab />}
       {tab === 'about' && <AboutTab />}
     </div>
   );
@@ -147,82 +149,49 @@ function VoiceSelect({ provider, langCode, value, onChange }: { provider: string
   );
 }
 
-function LocalModels({ foreign }: { foreign: 'es' | 'en' }) {
-  const [models, setModels] = useState<LocalModelStatus[]>([]);
-  const [progress, setProgress] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
-  const load = () => void api.local.status().then(setModels).catch(() => setModels([]));
-  useEffect(load, []);
-  useEvent('model-progress', (p) => setProgress(`${p.file} ${p.total ? Math.round((p.received / p.total) * 100) : 0}%`));
-  const download = async (base: 'zh' | 'es' | 'en') => {
-    setBusy(base);
-    try {
-      await api.local.download(base);
-    } catch (err) {
-      setProgress(errMsg(err));
-    } finally {
-      setBusy(null);
-      load();
-    }
-  };
-  return (
-    <div className="stack">
-      {models.map((m) => (
-        <div key={m.id} className="row">
-          <span>{m.ready ? '✅' : '⬜'}</span>
-          <span style={{ flex: 1 }}>{m.name}</span>
-          <span className="muted small">{m.sizeMb} MB</span>
-        </div>
-      ))}
-      <div className="row">
-        <button data-test="network" className="btn" disabled={!!busy} onClick={() => void download('zh')}>
-          {busy === 'zh' ? '下载中…' : '下载中文识别模型'}
-        </button>
-        <button data-test="network" className="btn" disabled={!!busy} onClick={() => void download(foreign)}>
-          {busy === foreign ? '下载中…' : `下载${foreign === 'en' ? '英语' : '西语'}识别模型`}
-        </button>
-      </div>
-      {progress && <span className="muted small">{progress}</span>}
-    </div>
-  );
-}
-
-/** Offline translation models: status and one-click download. */
-function OfflineMtCard() {
-  const [st, setSt] = useState<{ missingBytes: number; totalBytes: number } | null>(null);
-  const [busy, setBusy] = useState('');
+/**
+ * The local models the chosen plan uses, in one place: how many are there, what is left to
+ * download (one button for all), and the 存储空间 page for details (delete, update, cancel).
+ */
+function LocalModelsCard({ go }: { go?: (tab: Tab) => void }) {
+  const [info, setInfo] = useState<StorageInfo | null>(null);
   const [error, setError] = useState('');
-  const load = () => void api.mt.status().then(setSt).catch((e) => setError(errMsg(e)));
+  const load = () => void api.storage.info().then(setInfo, () => setInfo(null));
   useEffect(load, []);
   useEvent('model-progress', (p) => {
-    if (p.id === 'offline-mt') setBusy(`下载中 ${p.total ? Math.round((p.received / p.total) * 100) : 0}%`);
+    if (p.total && p.received >= p.total) load();
   });
-  const download = async () => {
+  useEffect(() => {
+    if (!info?.items.some((i) => i.state === 'downloading')) return;
+    const t = setInterval(load, 2000);
+    return () => clearInterval(t);
+  }, [info]);
+  const used = (info?.items ?? []).filter((i) => i.inUse && (i.kind === 'asr' || i.kind === 'ai' || i.kind === 'mt'));
+  if (!used.length) return null;
+  const ready = used.filter((i) => i.state === 'ready').length;
+  const downloading = used.some((i) => i.state === 'downloading');
+  const left = used.filter((i) => i.state !== 'ready').reduce((n, i) => n + Math.max(0, (i.totalBytes ?? 0) - i.bytes), 0);
+  const downloadAll = () => {
     setError('');
-    setBusy('下载中…');
-    try {
-      await api.mt.download();
-    } catch (e) {
-      setError(errMsg(e));
-    } finally {
-      setBusy('');
-      load();
-    }
+    for (const i of used.filter((x) => x.state === 'missing' || x.state === 'partial')) void api.storage.download(i.id).catch((e) => setError(errMsg(e))).finally(load);
+    setTimeout(load, 300);
   };
-  const mb = (n: number) => Math.round(n / 1_000_000);
   return (
     <div className="card">
       <div className="row between">
-        <h3 style={{ margin: 0 }}>离线翻译（草稿）</h3>
-        {st && !st.missingBytes ? (
-          <span className="badge ok">已下载</span>
-        ) : (
-          <button data-test="network" className="btn sm" disabled={!!busy} onClick={() => void download()}>
-            {busy || `下载 · ${mb(st?.missingBytes ?? st?.totalBytes ?? 140_000_000)} MB`}
-          </button>
-        )}
+        <h3 style={{ margin: 0 }}>本机模型</h3>
+        <div className="row">
+          {ready === used.length ? (
+            <span className="badge ok">都已下载（{used.length} 个）</span>
+          ) : downloading ? (
+            <span className="muted small" role="status">下载中，还差约 {size(left)}</span>
+          ) : (
+            <button data-test="network" className="btn sm primary" onClick={downloadAll}>下载全部（约 {size(left)}）</button>
+          )}
+          <button className="btn sm" onClick={() => go?.('storage')}>管理</button>
+        </div>
       </div>
-      {error && <div className="callout err" style={{ marginTop: 8 }}>{error}</div>}
+      {error && <div className="callout err" style={{ marginTop: 8 }} role="alert">{error}</div>}
     </div>
   );
 }
@@ -338,7 +307,7 @@ function MyVoiceCard({ s, update }: TabProps) {
   );
 }
 
-function ProvidersTab({ s, update }: TabProps) {
+function ProvidersTab({ s, update, go }: TabProps) {
   const foreign = foreignOf(s);
   const fz = foreign === 'en' ? '英语' : '西语';
   const [status, setStatus] = useState<Record<string, boolean>>({});
@@ -485,12 +454,11 @@ function ProvidersTab({ s, update }: TabProps) {
               </select>
             </Field>
           </div>
-          <LocalModels foreign={foreign} />
         </div>
       )}
 
       {(s.preset === 'free' || s.out.mt === 'local-ai' || s.in.mt === 'local-ai') && <AiMtCard s={s} update={update} />}
-      {(s.out.mt === 'offline' || s.in.mt === 'offline' || s.out.mt === 'local-ai' || s.in.mt === 'local-ai') && <OfflineMtCard />}
+      <LocalModelsCard go={go} />
       {s.out.tts === 'dashscope' && <MyVoiceCard s={s} update={update} />}
 
       <div className="card">
@@ -892,6 +860,95 @@ function ShortcutsTab({ s, update }: TabProps) {
         <ShortcutInput label="开关“翻译我的发言”" value={s.shortcuts.toggleOut} onChange={(v) => set('toggleOut', v)} />
         <ShortcutInput label="按键说话" value={s.shortcuts.pushToTalk} onChange={(v) => set('pushToTalk', v)} />
         <ShortcutInput label="显示/隐藏字幕窗" value={s.shortcuts.toggleOverlay} onChange={(v) => set('toggleOverlay', v)} />
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ storage
+
+const size = (n: number) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${Math.round(n / 1e6)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
+
+/** 存储空间: every model and what else the app keeps, with its size and state; delete, download, cancel. */
+function StorageTab() {
+  const [info, setInfo] = useState<StorageInfo | null>(null);
+  const [pct, setPct] = useState<Record<string, number>>({});
+  const [error, setError] = useState('');
+  const load = () => void api.storage.info().then(setInfo, (e) => setError(errMsg(e)));
+  useEffect(load, []);
+  useEvent('model-progress', (p) => setPct((x) => ({ ...x, [p.id]: p.total ? Math.round((p.received / p.total) * 100) : 0 })));
+  // While something downloads, follow it.
+  useEffect(() => {
+    if (!info?.items.some((i) => i.state === 'downloading')) return;
+    const t = setInterval(load, 2000);
+    return () => clearInterval(t);
+  }, [info]);
+  const act = (fn: () => Promise<unknown>) => {
+    setError('');
+    void fn()
+      .catch((e) => setError(errMsg(e)))
+      .finally(load);
+    setTimeout(load, 300);
+  };
+  const remove = (i: StorageItem) => {
+    const again = i.inUse && i.totalBytes ? `\n\n现在的设置要用它：下次开会前会重新下载（约 ${size(i.totalBytes)}）。` : '';
+    if (!confirm(`删除“${i.name}”（${size(i.bytes)}）？${again}`)) return;
+    act(() => api.storage.remove(i.id));
+  };
+  if (!info) return null;
+  const badge = (i: StorageItem) =>
+    i.state === 'downloading' ? <span className="muted small" role="status">下载中 {pct[i.id] ?? Math.round((i.bytes / (i.totalBytes || 1)) * 100)}%</span>
+    : i.state === 'partial' ? <span className="badge warn">没下完</span>
+    : i.state === 'missing' ? <span className="badge warn">还没下载</span>
+    : i.kind === 'logs' || i.kind === 'cache' || i.kind === 'tool' ? null
+    : i.inUse ? <span className="badge ok">正在用</span>
+    : <span className="badge">没在用</span>;
+  return (
+    <div>
+      <div className="card">
+        <h3>数据放在哪里</h3>
+        <dl className="facts">
+          <dt>模型和设置</dt>
+          <dd className="row">
+            <span className="mono small">{info.dataDir}</span>
+            <span className="muted small">共 {size(info.dataBytes)}</span>
+            <button data-test="safe" className="btn sm" onClick={() => act(() => api.storage.openFolder('data'))}>打开文件夹</button>
+          </dd>
+          <dt>会议记录</dt>
+          <dd className="row">
+            <span className="mono small">{info.recordsDir}</span>
+            <span className="muted small">共 {size(info.recordsBytes)}</span>
+            <button data-test="safe" className="btn sm" onClick={() => act(() => api.storage.openFolder('records'))}>打开文件夹</button>
+          </dd>
+        </dl>
+      </div>
+      <div className="card">
+        <h3>模型和其他文件</h3>
+        {info.items.length === 0 && <p className="muted small">还没有下载任何模型。</p>}
+        <div className="stack">
+          {info.items.map((i) => (
+            <div key={i.id} className="row between" aria-label={i.name}>
+              <div className="row">
+                <span>{i.name}</span>
+                {badge(i)}
+              </div>
+              <div className="row">
+                <span className="muted small">{i.bytes ? size(i.bytes) : ''}{i.totalBytes && i.state !== 'ready' ? ` / ${size(i.totalBytes)}` : ''}</span>
+                {(i.state === 'missing' || i.state === 'partial') && (
+                  <button data-test="network" className="btn sm" onClick={() => act(() => api.storage.download(i.id))}>{i.state === 'partial' ? '继续下载' : '下载'}</button>
+                )}
+                {i.state === 'downloading' && i.kind !== 'mt' && (
+                  <button data-test="safe" className="btn sm" onClick={() => act(() => api.storage.cancel(i.id))}>取消下载</button>
+                )}
+                {i.kind === 'cache' && <button data-test="destructive" className="btn sm" onClick={() => act(() => api.storage.remove(i.id))}>清理</button>}
+                {i.bytes > 0 && i.state !== 'downloading' && i.kind !== 'logs' && i.kind !== 'cache' && (
+                  <button data-test="destructive" className="btn sm" onClick={() => remove(i)}>删除</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        {error && <div className="callout err" role="alert" style={{ marginTop: 8 }}>{error}</div>}
       </div>
     </div>
   );

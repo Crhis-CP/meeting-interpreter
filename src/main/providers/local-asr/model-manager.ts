@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { createReadStream, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { mkdir, open, rename, rm, type FileHandle } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { abortError, isAbortError } from '@core/events';
 import { ProviderError } from '@core/providers/types';
 import type { LangBase } from '@core/lang/languages';
@@ -38,6 +38,23 @@ export interface ModelManagerOptions {
 /** A finished file must be within these bounds of the manifest size (rejects HTML error pages, truncated files). */
 function plausible(actual: number, expected: number): boolean {
   return actual >= expected * 0.5 && actual <= expected * 2;
+}
+
+/** Bytes of all files under a folder (0 when it does not exist). */
+export function dirBytes(dir: string): number {
+  let n = 0;
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const e of entries) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) n += dirBytes(p);
+    else if (e.isFile()) n += Math.max(0, fileSize(p));
+  }
+  return n;
 }
 
 function fileSize(path: string): number {
@@ -155,6 +172,38 @@ export class ModelManager {
       }
     }
     return n;
+  }
+
+  /** Model ids this manager knows. */
+  ids(): string[] {
+    return Object.keys(this.models);
+  }
+
+  /** Full size of a model when downloaded. */
+  totalBytes(id: string): number {
+    return this.spec(id).files.reduce((n, f) => n + f.size, 0);
+  }
+
+  /** What a model takes on disk now: whole files, half-downloaded parts and check marks. */
+  bytesOnDisk(id: string): number {
+    this.spec(id);
+    return dirBytes(join(this.dir, id));
+  }
+
+  /**
+   * Deletes a model (refused while it is downloading: cancel that first). It is downloaded again
+   * the next time it is needed.
+   */
+  async remove(id: string): Promise<void> {
+    this.spec(id);
+    if (this.downloading(id)) throw new ProviderError('这个模型正在下载，先取消下载再删除', 'local');
+    await rm(join(this.dir, id), { recursive: true, force: true });
+  }
+
+  /** Downloading now. */
+  downloading(id: string): boolean {
+    const prefix = join(this.dir, id) + sep;
+    return [...this.inflight.keys()].some((k) => k.startsWith(prefix));
   }
 
   /** The models used with this Spanish model choice (VAD, Chinese, Spanish) and whether each is downloaded. */

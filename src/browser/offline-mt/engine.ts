@@ -76,6 +76,17 @@ async function idbKeys(): Promise<Set<string>> {
   });
 }
 
+async function idbDelete(keys: Iterable<string>): Promise<void> {
+  const db = await idb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    for (const k of keys) store.delete(k);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 const storeKey = (f: ManifestFile) => `${f.name}:${f.sha256}`;
 
 async function sha256Hex(buf: ArrayBuffer): Promise<string> {
@@ -134,6 +145,22 @@ export class OfflineMt {
       done += f.size;
       onProgress?.({ received: done, total, file: f.name });
     }
+    // A newer version replaced some files: the old copies are not needed any more.
+    await this.prune();
+  }
+
+  /** Removes stored files that are not part of the current models (left from earlier versions). Returns how many. */
+  async prune(): Promise<number> {
+    const want = new Set(manifest.files.map(storeKey));
+    const stale = [...(await idbKeys())].filter((k) => !want.has(k));
+    if (stale.length) await idbDelete(stale);
+    return stale.length;
+  }
+
+  /** Deletes the stored models (downloaded again when needed). */
+  async clear(): Promise<void> {
+    this.stop();
+    await idbDelete(await idbKeys());
   }
 
   private async fetchWithProgress(url: string, onBytes: (n: number) => void): Promise<ArrayBuffer> {

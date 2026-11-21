@@ -1,6 +1,6 @@
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, protocol, safeStorage, session, shell, systemPreferences, Tray, utilityProcess } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { constants as osConstants, cpus, release, setPriority, totalmem } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -16,15 +16,17 @@ import { learnFromEdit } from '../core/profile/learn';
 import { addCalibration, addCorrections, mergeProfiles, personalFor, profileHotwords, ProfileSchema, recordConfusions, removeCorrection, userPairs } from '../core/profile/profile';
 import { reviewMeeting as reviewMeetingCore } from '../core/profile/review';
 import { createLogger, setLogSink, type Logger } from '../core/log';
+import { isAbortError } from '../core/events';
 import { createProviders, makeLlm, type Providers } from '../core/providers/registry';
 import { azureVoicesFor } from '../core/providers/azure';
 import { DashscopeTts, createClonedVoice, deleteClonedVoice, waitForVoice } from '../core/providers/dashscope';
 import type { SummaryTemplate } from '../core/session/summary';
 import type { Direction, TranscriptSegment } from '../core/types';
-import { IPC, type FromAudio, type ProfileView, type ReadinessItem, type RendererEvents, type StoredReview, type ToAudio } from '../shared/ipc';
+import { IPC, type FromAudio, type ProfileView, type ReadinessItem, type RendererEvents, type StorageInfo, type StoredReview, type ToAudio } from '../shared/ipc';
 import { detectMeetingApps } from './platform/meeting-apps';
 import { restoreAudioDefaults, savedAudioDefaults } from './platform/audio-defaults';
 import { KEY_NAMES, missingKeys } from '../core/config/readiness';
+import { collectStorage } from './storage';
 import { installVirtualAudio } from './platform/virtual-audio';
 import { createNodeContext } from './platform/node-context';
 import { testDirection, testLlm } from './provider-test';
@@ -609,6 +611,16 @@ const handlers: Record<string, Handler> = {
   },
 
   'mt.status': async () => ({ missingBytes: await offlineMt.missingBytes(), totalBytes: OFFLINE_MT_TOTAL }),
+  // 存储空间: see, delete, download (and cancel) every model; open the folders.
+  'storage.info': () => storageInfo(),
+  'storage.remove': (id: string) => removeStored(id),
+  'storage.download': (id: string) => downloadStored(id),
+  'storage.cancel': (id: string) => {
+    asrDownloads.get(id)?.abort();
+    if (localAsrNeeded('meeting').includes(id as ModelId)) prefetchAbort?.abort();
+    if (aiPrefetch?.id === id) aiPrefetch.abort.abort();
+  },
+  'storage.openFolder': (which: 'data' | 'records') => openPathOrThrow(which === 'records' ? recordsDir() : dataDir),
   'ai.status': async () => {
     const ids = Object.keys(AI_MODELS) as AiModelId[];
     for (const id of ids) if (aiModels.status(id) !== 'ready' && aiModels.missingBytes([id]) === 0) await aiModels.verifyExisting([id]);
@@ -784,6 +796,78 @@ async function reviewMeeting(id: string): Promise<StoredReview> {
 }
 
 /** The Mozilla models are needed for 'offline', and as the instant draft / fallback of 'local-ai'. */
+const STORAGE_NAMES: Record<string, string> = {
+  'silero-vad': '语音检测（识别都要用）',
+  sensevoice: '中文识别（SenseVoice）',
+  'whisper-small': '西语 / 英语识别（标准）',
+  'whisper-base': '西语 / 英语识别（轻量）',
+  'hy-mt2-1.8b': '本机 AI 翻译（标准）',
+  'hy-mt2-7b': '本机 AI 翻译（更准）',
+};
+/** Recognition models downloaded from the 存储空间 page (each can be cancelled). */
+const asrDownloads = new Map<string, AbortController>();
+
+function storageInfo(): StorageInfo {
+  const s = settings.get();
+  const inUse = new Set<string>(localAsrNeeded('meeting'));
+  if (usesLocalAi()) inUse.add(s.local.aiModel);
+  const bigMac = process.platform === 'darwin' && process.arch === 'arm64' && totalmem() >= 15 * 1024 ** 3;
+  return collectStorage({
+    dataDir,
+    recordsDir: recordsDir(),
+    asr: models,
+    ai: aiModels,
+    inUse,
+    names: STORAGE_NAMES,
+    onlyIfPresent: bigMac ? new Set() : new Set(['hy-mt2-7b']),
+    offlineMt: { totalBytes: OFFLINE_MT_TOTAL, inUse: usesOfflineMt(), downloading: !!mtPrefetch || asrDownloads.has('offline-mt') },
+  });
+}
+
+async function removeStored(id: string): Promise<void> {
+  const busy = sessionManager.active || room.active;
+  const inUse = () => new Error('会议进行中，正在用的模型不能删除；会后再删');
+  if (models.ids().includes(id)) {
+    if (busy && localAsrNeeded('meeting').includes(id as ModelId)) throw inUse();
+    await models.remove(id);
+  } else if (aiModels.ids().includes(id)) {
+    if (busy && aiModelInUse() === id) throw inUse();
+    // The translation process keeps the model file open (Windows would refuse to delete it).
+    if (aiClient?.id === id) {
+      aiClient.client.dispose();
+      aiClient = null;
+    }
+    await aiModels.remove(id);
+  } else if (id === 'offline-mt') {
+    if (busy && usesOfflineMt()) throw inUse();
+    await offlineMt.clear();
+  } else if (id === 'cache') {
+    await session.defaultSession.clearCache();
+    await session.defaultSession.clearCodeCaches({}).catch(() => undefined);
+  } else if (id === 'tools') {
+    if (room.active) throw new Error('现场房间开着时不能删除公网链接工具');
+    await rm(join(dataDir, 'bin'), { recursive: true, force: true });
+  } else throw new Error('这一项不能在这里删除');
+  log.info(`storage: removed ${id}`);
+}
+
+async function downloadStored(id: string): Promise<void> {
+  if (models.ids().includes(id)) {
+    if (asrDownloads.has(id)) return;
+    const abort = new AbortController();
+    asrDownloads.set(id, abort);
+    try {
+      await models.ensure([id], (p) => broadcast('model-progress', p), abort.signal);
+    } catch (err) {
+      if (!isAbortError(err)) throw err;
+    } finally {
+      asrDownloads.delete(id);
+    }
+  } else if (aiModels.ids().includes(id)) await (handlers['ai.download'] as (id: AiModelId) => Promise<void>)(id as AiModelId);
+  else if (id === 'offline-mt') await prefetchOfflineMt();
+  else throw new Error('这一项不需要下载');
+}
+
 function usesOfflineMt(): boolean {
   const s = settings.get();
   return [s.out.mt, s.in.mt].some((m) => m === 'offline' || m === 'local-ai');
@@ -794,7 +878,7 @@ function usesLocalAi(): boolean {
   return s.out.mt === 'local-ai' || s.in.mt === 'local-ai';
 }
 
-let aiPrefetch: { id: AiModelId; job: Promise<void> } | null = null;
+let aiPrefetch: { id: AiModelId; job: Promise<void>; abort: AbortController } | null = null;
 /** How far the AI model's download is (for "still downloading, N%"). */
 let aiProgress: { id: string; received: number; total: number } | null = null;
 /** Downloads a local AI translation model in the background, once. */
@@ -802,15 +886,22 @@ function prefetchAi(id: AiModelId = settings.get().local.aiModel): Promise<void>
   if (aiPrefetch?.id === id) return aiPrefetch.job;
   // Another model is downloading: this one follows it (never silently drop the request).
   if (aiPrefetch) return aiPrefetch.job.finally(() => prefetchAi(id));
+  const abort = new AbortController();
   const job = aiModels
-    .ensure([id], (p) => {
-      aiProgress = p;
-      broadcast('model-progress', p);
-    })
+    .ensure(
+      [id],
+      (p) => {
+        aiProgress = p;
+        broadcast('model-progress', p);
+      },
+      abort.signal,
+    )
     .then(() => broadcast('toast', { level: 'info', message: '本机 AI 翻译模型已下载完成。' }))
-    .catch((err) => broadcast('toast', { level: 'warn', message: `本机 AI 翻译模型下载失败：${err instanceof Error ? err.message : String(err)}` }))
+    .catch((err) => {
+      if (!isAbortError(err)) broadcast('toast', { level: 'warn', message: `本机 AI 翻译模型下载失败：${err instanceof Error ? err.message : String(err)}` });
+    })
     .finally(() => (aiPrefetch = null));
-  aiPrefetch = { id, job };
+  aiPrefetch = { id, job, abort };
   return job;
 }
 
@@ -867,6 +958,7 @@ function usesLocalAsr(): boolean {
 }
 
 let prefetching: Promise<void> | null = null;
+let prefetchAbort: AbortController | null = null;
 
 /** Downloads the offline models the current settings need, in the background, once. */
 function prefetchModels(): Promise<void> {
@@ -875,13 +967,18 @@ function prefetchModels(): Promise<void> {
   const bases = new Set<'zh' | 'es' | 'en'>();
   if (s.out.asr === 'local') bases.add(baseOf(s.languages.self));
   if (s.in.asr === 'local') bases.add(baseOf(s.languages.remote));
+  const abort = new AbortController();
+  prefetchAbort = abort;
   prefetching = (async () => {
-    for (const base of bases) await models.ensureFor(base, s.local.esModel, (p) => broadcast('model-progress', p));
+    for (const base of bases) await models.ensureFor(base, s.local.esModel, (p) => broadcast('model-progress', p), abort.signal);
     broadcast('toast', { level: 'info', message: '本机离线识别模型已下载完成。' });
   })()
-    .catch((err) => broadcast('toast', { level: 'warn', message: `下载本机识别模型失败：${err instanceof Error ? err.message : String(err)}（可在 设置 › 翻译服务 里重试）` }))
+    .catch((err) => {
+      if (!isAbortError(err)) broadcast('toast', { level: 'warn', message: `下载本机识别模型失败：${err instanceof Error ? err.message : String(err)}（可在 设置 › 翻译服务 里重试）` });
+    })
     .finally(() => {
       prefetching = null;
+      prefetchAbort = null;
     });
   return prefetching;
 }

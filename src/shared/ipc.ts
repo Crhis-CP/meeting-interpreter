@@ -172,6 +172,13 @@ export interface RendererApi {
     skip(dir: Direction): Promise<void>;
     setRecording(opts: { audio?: boolean; screen?: boolean; screenSourceId?: string }): Promise<void>;
   };
+  storage: {
+    info(): Promise<StorageInfo>;
+    remove(id: string): Promise<void>;
+    download(id: string): Promise<void>;
+    cancel(id: string): Promise<void>;
+    openFolder(which: 'data' | 'records'): Promise<void>;
+  };
   meetings: {
     list(): Promise<MeetingListItem[]>;
     get(id: string): Promise<MeetingDetail | null>;
@@ -276,6 +283,28 @@ export interface RendererEvents {
 
 // ------------------------------------------------------------ audio window protocol
 
+export interface StorageItem {
+  id: string;
+  kind: 'asr' | 'ai' | 'mt' | 'tool' | 'logs' | 'cache';
+  name: string;
+  /** On disk now. */
+  bytes: number;
+  /** When fully downloaded (null: not a download). */
+  totalBytes: number | null;
+  state: 'ready' | 'partial' | 'missing' | 'downloading';
+  /** The current settings use it. */
+  inUse: boolean;
+}
+
+export interface StorageInfo {
+  dataDir: string;
+  recordsDir: string;
+  /** Everything in the data folder (models, caches, settings…). */
+  dataBytes: number;
+  recordsBytes: number;
+  items: StorageItem[];
+}
+
 export interface ReadinessItem {
   id: string;
   text: string;
@@ -320,7 +349,8 @@ export type ToAudio =
   | { type: 'testTone'; target: 'virtualMic' | 'headphones'; config: AudioConfig }
   | { type: 'mt'; id: number; text: string; from: 'zh' | 'es' | 'en'; to: 'zh' | 'es' | 'en' }
   | { type: 'mtStatus'; id: number }
-  | { type: 'mtDownload'; id: number };
+  | { type: 'mtDownload'; id: number }
+  | { type: 'mtClear'; id: number };
 
 /** audio window → main */
 export type FromAudio =

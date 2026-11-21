@@ -27,13 +27,19 @@ const getMt = () =>
       wasmUrl: await blobUrl('./offline-mt/bergamot-translator.wasm', 'application/wasm'),
       fetchImpl: async (input) => (String(input).startsWith('blob:') ? fetch(input) : new Response(await bridge.fetchBytes(String(input)))),
     }))());
-async function handleMt(msg: Extract<ToAudio, { type: 'mt' | 'mtStatus' | 'mtDownload' }>) {
+async function handleMt(msg: Extract<ToAudio, { type: 'mt' | 'mtStatus' | 'mtDownload' | 'mtClear' }>) {
   const reply = (r: Omit<Extract<FromAudio, { type: 'mtReply' }>, 'type' | 'id'>) => window.audioBridge.send({ type: 'mtReply', id: msg.id, ...r });
   try {
     const mt = await getMt();
     if (msg.type === 'mt') reply({ text: await mt.translate(msg.text, msg.from, msg.to) });
-    else if (msg.type === 'mtStatus') reply({ missingBytes: await mt.missingBytes() });
-    else {
+    else if (msg.type === 'mtStatus') {
+      // Copies left by an earlier version go first (the folder must not keep growing).
+      await mt.prune().catch(() => 0);
+      reply({ missingBytes: await mt.missingBytes() });
+    } else if (msg.type === 'mtClear') {
+      await mt.clear();
+      reply({ missingBytes: await mt.missingBytes() });
+    } else {
       await mt.download((p) => window.audioBridge.send({ type: 'mtProgress', ...p }));
       reply({ missingBytes: 0 });
     }
@@ -43,7 +49,7 @@ async function handleMt(msg: Extract<ToAudio, { type: 'mt' | 'mtStatus' | 'mtDow
 }
 
 window.audioBridge.onMessage((msg: ToAudio) => {
-  if (msg.type === 'mt' || msg.type === 'mtStatus' || msg.type === 'mtDownload') {
+  if (msg.type === 'mt' || msg.type === 'mtStatus' || msg.type === 'mtDownload' || msg.type === 'mtClear') {
     void handleMt(msg);
     return;
   }
