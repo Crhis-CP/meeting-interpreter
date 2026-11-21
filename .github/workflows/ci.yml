@@ -94,7 +94,17 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
-          if [ "$RUNNER_OS" = macOS ]; then npx electron-builder --mac --arm64 --dir --publish never; else npx electron-builder --win --x64 --dir --publish never; fi
+          if [ "$RUNNER_OS" = macOS ]; then
+            # The release's signing path, with a throwaway certificate made the way users make theirs.
+            bash scripts/make-mac-cert.sh --ci > "$RUNNER_TEMP/cert.env"
+            set -a; . "$RUNNER_TEMP/cert.env"; set +a
+            rm -f "$RUNNER_TEMP/cert.env"
+            bash scripts/mac-signing.sh
+            set -a; . "$GITHUB_ENV"; set +a
+            npx electron-builder --mac --arm64 --dir --publish never
+          else
+            npx electron-builder --win --x64 --dir --publish never
+          fi
           bash scripts/test-packaged.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()

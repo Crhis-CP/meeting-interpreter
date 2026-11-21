@@ -79,6 +79,12 @@ jobs:
         run: npm test
         continue-on-error: true
       - run: npm run build
+      - name: Fixed signing certificate (macOS keeps its permissions across updates)
+        if: runner.os == 'macOS'
+        env:
+          MI_MAC_CERT_P12: ${{ secrets.MI_MAC_CERT_P12 }}
+          MI_MAC_CERT_PASSWORD: ${{ secrets.MI_MAC_CERT_PASSWORD }}
+        run: bash scripts/mac-signing.sh
       - name: Package
         run: npx electron-builder ${{ matrix.args }} --publish never
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4

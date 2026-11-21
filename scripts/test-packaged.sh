@@ -12,6 +12,12 @@ case "$(uname -s)" in
     # The app as shipped must carry a valid signature: a broken one makes macOS call it
     # "damaged" and refuse to open it (fuses flipped after signing did exactly that in 0.8.1).
     codesign --verify --deep --strict --verbose=2 "$(ls -d release/mac*/*.app | head -1)"
+    # Signed with the fixed certificate: macOS ties permissions to that certificate, not to this
+    # one build (otherwise every update asks for the microphone again).
+    if [ -n "${MI_MAC_SIGN_IDENTITY:-}" ]; then
+      codesign --display --requirements - "$(ls -d release/mac*/*.app | head -1)" 2>&1 | grep -q 'certificate leaf' \
+        || { echo "the app is not signed with the fixed certificate"; exit 1; }
+    fi
     cp -R "$(ls -d release/mac*/*.app | head -1)" "$TMP/"
     APP=$(ls -d "$TMP"/*.app)
     FUSE_TARGET="$APP"

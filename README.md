@@ -168,6 +168,8 @@ npm run build:mobile && (cd android && ./gradlew assembleRelease)   # 安卓 APK
 
 发布新版本：在 `CHANGELOG.md` 写好更新内容，把 `package.json` 的 `version` 改成新版本号并推送到 main，GitHub Actions 会自动打标签、构建 macOS / Windows / Linux 安装包并发布到 Releases（也可以推送 `v版本号` 标签触发）。
 
+Mac 安装包用一张固定的自签名证书签名，这样每次更新后 macOS 都记得麦克风、录屏权限：在自己的 Mac 上运行一次 `bash scripts/make-mac-cert.sh`，把它给出的两个值存进仓库的 Actions Secrets（`MI_MAC_CERT_P12`、`MI_MAC_CERT_PASSWORD`）。没有配置时退回临时签名（每次更新都要重新授权）。
+
 安卓 APK 默认用仓库里公开的 `android/app/community.keystore` 签名（这样每个新版本都能覆盖安装旧版本）；正式分发可以设置环境变量 `MI_KEYSTORE`、`MI_KEYSTORE_PASSWORD`、`MI_KEY_ALIAS` 换成自己的私有签名。
 
 项目结构和设计见 [docs/superpowers/specs](docs/superpowers/specs/2026-11-20-meeting-interpreter-design.md)。
