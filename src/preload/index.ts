@@ -16,7 +16,7 @@ const api: RendererApi = {
   settings: ns('settings', ['get', 'set', 'applyPreset']),
   secrets: ns('secrets', ['status', 'set']),
   glossary: ns('glossary', ['list', 'save', 'remove', 'importCsv', 'exportCsv']),
-  meeting: ns('meeting', ['start', 'stop', 'state', 'setOut', 'setIn', 'setInSpeak', 'setPassthrough', 'pushToTalk', 'skip', 'setRecording']),
+  meeting: ns('meeting', ['start', 'stop', 'state', 'segments', 'setOut', 'setIn', 'setInSpeak', 'setPassthrough', 'pushToTalk', 'skip', 'setRecording']),
   meetings: ns('meetings', ['list', 'get', 'summarize', 'rename', 'remove', 'openFolder', 'openFile', 'fileUrl', 'editSegment', 'review', 'decide', 'undo', 'forgetTerm']),
   profile: ns('profile', ['get', 'script', 'calibrate', 'addCorrection', 'removeCorrection', 'exportFile', 'importFile', 'reset', 'openFolder']),
   providers: ns('providers', ['test', 'voices']),

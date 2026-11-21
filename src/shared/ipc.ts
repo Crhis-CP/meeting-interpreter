@@ -158,6 +158,8 @@ export interface RendererApi {
     start(opts: { title?: string; platform?: string; mode?: 'meeting' | 'room' }): Promise<MeetingState>;
     stop(): Promise<MeetingMeta | null>;
     state(): Promise<MeetingState>;
+    /** Sentences of the meeting in progress so far (a page opened mid-meeting starts from them). */
+    segments(): Promise<TranscriptSegment[]>;
     setOut(enabled: boolean): Promise<void>;
     setIn(enabled: boolean): Promise<void>;
     setInSpeak(speak: boolean): Promise<void>;

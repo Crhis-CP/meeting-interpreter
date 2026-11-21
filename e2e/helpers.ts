@@ -41,8 +41,10 @@ function watchWindow(page: import('@playwright/test').Page): void {
 export async function attachAppLogs(info: TestInfo): Promise<void> {
   const dirs = launchedDataDirs.splice(0);
   const errors = windowErrors.splice(0);
-  const ok = (line: string) => allowed.some((r) => r.test(line));
+  // (Taken before the reset: the check below must use this test's declarations.)
+  const allow = allowed;
   allowed = [];
+  const ok = (line: string) => allow.some((r) => r.test(line));
   if (info.status === info.expectedStatus) {
     for (const d of dirs) {
       const p = join(d, 'app.log');

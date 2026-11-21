@@ -217,4 +217,23 @@ describe('SessionManager start/stop edge cases', () => {
     expect(readFileSync(join(folder, 'audio/mix-2.webm')).length).toBe(5000);
     expect(meta!.files.mix2).toBe('audio/mix-2.webm');
   });
+
+  it('a short meeting keeps its recording even when the only chunk arrives as the recorder stops', async () => {
+    const { dir, settings, sent } = base();
+    settings.recording.audio = true;
+    const providers = (): ProviderSet => ({ asr: () => new MockAsr(), mt: () => new MockTranslator(), tts: () => new MockTts(), llm: () => null, describe: () => ({}) });
+    const sm = new SessionManager({ settings: () => settings, glossary: () => [], providers, recordsDir: () => dir, toAudio: (m) => sent.push(m), broadcast: () => {}, log: createLogger('t') });
+    await sm.start({});
+    sm.handleAudio({ type: 'started', loopbackExcludesSelf: null, warnings: [] });
+    const folder = sm.currentFolder;
+    const stopping = sm.stop();
+    // The audio window answers the stop a moment later with the whole recording.
+    await new Promise((r) => setTimeout(r, 600));
+    sm.handleAudio({ type: 'recChunk', kind: 'mix', mime: 'audio/webm', data: new Uint8Array(800).fill(3).buffer });
+    sm.handleAudio({ type: 'recStopped', kind: 'mix' });
+    const meta = await stopping;
+    expect(meta!.files.mix).toBe('audio/mix.webm');
+    expect(readFileSync(join(folder, 'audio/mix.webm')).length).toBe(800);
+    expect(JSON.parse(readFileSync(join(folder, 'meeting.json'), 'utf8')).files.mix).toBe('audio/mix.webm');
+  });
 });

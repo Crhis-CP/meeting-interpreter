@@ -374,6 +374,7 @@ const handlers: Record<string, Handler> = {
     return meta;
   },
   'meeting.state': () => sessionManager.state,
+  'meeting.segments': () => (sessionManager.active ? sessionManager.segments().slice(-200) : []),
   'meeting.setOut': (on: boolean) => {
     sessionManager.setOut(on);
     updateTray();

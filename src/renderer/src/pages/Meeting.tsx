@@ -23,6 +23,16 @@ export function useLiveSegments(active: boolean): TranscriptSegment[] {
     if (active && !wasActive.current) setSegs(new Map());
     wasActive.current = active;
   }, [active]);
+  // Coming back to the page mid-meeting: start from what was said so far (newer live updates win).
+  useEffect(() => {
+    void api.meeting.segments().then((list) =>
+      setSegs((m) => {
+        const n = new Map(list.map((x) => [x.id, x] as const));
+        for (const [id, x] of m) n.set(id, x);
+        return n;
+      }),
+    );
+  }, []);
   useEvent('segment', (s) =>
     setSegs((m) => {
       const n = new Map(m);

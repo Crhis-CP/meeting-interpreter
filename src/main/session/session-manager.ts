@@ -99,6 +99,8 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
   private startGen = 0;
   private s: MeetingState = SessionManager.emptyState();
   private stopping: Promise<MeetingMeta | null> | null = null;
+  /** The audio window has started this meeting's audio (and with it the recorders). */
+  private audioStarted = false;
   private stateTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(deps: SessionDeps) {
@@ -297,6 +299,7 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     // Stop may have been pressed while recognition was still connecting.
     if (gen !== this.startGen || !this.s.active || !this.meta) return this.s;
 
+    this.audioStarted = false;
     this.d.toAudio({ type: 'start', config: audioConfig(settings, mode) });
     this.publish(true);
     this.d.log.info(`meeting started: ${this.meta.id}`);
@@ -353,6 +356,7 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
         }
         return;
       case 'started':
+        this.audioStarted = true;
         this.s.loopbackExcludesSelf = msg.loopbackExcludesSelf;
         this.s.warnings = msg.warnings;
         // System loopback that also captures our own Chinese speech would feed it back into the
@@ -391,6 +395,8 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
         return;
       case 'recError':
         if (msg.kind === 'screen') this.s.recording.screenError = msg.message;
+        else this.s.recording.audio = false;
+        this.recStopped[msg.kind]?.();
         this.d.broadcast('toast', { level: 'warn', message: `${msg.kind === 'screen' ? '录屏' : '录音'}失败：${msg.message}` });
         this.publish();
         return;
@@ -482,8 +488,12 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     const folder = this.folder;
     this.s.active = false;
     this.publish(true);
-    // Wait (bounded) for the audio window to deliver the last recorder chunks.
-    const kinds = Object.keys(this.rec) as ('mix' | 'screen')[];
+    // Wait (bounded) for the audio window to deliver the last recorder chunks — also for a
+    // recorder that has not delivered anything yet (a short meeting): its first and last chunk
+    // come together when it stops.
+    const recording = this.audioStarted ? [...(this.s.recording.audio ? ['mix' as const] : []), ...(this.s.recording.screen && !this.s.recording.screenError ? ['screen' as const] : [])] : [];
+    const kinds = [...new Set([...(Object.keys(this.rec) as ('mix' | 'screen')[]), ...recording])];
+    this.audioStarted = false;
     const recordersDone = Promise.all(kinds.map((k) => new Promise<void>((resolve) => (this.recStopped[k] = resolve))));
     this.d.toAudio({ type: 'stop' });
     await Promise.all(Object.values(this.pipelines).map((p) => p!.stop()));

@@ -78,6 +78,12 @@ const LANG_NAMES = { zh: '中文', es: 'Español', en: 'English' } as const;
 
 const isZh = (code: string) => code.toLowerCase().startsWith('zh');
 
+/** iPhone (Safari 16.4+): what the page does with audio. "playback" is not muted by the silent switch. */
+function setAudioSession(type: 'playback' | 'play-and-record'): void {
+  const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+  if (session) session.type = type;
+}
+
 export function RoomClient() {
   const params = new URLSearchParams(location.search);
   const token = params.get('t') ?? '';
@@ -227,6 +233,9 @@ export function RoomClient() {
     setError('');
     localStorage.setItem('mi-name', name);
     localStorage.setItem('mi-lang', ui);
+    // iPhone: with the ring/silent switch on silent, web audio is muted unless the page says it
+    // plays media (Safari 16.4+). Safari moves to play-and-record by itself when the mic opens.
+    setAudioSession('playback');
     // Audio must be unlocked inside the tap (iOS).
     const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     ctx.current = new AC();
@@ -246,6 +255,7 @@ export function RoomClient() {
   const ensureMic = async (): Promise<boolean> => {
     if (micNode.current) return true;
     const c = ctx.current!;
+    setAudioSession('play-and-record');
     try {
       micStream.current = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
       if (!workletLoaded.current) {
@@ -278,6 +288,7 @@ export function RoomClient() {
       micNode.current?.disconnect();
       micNode.current = null;
       micStream.current = null;
+      setAudioSession('playback');
     }, 2000);
   };
 
