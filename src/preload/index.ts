@@ -26,7 +26,7 @@ const api: RendererApi = {
   local: ns('local', ['status', 'download']),
   audio: ns('audio', ['testTone', 'installDriver']),
   room: ns('room', ['start', 'stop', 'state', 'setPublic']),
-  app: ns('app', ['info', 'openExternal', 'detectMeetingApps', 'screenSources', 'chooseRecordsDir', 'openRecordsDir', 'showWindow', 'setOverlayClickThrough']),
+  app: ns('app', ['info', 'openExternal', 'detectMeetingApps', 'screenSources', 'chooseRecordsDir', 'openRecordsDir', 'showWindow', 'setOverlayClickThrough', 'overlayPointer', 'hideOverlay']),
   on<K extends keyof RendererEvents>(event: K, fn: (payload: RendererEvents[K]) => void) {
     const listener = (_e: unknown, msg: { event: string; payload: unknown }) => {
       if (msg.event === event) fn(msg.payload as RendererEvents[K]);

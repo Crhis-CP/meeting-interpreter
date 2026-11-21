@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from 'react';
+import { memo, useEffect, useState, type ReactNode } from 'react';
 import type { TranscriptSegment } from '@core/types';
 
 /** A switch. Without a visible `label`, give `ariaLabel` so it still has a name (screen readers, agents). */
@@ -144,4 +144,29 @@ export function Markdown({ text }: { text: string }) {
   });
   flush();
   return <div className="md">{out}</div>;
+}
+
+/**
+ * A button whose action has no visible result of its own (a test tone into another app, a copy to
+ * the clipboard): after it succeeds, `done` is shown next to it for a few seconds.
+ */
+export function FlashButton({ label, done, action, className = 'btn sm', test = 'safe' }: { label: ReactNode; done: string; action: () => Promise<unknown> | unknown; className?: string; test?: string }) {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!shown) return;
+    const t = setTimeout(() => setShown(false), 4000);
+    return () => clearTimeout(t);
+  }, [shown]);
+  return (
+    <>
+      <button className={className} data-test={test} onClick={() => void Promise.resolve(action()).then(() => setShown(true))}>
+        {label}
+      </button>
+      {shown && (
+        <span className="muted small" role="status">
+          {done}
+        </span>
+      )}
+    </>
+  );
 }

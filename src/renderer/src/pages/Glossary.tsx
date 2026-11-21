@@ -128,7 +128,7 @@ export function GlossaryPage() {
               <input type="search" placeholder="搜索" aria-label="搜索术语" value={filter} onChange={(e) => setFilter(e.target.value)} />
             </div>
             <div className="row">
-              <button className="btn" onClick={removeGlossary}>
+              <button data-test="destructive" className="btn" onClick={removeGlossary}>
                 删除术语表
               </button>
               <button className="btn primary" onClick={() => void save()} disabled={!dirty}>
@@ -178,7 +178,7 @@ export function GlossaryPage() {
                     <input type="text" aria-label="备注" value={e.note} onChange={(ev) => setEntry(e.id, { note: ev.target.value })} />
                   </td>
                   <td>
-                    <button className="btn ghost sm" aria-label={`删除 ${e.zh || '这条术语'}`} onClick={() => update((g) => (g.entries = g.entries.filter((x) => x.id !== e.id)))}>
+                    <button data-test="safe" className="btn ghost sm" aria-label={`删除 ${e.zh || '这条术语'}`} onClick={() => update((g) => (g.entries = g.entries.filter((x) => x.id !== e.id)))}>
                       ✕
                     </button>
                   </td>

@@ -57,7 +57,7 @@ export function RoomPage({ settings, state, go }: { settings: AppSettings; state
       <header className="row between" style={{ marginBottom: 16 }}>
         <h1 className="page-title">现场房间</h1>
         {room?.active ? (
-          <button className="btn danger big" onClick={stop} disabled={busy}>
+          <button data-test="flow" className="btn danger big" onClick={stop} disabled={busy}>
             关闭房间
           </button>
         ) : meetingActive ? (
@@ -65,7 +65,7 @@ export function RoomPage({ settings, state, go }: { settings: AppSettings; state
             去会议同传
           </button>
         ) : (
-          <button className="btn primary big" onClick={start} disabled={busy}>
+          <button data-test="flow" className="btn primary big" onClick={start} disabled={busy}>
             {busy ? '正在开启…' : '开启房间'}
           </button>
         )}

@@ -9,7 +9,6 @@ function Overlay() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [segs, setSegs] = useState<TranscriptSegment[]>([]);
   const [partial, setPartial] = useState<{ dir: string; text: string } | null>(null);
-  const [hover, setHover] = useState(false);
 
   useEffect(() => {
     void api.settings.get().then(setSettings);
@@ -23,12 +22,15 @@ function Overlay() {
         }),
       ),
       api.on('partial', (p) => setPartial(p.text ? p : null)),
+      // A new meeting starts with an empty subtitle window.
       api.on('meeting-state', (st) => {
-        if (st.active && segs.length && st.startedAtMs && Date.now() - st.startedAtMs < 2000) setSegs([]);
+        if (st.active && st.startedAtMs && Date.now() - st.startedAtMs < 2000) {
+          setSegs([]);
+          setPartial(null);
+        }
       }),
     ];
     return () => offs.forEach((off) => off());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!settings) return null;
@@ -37,8 +39,6 @@ function Overlay() {
 
   return (
     <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
       style={{
         height: '100%',
         boxSizing: 'border-box',
@@ -54,12 +54,16 @@ function Overlay() {
         ['WebkitAppRegion' as string]: 'drag',
       }}
     >
-      {hover && (
-        <div style={{ position: 'absolute', top: 6, right: 10, display: 'flex', gap: 6, ['WebkitAppRegion' as string]: 'no-drag' }}>
-          <button onClick={() => void api.app.showWindow('main')} style={btn}>主窗口</button>
-          <button onClick={() => window.close()} style={btn}>✕</button>
-        </div>
-      )}
+      {/* Always visible, and always clickable: in click-through mode the window takes clicks while
+          the pointer is over these buttons. */}
+      <div
+        onMouseEnter={() => void api.app.overlayPointer(true)}
+        onMouseLeave={() => void api.app.overlayPointer(false)}
+        style={{ position: 'absolute', top: 6, right: 10, display: 'flex', gap: 6, ['WebkitAppRegion' as string]: 'no-drag' }}
+      >
+        <button onClick={() => void api.app.showWindow('main')} style={btn}>主窗口</button>
+        <button onClick={() => void api.app.hideOverlay()} style={btn} aria-label="关闭字幕窗">✕</button>
+      </div>
       {shown.length === 0 && !partial && <div style={{ opacity: 0.6, fontSize: 14 }}>同传字幕会显示在这里 · 拖动可移动位置</div>}
       {shown.map((s) => {
         const remote = s.speaker === 'them' || !s.srcLang.startsWith('zh');
@@ -82,6 +86,6 @@ function Overlay() {
   );
 }
 
-const btn: React.CSSProperties = { background: 'rgba(255,255,255,0.15)', color: '#fff', border: 0, borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 12 };
+const btn: React.CSSProperties = { background: 'rgba(255,255,255,0.18)', color: '#fff', border: 0, borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 12 };
 
 createRoot(document.getElementById('root')!).render(<Overlay />);

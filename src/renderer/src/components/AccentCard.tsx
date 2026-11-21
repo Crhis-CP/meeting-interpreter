@@ -81,7 +81,7 @@ export function AccentCalibrationCard({ s, update }: { s: AppSettings; update: (
       <h3>口音校准</h3>
       {step.kind === 'idle' && (
         <div className="row">
-          <button className="btn primary" onClick={() => void begin()}>开始校准（1 分钟）</button>
+          <button data-test="flow" className="btn primary" onClick={() => void begin()}>开始校准（1 分钟）</button>
         </div>
       )}
       {step.kind === 'reading' && (
@@ -91,11 +91,11 @@ export function AccentCalibrationCard({ s, update }: { s: AppSettings; update: (
           <div className="row">
             {step.recording ? (
               <>
-                <button className="btn primary" onClick={() => void next()}>{step.i + 1 < script.length ? '读完了，下一句' : '读完了，开始分析'}</button>
+                <button data-test="flow" className="btn primary" onClick={() => void next()}>{step.i + 1 < script.length ? '读完了，下一句' : '读完了，开始分析'}</button>
                 <div className="level" role="meter" aria-label="音量" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(100, level * 140))}><div style={{ width: `${Math.min(100, level * 140)}%` }} /></div>
               </>
             ) : (
-              <button className="btn primary" onClick={() => void record(step.i)}>开始录音</button>
+              <button data-test="flow" className="btn primary" onClick={() => void record(step.i)}>开始录音</button>
             )}
             <button className="btn ghost" onClick={cancel}>取消</button>
           </div>
@@ -193,7 +193,7 @@ export function MyCorrectionsCard({ s, update, llmReady = true, setTab }: { s: A
                 <td>{c.heard}{c.lang !== 'zh' ? <span className="muted small">（{LANG_NAMES[c.lang]}）</span> : null}</td>
                 <td>{c.meant}</td>
                 <td className="muted small">{SOURCE_NAMES[c.source]}{c.count > 1 ? ` ×${c.count}` : ''}</td>
-                <td><button className="btn ghost sm" onClick={() => void run(() => api.profile.removeCorrection(c.lang, c.heard))}>删除</button></td>
+                <td><button data-test="safe" className="btn ghost sm" onClick={() => void run(() => api.profile.removeCorrection(c.lang, c.heard))}>删除</button></td>
               </tr>
             ))}
           </tbody>
@@ -222,7 +222,7 @@ export function MyCorrectionsCard({ s, update, llmReady = true, setTab }: { s: A
         <button className="btn sm" onClick={() => void api.profile.openFolder()}>打开所在文件夹</button>
         <button className="btn sm" onClick={() => void run(() => api.profile.exportFile(), '已导出')}>导出</button>
         <button className="btn sm" onClick={() => void run(() => api.profile.importFile(), '已导入并合并')}>导入</button>
-        <button className="btn sm danger" onClick={() => window.confirm('确定清除口音档案吗？学到的纠错和校准结果都会删除。') && void run(() => api.profile.reset(), '已清除')}>清除</button>
+        <button data-test="destructive" className="btn sm danger" onClick={() => window.confirm('确定清除口音档案吗？学到的纠错和校准结果都会删除。') && void run(() => api.profile.reset(), '已清除')}>清除</button>
         {msg && <span className="muted small" role="status">{msg}</span>}
       </div>
       <div className="muted small" style={{ marginTop: 6 }}><code>{p.file}</code></div>

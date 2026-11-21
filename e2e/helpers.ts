@@ -15,14 +15,43 @@ export function speechWav(dir: string): string {
 }
 
 const launchedDataDirs: string[] = [];
+/** Errors any window of the app showed during the current test (console errors, uncaught exceptions). */
+const windowErrors: string[] = [];
+let allowed: RegExp[] = [];
+
+/** Errors this test provokes on purpose (e.g. an unplugged device); any other error fails it. */
+export function allowErrors(...patterns: RegExp[]): void {
+  allowed.push(...patterns);
+}
+
+function watchWindow(page: import('@playwright/test').Page): void {
+  page.on('console', (m) => {
+    if (m.type() === 'error') windowErrors.push(`[${page.url().split('/').pop()}] ${m.text()}`);
+  });
+  page.on('pageerror', (e) => windowErrors.push(`[${page.url().split('/').pop()}] uncaught: ${e.message}`));
+}
 
 /**
- * For test.afterEach: when the test failed, attaches each app's log to the report and prints its
- * end, so a CI failure shows what the app itself saw (audio devices, levels, errors).
+ * For test.afterEach.
+ * - Zero errors: a test that passed still fails if a window logged an error or app.log has an
+ *   ERROR line that the test did not declare with allowErrors (silent failures are bugs too).
+ * - When the test failed, attaches each app's log and prints its end, so a CI failure shows what
+ *   the app itself saw (audio devices, levels, errors).
  */
 export async function attachAppLogs(info: TestInfo): Promise<void> {
   const dirs = launchedDataDirs.splice(0);
-  if (info.status === info.expectedStatus) return;
+  const errors = windowErrors.splice(0);
+  const ok = (line: string) => allowed.some((r) => r.test(line));
+  allowed = [];
+  if (info.status === info.expectedStatus) {
+    for (const d of dirs) {
+      const p = join(d, 'app.log');
+      if (existsSync(p)) errors.push(...readFileSync(p, 'utf8').split('\n').filter((l) => / ERROR /.test(l)));
+    }
+    const unexpected = errors.filter((e) => !ok(e));
+    if (unexpected.length) throw new Error(`errors during the test (fix them, or declare them with allowErrors):\n${unexpected.join('\n')}`);
+    return;
+  }
   for (const d of dirs) {
     const p = join(d, 'app.log');
     if (!existsSync(p)) continue;
@@ -67,6 +96,8 @@ export async function launchApp(settings: object = {}): Promise<{ app: ElectronA
     ],
     env: { ...process.env, MI_USER_DATA: dataDir },
   });
+  for (const w of app.windows()) watchWindow(w);
+  app.on('window', watchWindow);
   return { app, dataDir, recordsDir };
 }
 

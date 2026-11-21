@@ -30,7 +30,7 @@ export function EditableSegment({ meetingId, seg, onSaved }: { meetingId: string
       {editing ? (
         <div className="row" style={{ margin: '0 0 10px 44px' }}>
           <input type="text" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void save()} style={{ flex: 1 }} autoFocus aria-label="改正识别的文字" />
-          <button className="btn primary sm" disabled={busy || !text.trim()} onClick={() => void save()}>{busy ? '保存中…' : '保存并重新翻译'}</button>
+          <button data-test="network" className="btn primary sm" disabled={busy || !text.trim()} onClick={() => void save()}>{busy ? '保存中…' : '保存并重新翻译'}</button>
           <button className="btn ghost sm" onClick={() => { setEditing(false); setText(seg.srcText); }}>取消</button>
         </div>
       ) : (
@@ -66,7 +66,7 @@ export function ReviewPanel({ d, onChange }: { d: MeetingDetail; onChange: (d: M
   if (!d.review)
     return (
       <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 8 }} data-testid="review-panel">
-        <button className="btn sm" disabled={busy} onClick={() => void run(async () => (await api.meetings.review(d.meta.id), api.meetings.get(d.meta.id)))}>
+        <button data-test="network" className="btn sm" disabled={busy} onClick={() => void run(async () => (await api.meetings.review(d.meta.id), api.meetings.get(d.meta.id)))}>
           {busy ? '学习中…' : 'AI 自动学习'}
         </button>
         {error && <div className="callout err" role="alert">{error}</div>}

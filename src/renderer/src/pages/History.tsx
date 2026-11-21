@@ -3,7 +3,7 @@ import { baseOf } from '@core/lang/languages';
 import { summaryToMarkdown, TEMPLATE_NAMES, type SummaryTemplate } from '@core/session/summary';
 import type { MeetingDetail, MeetingListItem } from '@shared/ipc';
 import { api, errMsg, useEvent } from '../api';
-import { Markdown } from '../components/ui';
+import { FlashButton, Markdown } from '../components/ui';
 import { EditableSegment, ReviewPanel } from '../components/TranscriptFixes';
 
 function fmtDate(iso: string): string {
@@ -136,7 +136,7 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
           <button className="btn" onClick={() => void api.meetings.openFolder(id)}>
             打开文件夹
           </button>
-          <button className="btn" onClick={remove}>
+          <button data-test="destructive" className="btn" onClick={remove}>
             删除
           </button>
         </div>
@@ -187,14 +187,12 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
                   </option>
                 ))}
               </select>
-              <button className="btn primary" onClick={summarize} disabled={busy || d.segments.length === 0}>
+              <button data-test="network" className="btn primary" onClick={summarize} disabled={busy || d.segments.length === 0}>
                 {busy ? progress || '生成中…' : d.summary ? '重新生成纪要' : '生成纪要'}
               </button>
             </div>
             {d.summary && (
-              <button className="btn sm" onClick={() => void navigator.clipboard.writeText(summaryToMarkdown(d.summary!, tab === 'summary-zh' ? 'zh' : foreign, d.meta))}>
-                复制 Markdown
-              </button>
+              <FlashButton label="复制 Markdown" done="已复制" action={() => navigator.clipboard.writeText(summaryToMarkdown(d.summary!, tab === 'summary-zh' ? 'zh' : foreign, d.meta))} />
             )}
           </div>
           {error && <div className="callout err">{error}</div>}

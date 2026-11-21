@@ -91,6 +91,8 @@ export function createOverlayWindow(opts: { contentProtection: boolean; clickThr
     skipTaskbar: true,
     hasShadow: false,
     focusable: true,
+    // macOS: the first click on ✕ acts instead of only bringing the app forward.
+    acceptFirstMouse: true,
     show: false,
     title: '同传字幕',
     webPreferences: {

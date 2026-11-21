@@ -66,3 +66,9 @@ export function errMsg(err: unknown): string {
   const m = err instanceof Error ? err.message : String(err);
   return m.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 }
+
+/** Cancelled work (a closed dialog, an aborted download or request) is not an error to show. */
+export function isCancellation(err: unknown): boolean {
+  const name = err && typeof err === 'object' && 'name' in err ? String((err as { name: unknown }).name) : '';
+  return name === 'AbortError' || /\b(aborted|cancell?ed)\b|已取消/i.test(errMsg(err));
+}

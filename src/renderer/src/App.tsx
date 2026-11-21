@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import logoUrl from './assets/logo.png';
 import { Icon } from './components/icons';
-import { useEvent, useMeetingState, useSettings } from './api';
+import { errMsg, isCancellation, useEvent, useMeetingState, useSettings } from './api';
 import { GlossaryPage } from './pages/Glossary';
 import { HistoryPage } from './pages/History';
 import { MeetingPage } from './pages/Meeting';
@@ -39,11 +39,34 @@ export function App() {
   const [download, setDownload] = useState<{ file: string; pct: number } | null>(null);
 
 
-  useEvent('toast', (t) => {
+  const showToast = (t: Omit<Toast, 'id'>) => {
     const id = Date.now() + Math.random();
     setToasts((x) => [...x, { id, ...t }]);
     setTimeout(() => setToasts((x) => x.filter((y) => y.id !== id)), t.level === 'error' ? 9000 : 6000);
-  });
+  };
+  useEvent('toast', showToast);
+
+  // Any action that fails without its own error display still tells the user (a button that
+  // "does nothing" is worse than an error message). The same message at most once per 10 s.
+  useEffect(() => {
+    const recent = new Map<string, number>();
+    const report = (err: unknown) => {
+      if (isCancellation(err)) return;
+      const message = errMsg(err);
+      const now = Date.now();
+      if ((recent.get(message) ?? 0) > now - 10_000) return;
+      recent.set(message, now);
+      showToast({ level: 'error', message: `出错了：${message}` });
+    };
+    const onRejection = (e: PromiseRejectionEvent) => report(e.reason);
+    const onError = (e: ErrorEvent) => report(e.error ?? e.message);
+    window.addEventListener('unhandledrejection', onRejection);
+    window.addEventListener('error', onError);
+    return () => {
+      window.removeEventListener('unhandledrejection', onRejection);
+      window.removeEventListener('error', onError);
+    };
+  }, []);
   useEvent('navigate', ({ page }) => setPage(page as Page));
   useEvent('review-ready', ({ id, count, terms }) => {
     const tid = Date.now() + Math.random();

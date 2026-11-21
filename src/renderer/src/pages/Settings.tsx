@@ -6,7 +6,8 @@ import { LLM_PRESETS, llmPreset } from '@core/providers/openai-compatible';
 import type { VoiceInfo } from '@core/providers/types';
 import type { AiStatus, AppInfo, LocalModelStatus, ProviderTestStep } from '@shared/ipc';
 import { api, errMsg, useDevices, useEvent, useSettings } from '../api';
-import { ExternalLink, Field, Toggle } from '../components/ui';
+import { ExternalLink, Field, Toggle, FlashButton } from '../components/ui';
+import { ScreenPicker } from '../components/ScreenPicker';
 import { DRIVER_GUIDES, guessMeetingDevice, guessVirtualMic } from '../content/guides';
 import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../../browser/voice-sample';
 import { DriverInstaller } from '../components/DriverInstaller';
@@ -74,7 +75,7 @@ function SecretInput({ name, label, placeholder, status, onSaved, getUrl }: { na
           保存
         </button>
         {status[name] && (
-          <button className="btn ghost sm" onClick={() => void api.secrets.set(name, '').then(onSaved)}>
+          <button className="btn ghost sm" data-test="destructive" onClick={() => void api.secrets.set(name, '').then(onSaved)}>
             清除
           </button>
         )}
@@ -101,7 +102,7 @@ export function TestPanel({ scope, label, beforeRun }: { scope: 'out' | 'in' | '
   };
   return (
     <div className="stack" style={{ gap: 4 }}>
-      <button className="btn" onClick={run} disabled={busy}>
+      <button className="btn" data-test="network" onClick={run} disabled={busy}>
         {busy ? '测试中…' : label}
       </button>
       {steps?.map((st, i) => (
@@ -166,10 +167,10 @@ function LocalModels({ foreign }: { foreign: 'es' | 'en' }) {
         </div>
       ))}
       <div className="row">
-        <button className="btn" disabled={!!busy} onClick={() => void download('zh')}>
+        <button data-test="network" className="btn" disabled={!!busy} onClick={() => void download('zh')}>
           {busy === 'zh' ? '下载中…' : '下载中文识别模型'}
         </button>
-        <button className="btn" disabled={!!busy} onClick={() => void download(foreign)}>
+        <button data-test="network" className="btn" disabled={!!busy} onClick={() => void download(foreign)}>
           {busy === foreign ? '下载中…' : `下载${foreign === 'en' ? '英语' : '西语'}识别模型`}
         </button>
       </div>
@@ -208,7 +209,7 @@ function OfflineMtCard() {
         {st && !st.missingBytes ? (
           <span className="badge ok">已下载</span>
         ) : (
-          <button className="btn sm" disabled={!!busy} onClick={() => void download()}>
+          <button data-test="network" className="btn sm" disabled={!!busy} onClick={() => void download()}>
             {busy || `下载 · ${mb(st?.missingBytes ?? st?.totalBytes ?? 140_000_000)} MB`}
           </button>
         )}
@@ -261,13 +262,13 @@ function AiMtCard({ s, update }: TabProps) {
             ) : m.id in pct || m.downloading ? (
               <span className="muted small" role="status">下载中 {pct[m.id] ?? 0}%</span>
             ) : (
-              <button className="btn sm" onClick={() => download(m.id)}>下载</button>
+              <button data-test="network" className="btn sm" onClick={() => download(m.id)}>下载</button>
             )}
           </div>
         ))}
       </div>
       {anyReady && !using && (
-        <button className="btn primary" style={{ marginTop: 10 }} onClick={() => void update({ out: { mt: 'local-ai' }, in: { mt: 'local-ai' }, ...(s.preset === 'free' ? {} : { preset: 'custom' }) })}>
+        <button data-test="network" className="btn primary" style={{ marginTop: 10 }} onClick={() => void update({ out: { mt: 'local-ai' }, in: { mt: 'local-ai' }, ...(s.preset === 'free' ? {} : { preset: 'custom' }) })}>
           用本机 AI 翻译
         </button>
       )}
@@ -302,7 +303,7 @@ function MyVoiceCard({ s, update }: TabProps) {
           <Toggle checked={s.dashscope.useMyVoice} onChange={(v) => void update({ dashscope: { useMyVoice: v } })} label="对方听到我的声音" />
           <div className="row">
             <button className="btn" disabled={!!busy} onClick={() => setConsent(true)}>重新录制</button>
-            <button className="btn" disabled={!!busy} onClick={() => void api.voice.remove()}>删除我的音色</button>
+            <button data-test="destructive" className="btn" disabled={!!busy} onClick={() => void api.voice.remove()}>删除我的音色</button>
           </div>
         </div>
       ) : null}
@@ -314,7 +315,7 @@ function MyVoiceCard({ s, update }: TabProps) {
             这是我本人的声音，我同意用它合成我的翻译语音
           </label>
           <div className="row">
-            <button className="btn primary" disabled={!consent || !!busy} onClick={() => void record()}>
+            <button data-test="flow" className="btn primary" disabled={!consent || !!busy} onClick={() => void record()}>
               开始录音（16 秒）
             </button>
             {busy && <span className="muted small">{busy}</span>}
@@ -342,7 +343,7 @@ function ProvidersTab({ s, update }: TabProps) {
         <h3>选择方案</h3>
         <div className="grid2">
           {PRESETS.map((p) => (
-            <button key={p.id} className={`preset ${s.preset === p.id ? 'active' : ''}`} onClick={() => void api.settings.applyPreset(p.id)}>
+            <button key={p.id} data-test={p.id === 'free' ? 'network' : 'safe'} className={`preset ${s.preset === p.id ? 'active' : ''}`} onClick={() => void api.settings.applyPreset(p.id)}>
               <h4>
                 {p.name} {s.preset === p.id && <span className="badge ok">当前</span>}
               </h4>
@@ -608,9 +609,7 @@ function DevicesTab({ s, update }: TabProps) {
                   </option>
                 ))}
               </select>
-              <button className="btn sm" onClick={() => void api.audio.testTone('virtualMic')}>
-                试音
-              </button>
+              <FlashButton label="试音" done="测试音已送进虚拟麦克风：看会议软件里麦克风的音量条有没有跳" action={() => api.audio.testTone('virtualMic')} />
             </div>
             {missing(s.devices.virtualMic, outputs) && <span className="badge err">设备已不存在，请重新选择</span>}
           </Field>
@@ -644,9 +643,7 @@ function DevicesTab({ s, update }: TabProps) {
                   </option>
                 ))}
               </select>
-              <button className="btn sm" onClick={() => void api.audio.testTone('headphones')}>
-                试音
-              </button>
+              <FlashButton label="试音" done="正在播放测试音" action={() => api.audio.testTone('headphones')} />
             </div>
           </Field>
         </div>
@@ -765,6 +762,7 @@ function RecordTab({ s, update }: TabProps) {
         <div className="stack">
           <Toggle checked={s.recording.audio} onChange={(v) => void update({ recording: { audio: v } })} label="录音" />
           <Toggle checked={s.recording.screen} onChange={(v) => void update({ recording: { screen: v } })} label="录屏" />
+          {s.recording.screen && <ScreenPicker selected={s.recording.screenSourceId} />}
         </div>
       </div>
       <div className="card">

@@ -17,6 +17,32 @@ export const DirectionConfigSchema = z.object({
 });
 export type DirectionConfig = z.infer<typeof DirectionConfigSchema>;
 
+/** Default global shortcuts (see `shortcuts` below). */
+export const DEFAULT_SHORTCUTS = {
+  toggleOut: 'CommandOrControl+Alt+Shift+M',
+  pushToTalk: 'CommandOrControl+Alt+Shift+Space',
+  toggleOverlay: 'CommandOrControl+Alt+Shift+O',
+} as const;
+
+/** Defaults of earlier versions that collided with other apps; replaced unless the user chose them. */
+const OLD_DEFAULT_SHORTCUTS: Record<string, string> = {
+  toggleOut: 'CommandOrControl+Shift+M',
+  pushToTalk: 'CommandOrControl+Shift+Space',
+  toggleOverlay: 'CommandOrControl+Shift+S',
+};
+
+/** Upgrades settings saved by older versions. */
+export function migrateSettings(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const r = { ...(raw as Record<string, unknown>) };
+  if (r.shortcuts && typeof r.shortcuts === 'object') {
+    const sc = { ...(r.shortcuts as Record<string, unknown>) };
+    for (const [k, old] of Object.entries(OLD_DEFAULT_SHORTCUTS)) if (sc[k] === old) sc[k] = DEFAULT_SHORTCUTS[k as keyof typeof DEFAULT_SHORTCUTS];
+    r.shortcuts = sc;
+  }
+  return r;
+}
+
 export const SettingsSchema = z.object({
   version: z.literal(1).default(1),
   onboarded: z.boolean().default(false),
@@ -128,13 +154,15 @@ export const SettingsSchema = z.object({
       language: 'zh',
       overlay: { enabled: true, fontSize: 22, opacity: 0.85, contentProtection: true, clickThrough: false, showOriginal: true },
     }),
+  // Held only during meetings, and three modifiers so they never collide with everyday shortcuts
+  // (Cmd/Ctrl+Shift+S is "Save As" everywhere, Cmd/Ctrl+Shift+M is Teams' own mute).
   shortcuts: z
     .object({
-      toggleOut: z.string().default('CommandOrControl+Shift+M'),
-      pushToTalk: z.string().default('CommandOrControl+Shift+Space'),
-      toggleOverlay: z.string().default('CommandOrControl+Shift+S'),
+      toggleOut: z.string().default(DEFAULT_SHORTCUTS.toggleOut),
+      pushToTalk: z.string().default(DEFAULT_SHORTCUTS.pushToTalk),
+      toggleOverlay: z.string().default(DEFAULT_SHORTCUTS.toggleOverlay),
     })
-    .default({ toggleOut: 'CommandOrControl+Shift+M', pushToTalk: 'CommandOrControl+Shift+Space', toggleOverlay: 'CommandOrControl+Shift+S' }),
+    .default(DEFAULT_SHORTCUTS),
   room: z
     .object({
       port: z.number().int().min(1024).max(65535).default(47800),
@@ -143,7 +171,6 @@ export const SettingsSchema = z.object({
     .default({ port: 47800, publicLink: false }),
   /** Let the Chrome extension use this app's offline recognition and voices (free tier). */
   bridge: z.object({ enabled: z.boolean().default(true) }).default({ enabled: true }),
-  platform: z.string().default(''),
 });
 
 export type AppSettings = z.infer<typeof SettingsSchema>;
@@ -153,7 +180,8 @@ export function defaultSettings(): AppSettings {
 }
 
 /** Parses stored settings, falling back to defaults field by field for anything invalid. */
-export function parseSettings(raw: unknown): AppSettings {
+export function parseSettings(input: unknown): AppSettings {
+  const raw = migrateSettings(input);
   const res = SettingsSchema.safeParse(raw);
   if (res.success) return res.data;
   // Keep what is valid: merge top-level sections one by one.

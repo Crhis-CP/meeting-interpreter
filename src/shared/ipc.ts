@@ -241,6 +241,9 @@ export interface RendererApi {
     openRecordsDir(): Promise<void>;
     showWindow(name: 'main' | 'overlay'): Promise<void>;
     setOverlayClickThrough(on: boolean): Promise<void>;
+    /** The pointer entered (true) or left (false) the subtitle window's buttons. */
+    overlayPointer(overButtons: boolean): Promise<void>;
+    hideOverlay(): Promise<void>;
   };
   on<K extends keyof RendererEvents>(event: K, fn: (payload: RendererEvents[K]) => void): () => void;
 }

@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppSettings } from '@core/config/schema';
 import { lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import type { TranscriptSegment } from '@core/types';
-import type { MeetingState, ScreenSource } from '@shared/ipc';
+import type { MeetingState } from '@shared/ipc';
 import { api, errMsg, useEvent } from '../api';
 import { Field, Level, SegmentView, StateBadge, Toggle } from '../components/ui';
-import { MEETING_APPS } from '../content/guides';
+import { ScreenPicker } from '../components/ScreenPicker';
 import type { Page } from '../App';
 
 function elapsed(ms: number | null): string {
@@ -34,13 +34,10 @@ export function useLiveSegments(active: boolean): TranscriptSegment[] {
 
 export function MeetingPage({ settings, state, go }: { settings: AppSettings; state: MeetingState | null; go: (p: Page) => void }) {
   const [title, setTitle] = useState('');
-  const [platform, setPlatform] = useState(settings.platform || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [levels, setLevels] = useState({ mic: -100, meeting: -100 });
   const [partials, setPartials] = useState<Record<string, string>>({});
-  const [running, setRunning] = useState<string[]>([]);
-  const [sources, setSources] = useState<ScreenSource[] | null>(null);
   const [lastMeeting, setLastMeeting] = useState<string | null>(null);
   const [, setTick] = useState(0);
   const segs = useLiveSegments(!!state?.active && state.mode === 'meeting');
@@ -50,13 +47,8 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
   useEvent('partial', (p) => setPartials((x) => ({ ...x, [p.dir]: p.text })));
 
   useEffect(() => {
-    void api.app.detectMeetingApps().then((apps) => {
-      setRunning(apps);
-      if (!platform && apps[0]) setPlatform(apps[0]);
-    });
     const t = setInterval(() => setTick((x) => x + 1), 1000);
     return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -76,13 +68,12 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
     ...(!settings.devices.virtualMic ? [{ text: `对方听不到${remoteName}译音：没选虚拟麦克风`, fix: () => go('settings') }] : []),
     ...(settings.devices.meetingSource === 'device' && !settings.devices.meetingDevice ? [{ text: '听不到对方：没选会议声音', fix: () => go('settings') }] : []),
   ];
-  const app = MEETING_APPS.find((a) => a.id === platform);
 
   const start = async () => {
     setBusy(true);
     setError('');
     try {
-      await api.meeting.start({ title: title.trim() || undefined, platform: platform || undefined, mode: 'meeting' });
+      await api.meeting.start({ title: title.trim() || undefined, mode: 'meeting' });
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -99,8 +90,6 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
     }
   };
 
-  const pickScreen = async () => setSources(await api.app.screenSources());
-
   return (
     <div>
       <header className="row between" style={{ marginBottom: 16 }}>
@@ -108,7 +97,7 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
         {active ? (
           <div className="row">
             <span className="badge live" role="status">进行中 {elapsed(state?.startedAtMs ?? null)}</span>
-            <button className="btn danger big" onClick={stop} disabled={busy}>
+            <button data-test="flow" className="btn danger big" onClick={stop} disabled={busy}>
               结束会议
             </button>
           </div>
@@ -117,13 +106,22 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
             去现场房间
           </button>
         ) : (
-          <button className="btn primary big" onClick={start} disabled={busy}>
+          <button data-test="flow" className="btn primary big" onClick={start} disabled={busy}>
             {busy ? '正在开始…' : '开始同传'}
           </button>
         )}
       </header>
 
-      {error && <div className="callout err" role="alert" style={{ marginBottom: 16 }}>{error}</div>}
+      {error && (
+        <div className="callout err" role="alert" style={{ marginBottom: 16 }}>
+          {error}
+          {window.platform === 'darwin' && /屏幕录制/.test(error) && (
+            <button className="btn sm" data-test="external" style={{ marginLeft: 8 }} onClick={() => void api.app.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture')}>
+              打开“屏幕录制”权限
+            </button>
+          )}
+        </div>
+      )}
       {state?.warnings?.map((w) => (
         <div key={w} className="callout" role="alert" style={{ marginBottom: 10 }}>
           {w}
@@ -148,7 +146,7 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
               <button className="btn sm" onClick={p.fix}>去设置</button>
             </div>
           ))}
-          <div className="grid3">
+          <div className="grid2">
             <Field label="对方说">
               <select value={lang(settings.languages.remote).base} onChange={(e) => void api.settings.set({ languages: { remote: withRemoteBase(settings.languages.remote, e.target.value as 'es' | 'en') }, out: { voice: '' }, in: { voice: '' } })}>
                 {REMOTE_CHOICES.map((c) => (
@@ -159,56 +157,17 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
             <Field label="会议名称">
               <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
             </Field>
-            <Field label="会议软件">
-              <select value={platform} onChange={(e) => setPlatform(e.target.value)}>
-                <option value="">—</option>
-                {MEETING_APPS.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                    {running.includes(a.id) ? ' ●' : ''}
-                  </option>
-                ))}
-              </select>
-            </Field>
           </div>
-          {app && <p style={{ margin: '10px 0 0' }}>{app.steps[1]}</p>}
           <div className="row" style={{ marginTop: 12 }}>
-            <Toggle checked={settings.recording.audio} onChange={(v) => void api.meeting.setRecording({ audio: v })} label="录音" />
-            <Toggle checked={settings.recording.screen} onChange={(v) => void api.meeting.setRecording({ screen: v })} label="录屏" />
-            {settings.recording.screen && (
-              <button className="btn sm" onClick={pickScreen}>
-                {settings.recording.screenSourceId ? '更换画面' : '选择画面'}
-              </button>
-            )}
+            <Toggle checked={settings.recording.audio} onChange={(v) => void api.settings.set({ recording: { audio: v } })} label="录音" />
+            <Toggle checked={settings.recording.screen} onChange={(v) => void api.settings.set({ recording: { screen: v } })} label="录屏" />
+            {settings.recording.screen && <ScreenPicker selected={settings.recording.screenSourceId} />}
             {(settings.recording.audio || settings.recording.screen) && <span className="muted small">请先征得参会者同意</span>}
           </div>
+          <p className="small" style={{ margin: '10px 0 0' }}>
+            <a href="#guide" data-test="safe" onClick={(e) => (e.preventDefault(), go('guide'))}>在会议软件里怎么设置</a>
+          </p>
         </section>
-      )}
-
-      {sources && (
-        <div className="card">
-          <div className="row between">
-            <h3>选择要录制的屏幕或窗口</h3>
-            <button className="btn sm" onClick={() => setSources(null)}>
-              关闭
-            </button>
-          </div>
-          <div className="grid3">
-            {sources.map((s) => (
-              <button
-                key={s.id}
-                className={`preset ${settings.recording.screenSourceId === s.id ? 'active' : ''}`}
-                onClick={() => {
-                  void api.meeting.setRecording({ screenSourceId: s.id });
-                  setSources(null);
-                }}
-              >
-                <img src={s.thumbnail} style={{ width: '100%', borderRadius: 6 }} />
-                <p>{s.name}</p>
-              </button>
-            ))}
-          </div>
-        </div>
       )}
 
       {active && state && (

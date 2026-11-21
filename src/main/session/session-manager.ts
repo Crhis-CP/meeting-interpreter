@@ -197,7 +197,7 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
         startedAt: startedAt.toISOString(),
         selfLang,
         remoteLang,
-        platform: opts.platform || settings.platform || undefined,
+        platform: opts.platform || undefined,
         mode,
         files: { transcript: 'transcript.jsonl' },
         providers: providers.describe(),

@@ -263,6 +263,30 @@ const room = new RoomHost({
 
 // ------------------------------------------------------------------ IPC
 
+/** shell.openPath reports failure as a returned message; turn it into an error the UI shows. */
+async function openPathOrThrow(path: string): Promise<void> {
+  const err = await shell.openPath(path);
+  if (err) throw new Error(`打不开：${err}`);
+}
+
+/**
+ * 录屏 needs a screen to record and, on macOS, the Screen Recording permission. Without a chosen
+ * (or a still existing) screen or window, the whole first screen is recorded.
+ */
+async function prepareScreenRecording(): Promise<void> {
+  const rec = settings.get().recording;
+  if (!rec.screen) return;
+  if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus('screen') !== 'granted') {
+    throw new Error('录屏需要“屏幕录制”权限：请在 系统设置 › 隐私与安全性 › 屏幕录制 里允许本软件，然后重新打开软件。不想录屏可以先关掉“录屏”。');
+  }
+  const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 0, height: 0 } });
+  if (rec.screenSourceId && sources.some((x) => x.id === rec.screenSourceId)) return;
+  const screen = sources.find((x) => x.id.startsWith('screen'));
+  if (!screen) throw new Error('没有找到可以录制的屏幕。不想录屏可以先关掉“录屏”。');
+  if (rec.screenSourceId) broadcast('toast', { level: 'info', message: '之前选的录制窗口已经不在了，这场录整个屏幕。' });
+  settings.set({ recording: { screenSourceId: screen.id } });
+}
+
 type Handler = (...args: never[]) => unknown;
 
 const handlers: Record<string, Handler> = {
@@ -276,14 +300,10 @@ const handlers: Record<string, Handler> = {
     }
     const s = settings.set(p);
     sessionManager.refreshAudio();
-    registerShortcuts();
-    updateTray();
-    broadcast('settings', s);
     return s;
   },
   'settings.applyPreset': (id: PresetId) => {
     const s = settings.applyPreset(id);
-    broadcast('settings', s);
     if (usesLocalAsr()) void prefetchModels();
     if (usesOfflineMt()) void prefetchOfflineMt();
     if (usesLocalAi()) void prefetchAi();
@@ -318,6 +338,9 @@ const handlers: Record<string, Handler> = {
 
   'meeting.start': async (opts: { title?: string; platform?: string; mode?: 'meeting' | 'room' }) => {
     if (process.platform === 'darwin') await systemPreferences.askForMediaAccess('microphone').catch(() => false);
+    await prepareScreenRecording();
+    // The meeting app is noted in the record without asking (the first one found running).
+    if (!opts?.platform) opts = { ...opts, platform: (await detectMeetingApps().catch(() => []))[0] };
     await requireLocalModels(opts?.mode ?? 'meeting');
     await requireOfflineMt();
     // Until the AI model is downloaded, the Mozilla models translate; fetch it in the background.
@@ -328,6 +351,7 @@ const handlers: Record<string, Handler> = {
     const state = await sessionManager.start(opts ?? {});
     warmUpTranslation();
     updateTray();
+    syncShortcuts();
     if (settings.get().ui.overlay.enabled && opts?.mode !== 'room') showOverlay();
     return state;
   },
@@ -373,11 +397,11 @@ const handlers: Record<string, Handler> = {
   'meetings.remove': async (id: string) => {
     await shell.trashItem(meetings.folder(id));
   },
-  'meetings.openFolder': (id: string) => shell.openPath(meetings.folder(id)),
+  'meetings.openFolder': (id: string) => openPathOrThrow(meetings.folder(id)),
   'meetings.openFile': (id: string, rel: string) => {
     const path = meetings.filePath(id, rel);
     // Only open record files with their app; anything else is just shown in its folder.
-    if (/\.(md|srt|txt|json|wav|webm|m4a|mp4|mp3|ogg)$/i.test(path)) return shell.openPath(path);
+    if (/\.(md|srt|txt|json|wav|webm|m4a|mp4|mp3|ogg)$/i.test(path)) return openPathOrThrow(path);
     shell.showItemInFolder(path);
   },
   'meetings.fileUrl': (id: string, rel: string) => `mi-media://file/${encodeURIComponent(id)}/${rel.split('/').map(encodeURIComponent).join('/')}`,
@@ -576,7 +600,9 @@ const handlers: Record<string, Handler> = {
   'room.start': async () => {
     await requireLocalModels('room');
     await requireOfflineMt();
-    return room.start();
+    const st = await room.start();
+    syncShortcuts();
+    return st;
   },
   'room.stop': () => room.stop(),
   'room.state': () => room.state(),
@@ -593,6 +619,7 @@ const handlers: Record<string, Handler> = {
   'app.openExternal': (url: string) => {
     // Web links, and the OS privacy/sound settings pages we point people to.
     if (/^https?:\/\//.test(url) || /^x-apple\.systempreferences:/.test(url) || /^ms-settings:/.test(url)) return shell.openExternal(url);
+    throw new Error('不能打开这个链接');
   },
   'app.detectMeetingApps': () => detectMeetingApps(),
   'app.screenSources': async () => {
@@ -607,12 +634,20 @@ const handlers: Record<string, Handler> = {
   },
   'app.openRecordsDir': async () => {
     mkdirSync(recordsDir(), { recursive: true });
-    await shell.openPath(recordsDir());
+    await openPathOrThrow(recordsDir());
   },
   'app.showWindow': (name: 'main' | 'overlay') => (name === 'main' ? showMain() : showOverlay(true)),
   'app.setOverlayClickThrough': (on: boolean) => {
     settings.set({ ui: { overlay: { clickThrough: on } } });
     overlayWindow?.setIgnoreMouseEvents(on, { forward: true });
+  },
+  /** The pointer is over the subtitle window's buttons: they always take clicks, even in click-through mode. */
+  'app.overlayPointer': (overButtons: boolean) => {
+    if (!settings.get().ui.overlay.clickThrough || !overlayWindow || overlayWindow.isDestroyed()) return;
+    overlayWindow.setIgnoreMouseEvents(!overButtons, { forward: true });
+  },
+  'app.hideOverlay': () => {
+    if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.hide();
   },
 };
 
@@ -716,7 +751,9 @@ function usesLocalAi(): boolean {
 let aiPrefetch: { id: AiModelId; job: Promise<void> } | null = null;
 /** Downloads a local AI translation model in the background, once. */
 function prefetchAi(id: AiModelId = settings.get().local.aiModel): Promise<void> {
-  if (aiPrefetch) return aiPrefetch.job;
+  if (aiPrefetch?.id === id) return aiPrefetch.job;
+  // Another model is downloading: this one follows it (never silently drop the request).
+  if (aiPrefetch) return aiPrefetch.job.finally(() => prefetchAi(id));
   const job = aiModels
     .ensure([id], (p) => broadcast('model-progress', p))
     .then(() => broadcast('toast', { level: 'info', message: '本机 AI 翻译模型已下载完成。' }))
@@ -926,13 +963,24 @@ function updateTray(): void {
   tray.setToolTip(st.active ? '会议同传：进行中' : '会议同传助手');
 }
 
-function registerShortcuts(): void {
+/**
+ * Global shortcuts are held only while a meeting or room runs: outside meetings other apps keep
+ * every key combination (an always-registered shortcut steals it from every app on the computer).
+ */
+function syncShortcuts(): void {
   globalShortcut.unregisterAll();
+  if (sessionManager.active || room.active) registerShortcuts();
+}
+
+function registerShortcuts(): void {
   const sc = settings.get().shortcuts;
   const tryReg = (accel: string, fn: () => void) => {
     if (!accel) return;
     try {
-      if (!globalShortcut.register(accel, fn)) log.warn(`shortcut ${accel} is taken`);
+      if (!globalShortcut.register(accel, fn)) {
+        log.warn(`shortcut ${accel} is taken`);
+        broadcast('toast', { level: 'warn', message: `快捷键 ${accel.replace('CommandOrControl', process.platform === 'darwin' ? 'Cmd' : 'Ctrl')} 已被其他软件占用，这场会议里不能用。可以在 设置 › 快捷键 换一个。` });
+      }
     } catch (err) {
       log.warn(`invalid shortcut ${accel}`, err instanceof Error ? err.message : String(err));
     }
@@ -1002,10 +1050,18 @@ app.whenReady().then(() => {
   tray = new Tray(trayIcon());
   tray.on('click', showMain);
   updateTray();
-  registerShortcuts();
-  settings.on('changed', () => updateTray());
+  // Every settings change reaches every window, whichever handler made it (switches would
+  // otherwise snap back to their old state).
+  settings.on('changed', (s) => {
+    updateTray();
+    syncShortcuts();
+    broadcast('settings', s);
+  });
   sessionManager.on('ended', (meta) => {
     updateTray();
+    syncShortcuts();
+    // The subtitles belong to the meeting: they go away with it.
+    if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.hide();
     autoReview(meta.id);
   });
   log.info(`started ${app.getVersion()} on ${process.platform} ${process.arch}`);

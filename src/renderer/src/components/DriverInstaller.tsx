@@ -46,7 +46,7 @@ export function DriverInstaller({ onDone }: { onDone?: () => void }) {
   return (
     <div className="stack">
       <div className="row">
-        <button className="btn primary big" disabled={busy} onClick={() => void install()}>
+        <button data-test="admin" className="btn primary big" disabled={busy} onClick={() => void install()}>
           {busy ? '正在安装…' : '一键安装虚拟麦克风'}
         </button>
         {text && <span className="muted small" role="status">{text}</span>}

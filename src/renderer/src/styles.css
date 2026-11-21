@@ -937,3 +937,7 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   font-size: 72px;
   color: var(--ink-3);
 }
+.screen-picker {
+  flex-basis: 100%;
+  margin-top: 10px;
+}
