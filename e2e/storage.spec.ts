@@ -43,7 +43,12 @@ test('彻底卸载 (rehearsal): the backup is written first, and the list says w
   expect(r.files.map((f) => f.split(/[\\/]/).pop())).toEqual(expect.arrayContaining(['设置.json', '说明.txt']));
   expect(r.files.some((f) => /术语表-.*\.csv$/.test(f))).toBe(true);
   for (const f of r.files) expect(existsSync(f), f).toBe(true);
-  expect(r.removed).toEqual([dataDir]); // records not ticked; running from source: no app to remove
+  expect(r.removed[0]).toBe(dataDir); // records not ticked
+  const exe = process.env.MI_APP_EXECUTABLE;
+  if (!exe) expect(r.removed).toEqual([dataDir]); // running from source: no app to remove
+  // The installed app: the .app bundle (Mac) or the folder holding the executable and its uninstaller (Windows).
+  else if (process.platform === 'darwin') expect(r.removed[1]).toMatch(/\.app$/);
+  else if (process.platform === 'win32' && r.removed[1]) expect(exe.startsWith(r.removed[1])).toBe(true); // (an unpacked build has no uninstaller)
   expect(existsSync(dataDir)).toBe(true); // a rehearsal deletes nothing
   await app.close();
 });

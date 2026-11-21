@@ -42,4 +42,6 @@ npx @electron/fuses write --app "$FUSE_TARGET" EnableNodeCliInspectArguments=on 
 # macOS refuses to run a binary whose signature no longer matches: sign the test copy again (ad hoc).
 if [ "$(uname -s)" = Darwin ]; then codesign --force --deep --sign - "$APP"; fi
 MI_APP_EXECUTABLE="$EXE" npx playwright test e2e/local-ai.spec.ts e2e/app.spec.ts --trace off
+# 彻底卸载, rehearsed on the installed app (what it would remove, incl. the app itself; nothing is deleted).
+MI_APP_EXECUTABLE="$EXE" npx playwright test e2e/storage.spec.ts -g rehearsal --trace off
 echo "== the packaged app works"
