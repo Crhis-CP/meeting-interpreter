@@ -228,13 +228,17 @@ test('extension: a meeting that asks for the mic before any click keeps its real
   const st = await ext.evaluate((id) => chrome.runtime.sendMessage({ type: 'start', tabId: id }), tabId);
   expect(st.status, JSON.stringify(st)).toBe('running');
   await expect.poll(async () => (await ext.evaluate(() => chrome.runtime.sendMessage({ type: 'state' }))).micHooked, { timeout: 15_000 }).toBe(true);
-  await page.waitForTimeout(400);
+  // The call now sends our track; what was already on its way through the call does not count
+  // (measured from a second after the switch: the original voice can still arrive ~0.3 s later).
+  await expect
+    .poll(() => page.evaluate(() => { const w = window as unknown as { pc1: RTCPeerConnection; localTrack: MediaStreamTrack }; return w.pc1.getSenders()[0]?.track !== w.localTrack; }), { timeout: 15_000 })
+    .toBe(true);
+  await page.waitForTimeout(1000);
   await page.evaluate(() => ((window as unknown as { stats: { phase: string } }).stats.phase = 'after'));
-  // The other side now hears the translation, not the original voice (measured once the switch
-  // has settled: what was already on its way through the call does not count).
-  await expect.poll(async () => (await stats(page)).after.lo, { timeout: 30_000 }).toBeGreaterThan(-70);
-  await page.evaluate(() => ((window as unknown as { stats: Stats }).stats.after.hi = -200));
-  await page.waitForTimeout(3000);
+  // The other side hears the translation (clearly: the original tone's onset alone reaches about
+  // -55 dB in this band) and never the original voice.
+  await expect.poll(async () => (await stats(page)).after.lo, { timeout: 30_000 }).toBeGreaterThan(-40);
+  await page.waitForTimeout(2000);
   const s = await stats(page);
   const sending = await page.evaluate(() => {
     const w = window as unknown as { pc1: RTCPeerConnection; localTrack: MediaStreamTrack };

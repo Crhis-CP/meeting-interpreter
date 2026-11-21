@@ -39,6 +39,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   let ttsBus: GainNode | null = null;
   let active = false;
   let passthrough = false;
+  /** How often the call's microphone was taken over / given back (diagnostics). */
+  const switches = { takeOver: 0, giveBack: 0, modes: [] as string[] };
   /** The translated voice into the meeting's microphone: whole sentences, in order. */
   let player: OrderedPlayer | null = null;
 
@@ -189,6 +191,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
       if (!active || !t || t.kind !== 'audio' || t.readyState !== 'live' || hooks.some((h) => h.out === t)) continue;
       const h = makeHook(t, false);
       h.sender = s;
+      switches.takeOver++;
       await replace.call(s, h.out).catch(() => dispose(h));
     }
   };
@@ -197,6 +200,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const giveBack = () => {
     if (!replace) return;
     for (const h of hooks.filter((x) => x.sender)) {
+      switches.giveBack++;
       void replace.call(h.sender!, h.real).catch(() => undefined);
       dispose(h);
     }
@@ -225,7 +229,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   // Read-only state for diagnostics (tests, support): nothing private in it.
   try {
     Object.defineProperty(window, '__meetingInterpreterMic', {
-      get: () => ({ active, passthrough, context: ctx?.state ?? null, senders: senders.size, hooks: hooks.map((h) => ({ sender: !!h.sender, live: h.out.readyState === 'live' })) }),
+      get: () => ({ active, passthrough, context: ctx?.state ?? null, senders: senders.size, hooks: hooks.map((h) => ({ sender: !!h.sender, live: h.out.readyState === 'live' })), switches }),
     });
   } catch {
     // Diagnostics only.
@@ -238,6 +242,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     switch (m.t) {
       case 'mode': {
         const was = active;
+        if (switches.modes.length < 20) switches.modes.push(`${Math.round(performance.now())}:${m.active ? 'on' : 'off'}${m.passthrough ? '+pass' : ''}`);
         active = m.active;
         passthrough = m.passthrough;
         if (active && ctx?.state === 'suspended') void ctx.resume().catch(() => undefined);
