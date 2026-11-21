@@ -59,6 +59,7 @@ export function attachWorker(port: ParentPortLike, deps: WorkerDeps = {}): { dis
             models,
             esModel: msg.esModel,
             numThreads: msg.numThreads,
+            hotwords: msg.hotwords,
             onFinal: (text, start, end) => send({ type: 'final', text, start, end }),
             onPartial: (text) => send({ type: 'partial', text }),
           });

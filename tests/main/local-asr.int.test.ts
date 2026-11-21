@@ -29,6 +29,7 @@ const fake = {
   asrConfigs: [] as SherpaOfflineRecognizerConfig[],
   frontArgs: [] as (boolean | undefined)[],
   windowSizes: new Set<number>(),
+  streamHotwords: [] as (string | undefined)[],
 };
 
 class FakeVad {
@@ -79,7 +80,8 @@ class FakeRecognizer {
   constructor(private readonly config: SherpaOfflineRecognizerConfig) {
     fake.asrConfigs.push(config);
   }
-  createStream() {
+  createStream(hotwords?: string) {
+    fake.streamHotwords.push(hotwords);
     const stream = {
       samples: new Float32Array(0) as Float32Array,
       acceptWaveform(w: { samples: Float32Array; sampleRate: number }) {
@@ -169,6 +171,23 @@ describe('LocalRecognizer (fake sherpa-onnx)', () => {
     expect(fake.asrConfigs.at(-1)!.modelConfig).toMatchObject({ numThreads: 2 });
   });
 
+  it('Parakeet listens for the user’s terms (as its word pieces, beam search); without terms it decodes plainly', () => {
+    const vocab = ['▁bi', 'ci', '▁Nébula', '▁Ju', 'an', '▁plazo', '▁de', '▁entrega'].map((t, i) => `${t} ${i}`).join('\n');
+    const finals: string[] = [];
+    const rec = new LocalRecognizer({
+      sherpa: fakeSherpa, lang: 'es-AR', models: allReady, onFinal: (t) => finals.push(t),
+      hotwords: ['bici', 'Nébula', 'plazo de entrega', '星云'], readText: () => vocab,
+    });
+    expect(fake.asrConfigs.at(-1)).toMatchObject({ decodingMethod: 'modified_beam_search', maxActivePaths: 4 });
+    feedChunks(twoSentences(), (c) => rec.feed(c), 1000);
+    rec.flush();
+    expect(fake.streamHotwords.at(-1)).toBe('▁bi ci :2.0/▁Nébula :2.0/▁plazo ▁de ▁entrega :2.0'); // 星云 has no pieces: left out
+    new LocalRecognizer({ sherpa: fakeSherpa, lang: 'es-AR', models: allReady, onFinal: () => undefined, hotwords: [], readText: () => vocab });
+    expect(fake.asrConfigs.at(-1)!.decodingMethod).toBeUndefined();
+    new LocalRecognizer({ sherpa: fakeSherpa, lang: 'zh-CN', models: allReady, onFinal: () => undefined, hotwords: ['星云'], readText: () => vocab });
+    expect(fake.asrConfigs.at(-1)!.decodingMethod).toBeUndefined(); // SenseVoice cannot
+  });
+
   it('cleans results and drops Whisper’s inventions on silence', () => {
     expect(cleanText('  Hola   a todos ', 'es')).toBe('Hola a todos');
     expect(cleanText('Subtítulos realizados por la comunidad de Amara.org', 'es')).toBe('');
@@ -245,8 +264,8 @@ describe('LocalAsr ↔ worker', () => {
     const w = manualWorker();
     const asr = new LocalAsr({ modelsDir: '/m', esModel: 'whisper-base', numThreads: 3, spawn: () => w.handle });
     queueMicrotask(() => w.reply({ type: 'ready' }));
-    const session = await asr.start(START);
-    expect(w.sent[0]).toEqual({ type: 'start', lang: 'es-MX', modelsDir: '/m', esModel: 'whisper-base', numThreads: 3 });
+    const session = await asr.start({ ...START, hotwords: ['Nébula', 'plazo de entrega'] });
+    expect(w.sent[0]).toEqual({ type: 'start', lang: 'es-MX', modelsDir: '/m', esModel: 'whisper-base', numThreads: 3, hotwords: ['Nébula', 'plazo de entrega'] });
     const big = new Int16Array([9, 9, 1, -2, 3, 9]);
     session.push(big.subarray(2, 5));
     expect(w.sent[1].type).toBe('pcm');
@@ -424,6 +443,14 @@ describe.skipIf(!MODELS_DIR)('offline recognition with real sherpa-onnx models',
   it('transcribes Spanish and English with Silero VAD + Parakeet, and reports the sentence while it is spoken', async () => {
     const es = transcribe(sherpa, models, 'es-AR', read16k(join(MODELS_DIR!, 'test_wavs', 'es.wav')));
     expect(es.map((f) => f.text).join(' ')).toMatch(/no preguntes qu[eé] puede hacer tu pa[ií]s por ti,? pregunta qu[eé] puedes hacer t[uú] por tu pa[ií]s/i);
+    // With the user's terms: beam search and hot words, same sentence.
+    const t0 = performance.now();
+    const hot: string[] = [];
+    const withTerms = new LocalRecognizer({ sherpa, lang: 'es-AR', models, hotwords: ['Nébula', 'plazo de entrega', 'país'], onFinal: (text) => hot.push(text) });
+    feedChunks(read16k(join(MODELS_DIR!, 'test_wavs', 'es.wav')), (c) => withTerms.feed(c));
+    withTerms.flush();
+    console.log(`[parakeet-v3 + hot words] ${(performance.now() - t0).toFixed(0)} ms: ${hot.join(' ')}`);
+    expect(hot.join(' ')).toMatch(/no preguntes qu[eé] puede hacer tu pa[ií]s por ti,? pregunta qu[eé] puedes hacer t[uú] por tu pa[ií]s/i);
     const en = transcribe(sherpa, models, 'en-US', read16k(join(MODELS_DIR!, 'test_wavs', 'en.wav')));
     expect(en.map((f) => f.text).join(' ')).toMatch(/ask not what your country can do for you\.? ask what you can do for your country/i);
     // Through the worker, with partial results before the final (they let translation start early).

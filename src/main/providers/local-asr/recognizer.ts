@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { ASR_RATE, int16ToFloat } from '@core/audio/pcm';
 import { baseOf, type LangBase } from '@core/lang/languages';
@@ -44,6 +45,9 @@ export interface SherpaVad {
 
 export interface SherpaOfflineRecognizerConfig {
   featConfig: { sampleRate: number; featureDim: number };
+  /** 'greedy_search' (default) or 'modified_beam_search' (needed for hot words). */
+  decodingMethod?: string;
+  maxActivePaths?: number;
   modelConfig: {
     senseVoice?: { model: string; language: string; useInverseTextNormalization: number };
     whisper?: { encoder: string; decoder: string; language: string; task: string };
@@ -62,7 +66,8 @@ export interface SherpaOfflineStream {
 }
 
 export interface SherpaOfflineRecognizer {
-  createStream(): SherpaOfflineStream;
+  /** `hotwords`: phrases as token sequences, '/'-separated, each optionally ' :score' (transducers, beam search). */
+  createStream(hotwords?: string): SherpaOfflineStream;
   decode(stream: SherpaOfflineStream): void;
   getResult(stream: SherpaOfflineStream): { text: string; lang?: string };
 }
@@ -130,6 +135,10 @@ export interface LocalRecognizerOptions {
   esModel?: ForeignModelId;
   /** Threads for the Spanish / English recogniser (SenseVoice uses at most 2). Default 2. */
   numThreads?: number;
+  /** The user's terms and names: Parakeet listens for them (beam search, a little slower); others ignore them. */
+  hotwords?: readonly string[];
+  /** Reads the model's token list (tests). */
+  readText?: (path: string) => string;
   vad?: Partial<VadTuning>;
 }
 
@@ -152,6 +161,25 @@ export function cleanText(raw: string, lang: LangBase): string {
   if (!/[\p{L}\p{N}]/u.test(text)) return '';
   if (lang !== 'zh' && WHISPER_JUNK.some((re) => re.test(text))) return '';
   return text;
+}
+
+/**
+ * A phrase as the model's word pieces (Parakeet's SentencePiece vocabulary: '▁' starts a word),
+ * longest piece first; null when a character has no piece (the phrase is then left out).
+ */
+export function phrasePieces(phrase: string, vocab: ReadonlySet<string>): string | null {
+  const out: string[] = [];
+  for (const word of phrase.trim().split(/\s+/)) {
+    let rest = `▁${word}`;
+    while (rest) {
+      let n = rest.length;
+      while (n > 0 && !vocab.has(rest.slice(0, n))) n--;
+      if (!n) return null;
+      out.push(rest.slice(0, n));
+      rest = rest.slice(n);
+    }
+  }
+  return out.length ? out.join(' ') : null;
 }
 
 /** The chosen recogniser if it is downloaded; otherwise the best one that is (Parakeet, then Whisper small, then base). */
@@ -180,6 +208,8 @@ export class LocalRecognizer {
   private speechFrom: number | null = null;
   private lastPartialAt = 0;
   private lastPartial = '';
+  /** The hot words as Parakeet's token sequences ('' = none: plain, faster decoding). */
+  private readonly hot: string = '';
 
   constructor(private readonly opts: LocalRecognizerOptions) {
     this.lang = baseOf(opts.lang);
@@ -235,7 +265,30 @@ export class LocalRecognizer {
             provider: 'cpu',
             debug: false,
           };
-    this.recognizer = new opts.sherpa.OfflineRecognizer({ featConfig: { sampleRate: ASR_RATE, featureDim: 80 }, modelConfig });
+    // Hot words (Parakeet only): measured, they turn a misheard "VC" back into the user's "bici";
+    // beam search makes a decode ~1.7× slower, so only when there are terms to listen for.
+    if (this.model === 'parakeet-v3' && opts.hotwords?.length) {
+      try {
+        const vocab = new Set(
+          (opts.readText ?? ((f) => readFileSync(f, 'utf8')))(path('parakeet-v3', 'tokens'))
+            .split('\n')
+            .map((l) => l.slice(0, l.lastIndexOf(' ')))
+            .filter(Boolean),
+        );
+        this.hot = [...new Set(opts.hotwords)]
+          .map((w) => phrasePieces(w, vocab))
+          .filter((x): x is string => !!x)
+          .map((x) => `${x} :2.0`)
+          .join('/');
+      } catch {
+        this.hot = '';
+      }
+    }
+    this.recognizer = new opts.sherpa.OfflineRecognizer({
+      featConfig: { sampleRate: ASR_RATE, featureDim: 80 },
+      ...(this.hot ? { decodingMethod: 'modified_beam_search', maxActivePaths: 4 } : {}),
+      modelConfig,
+    });
   }
 
   /** Feeds 16 kHz mono PCM; finished sentences are decoded and reported before this returns. */
@@ -261,7 +314,7 @@ export class LocalRecognizer {
    */
   private partial(): void {
     if (this.model !== 'sensevoice' && this.model !== 'parakeet-v3') return;
-    const every = this.opts.partialEverySec ?? (this.model === 'sensevoice' ? 0.8 : 1);
+    const every = this.opts.partialEverySec ?? (this.model === 'sensevoice' ? 0.8 : this.hot ? 1.5 : 1);
     if (!this.opts.onPartial || every <= 0 || !this.vad.isDetected) return;
     if (!this.vad.isDetected()) {
       this.speechFrom = null;
@@ -273,7 +326,7 @@ export class LocalRecognizer {
     this.lastPartialAt = this.historyEnd;
     const samples = this.recall(this.speechFrom, this.historyEnd);
     if (samples.length < 0.5 * ASR_RATE) return;
-    const stream = this.recognizer.createStream();
+    const stream = this.hot ? this.recognizer.createStream(this.hot) : this.recognizer.createStream();
     stream.acceptWaveform({ samples, sampleRate: ASR_RATE });
     this.recognizer.decode(stream);
     const text = cleanText(this.recognizer.getResult(stream).text ?? '', this.lang);
@@ -332,7 +385,7 @@ export class LocalRecognizer {
       samples.set(lead);
       samples.set(segment.samples, lead.length);
     }
-    const stream = this.recognizer.createStream();
+    const stream = this.hot ? this.recognizer.createStream(this.hot) : this.recognizer.createStream();
     stream.acceptWaveform({ samples, sampleRate: ASR_RATE });
     this.recognizer.decode(stream);
     const text = cleanText(this.recognizer.getResult(stream).text ?? '', this.lang);

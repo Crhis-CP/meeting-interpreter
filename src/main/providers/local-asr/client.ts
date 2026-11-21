@@ -13,7 +13,7 @@ export interface WorkerHandle {
 
 /** Main → worker. */
 export type WorkerRequest =
-  | { type: 'start'; lang: LangCode; modelsDir: string; esModel?: ForeignModelId; numThreads?: number }
+  | { type: 'start'; lang: LangCode; modelsDir: string; esModel?: ForeignModelId; numThreads?: number; hotwords?: string[] }
   | { type: 'pcm'; data: ArrayBuffer }
   | { type: 'end' };
 
@@ -40,10 +40,13 @@ export interface LocalAsrOptions {
 }
 
 const PROVIDER = 'local';
+/** More phrases make every decode slower; the glossary's first ones are the ones that matter. */
+const MAX_HOTWORDS = 100;
 
 /**
  * Free offline speech recognition (sherpa-onnx in a separate process, so a native crash or a slow
- * decode never takes the app down). Emits `partial` results while Chinese is spoken and `final` per sentence; hot words are not supported by these models.
+ * decode never takes the app down). Emits `partial` results while a sentence is spoken (SenseVoice,
+ * Parakeet) and `final` per sentence; Parakeet also listens for the user's terms (hot words).
  */
 export class LocalAsr implements StreamingAsr {
   readonly id = 'local';
@@ -64,6 +67,8 @@ export class LocalAsr implements StreamingAsr {
       modelsDir: this.opts.modelsDir,
       esModel: this.opts.esModel,
       numThreads: this.opts.numThreads,
+      // The user's terms and names (Parakeet listens for them; SenseVoice cannot).
+      ...(start.hotwords?.length ? { hotwords: start.hotwords.slice(0, MAX_HOTWORDS) } : {}),
     };
     session.send(request);
     await session.ready(this.opts.readyTimeoutMs ?? 120_000);

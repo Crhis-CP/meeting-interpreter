@@ -86,6 +86,33 @@ describe('glossary correction', () => {
     expect(correctText('今天天气不错', 'zh', entries, { pinyinFuzzy: true }).text).toBe('今天天气不错');
   });
 
+  it('Spanish names and brands spelled by ear are corrected by sound (b/v, s/z/c, ll/y, silent h, c/qu/k)', () => {
+    const names = [e('萨拉特', 'Zárate'), e('埃尔南德斯', 'Hernández'), e('马黛茶公司', 'Yerba Mate Cía'), e('星云', 'Nébula'), e('奎尔梅斯', 'Quilmes'), e('运费', 'flete'), e('牛', 'vaca')];
+    const fix = (t: string) => correctText(t, 'es', names, { pinyinFuzzy: false });
+    expect(fix('Hablé con el señor Sárate ayer.').text).toBe('Hablé con el señor Zárate ayer.');
+    expect(fix('Lo firma Ernández.').text).toBe('Lo firma Hernández.');
+    expect(fix('Somos de Llerba Mate Sía.').text).toBe('Somos de Yerba Mate Cía.');
+    expect(fix('Usamos Nevula para todo.')).toEqual({ text: 'Usamos Nébula para todo.', edits: [{ from: 'Nevula', to: 'Nébula' }] });
+    expect(fix('La planta de Kilmes.').text).toBe('La planta de Quilmes.');
+    // Ordinary lower-case words are never changed by sound ("baca" stays; "flete" is not touched).
+    expect(fix('La baca del techo y el flette.').text).toBe('La baca del techo y el flette.');
+  });
+
+  it('normal Spanish sentences are not changed at all by the sound matching', () => {
+    const names = [e('萨拉特', 'Zárate'), e('埃尔南德斯', 'Hernández'), e('星云', 'Nébula'), e('奎尔梅斯', 'Quilmes'), e('贝拉', 'Vera'), e('卡萨', 'Casa Blanca'), e('席尔瓦', 'Silva'), e('谢', 'Ceja')];
+    const plain = [
+      'Buenos días, ¿cuándo pueden entregar el primer pedido?',
+      'Che, ¿vos sabés si el precio incluye el flete hasta Buenos Aires?',
+      'Necesitamos la factura antes de que llegue la mercadería a la aduana.',
+      'La verdad es que el precio está un poco alto para nuestro mercado.',
+      'Dale, lo charlamos con el equipo y te confirmamos el lunes.',
+      'Vamos a la casa de mi socio, que vive cerca de la playa.',
+      'Hay que ver si la selva tiene buena señal.',
+      'Era verdad: la hice ayer.',
+    ];
+    for (const t of plain) expect(correctText(t, 'es', names, { pinyinFuzzy: false }).text).toBe(t);
+  });
+
   it('fixes Spanish aliases and accents', () => {
     expect(correctText('usamos la plataforma nevula hoy', 'es', entries, { pinyinFuzzy: false }).text).toBe('usamos la Plataforma Nébula hoy');
     expect(correctText('la plataforma nebula', 'es', entries, { pinyinFuzzy: false }).text).toBe('la Plataforma Nébula');

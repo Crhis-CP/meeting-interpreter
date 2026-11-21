@@ -73,6 +73,32 @@ export function similarSyllable(a: string, b: string, extra?: ReadonlySet<string
 }
 
 /**
+ * How a Spanish word sounds, for names and brands the recogniser spelled by ear: accents folded,
+ * silent h dropped, b = v, s = z = soft c, ll = y, hard c = qu = k, soft g = j, double letters
+ * single ("Nevula" ≈ "Nébula", "Sárate" ≈ "Zárate", "Ernández" ≈ "Hernández", "Llerba" ≈ "Yerba").
+ */
+export function spanishSound(s: string): string {
+  return foldLatin(s)
+    .replace(/ch/g, '§')
+    .replace(/h/g, '')
+    .replace(/qu(?=[ei])/g, 'k')
+    .replace(/c(?=[ei])/g, 's')
+    .replace(/g(?=[ei])/g, 'j')
+    .replace(/gu(?=[ei])/g, 'g')
+    .replace(/ll/g, 'y')
+    .replace(/[cq]/g, 'k')
+    .replace(/v/g, 'b')
+    .replace(/z/g, 's')
+    .replace(/(.)\1+/g, '$1')
+    .replace(/§/g, 'ch');
+}
+
+/** A name or brand (capital letter, digit, several words): only these are matched by sound. */
+function isNameLike(term: string): boolean {
+  return /^\p{Lu}/u.test(term) || /\d/.test(term) || /\s/.test(term.trim());
+}
+
+/**
  * Applies glossary corrections to recognised text:
  * 1. exact alias replacement (known mis-recognitions → canonical term);
  * 2. optionally, for Chinese, pinyin-fuzzy replacement of Han runs that sound like a term
@@ -131,6 +157,29 @@ export function correctText(text: string, base: LangBase, entries: GlossaryEntry
         }
       }
       out = chars.join('');
+    }
+  }
+
+  if (base === 'es') {
+    // Names and brands that sound the same (spanishSound): the whole words must match by sound,
+    // and the term must look like a name — ordinary lower-case words are never changed this way.
+    for (const e of entries) {
+      const t = termOf(e, base).trim();
+      if (!e.enabled || !t || !isNameLike(t) || spanishSound(t).replace(/\s/g, '').length < 4) continue;
+      const n = t.split(/\s+/).length;
+      const key = spanishSound(t);
+      const words = [...out.matchAll(/[\p{L}\p{N}]+/gu)];
+      for (let i = words.length - n; i >= 0; i--) {
+        const first = words[i]!;
+        const last = words[i + n - 1]!;
+        const from = first.index!;
+        const to = last.index! + last[0].length;
+        const candidate = out.slice(from, to);
+        if (/[^\p{L}\p{N}\s]/u.test(candidate) || foldLatin(candidate) === foldLatin(t)) continue;
+        if (spanishSound(candidate.replace(/\s+/g, ' ')) !== key) continue;
+        out = out.slice(0, from) + t + out.slice(to);
+        edits.push({ from: candidate, to: t });
+      }
     }
   }
 
