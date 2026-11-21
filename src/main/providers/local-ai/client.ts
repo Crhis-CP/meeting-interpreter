@@ -11,10 +11,12 @@ export interface LocalAiClientOptions {
   /** One sentence; a slow computer may need several seconds. */
   requestTimeoutMs?: number;
   onLoaded?: (gpu: string) => void;
-  /** The model could not be loaded (sentences go to the fallback translator meanwhile). */
+  /** The model could not be loaded (its sentences fail meanwhile; the meeting says so). */
   onLoadFailed?: (message: string) => void;
   /** Stop the worker (and free its memory) after this long without a sentence. Default 10 min. */
   idleMs?: number;
+  /** While this says so (a meeting is on), the model stays loaded however long nobody speaks. */
+  keepLoaded?: () => boolean;
   /** After a failed load, wait this long before trying again. Default 5 min. */
   retryAfterMs?: number;
 }
@@ -26,7 +28,7 @@ export class LocalAiClient implements LocalAiEngine {
   private isLoaded = false;
   private seq = 0;
   private idle: ReturnType<typeof setTimeout> | null = null;
-  /** After the model failed to load, sentences go to the fallback for a while instead of retrying each time. */
+  /** After the model failed to load, sentences fail at once for a while instead of retrying each time. */
   private failed: { until: number; message: string } | null = null;
   private pending = new Map<number, { resolve: (s: string) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
@@ -79,28 +81,44 @@ export class LocalAiClient implements LocalAiEngine {
     return this.loaded;
   }
 
-  /** Loads the model now (as a meeting starts), without translating anything. */
+  /** Loads the model now (before a meeting), without translating anything; not again soon after a failed load. */
   warmUp(): void {
+    if (this.loadError) return;
     void this.start().catch(() => undefined);
   }
 
-  /** Resolves once the model is loaded (rejects if it cannot load). */
+  /** Why the model could not be loaded, while that is recent (it is tried again after a while, or on start). */
+  get loadError(): string | null {
+    return this.failed && Date.now() < this.failed.until ? this.failed.message : null;
+  }
+
+  /** Resolves once the model is loaded (rejects if it cannot load); tries again even right after a failure. */
   ready(): Promise<void> {
+    this.armIdle();
+    if (!this.loaded) this.failed = null;
     return this.start();
+  }
+
+  /** Whether the model is loaded now (a meeting starts only then: its first sentences are accurate too). */
+  get loadedNow(): boolean {
+    return this.isLoaded;
+  }
+
+  private armIdle(): void {
+    if (this.idle) clearTimeout(this.idle);
+    this.idle = setTimeout(() => (this.o.keepLoaded?.() ? this.armIdle() : this.dispose()), this.o.idleMs ?? 600_000);
+    this.idle.unref?.();
   }
 
   /** `lane`: the direction (0 into the other language, 1 into Chinese); each keeps its own cached prefix. */
   async complete(prompt: string, signal?: AbortSignal, lane = 0, maxTokens?: number): Promise<string> {
     if (this.failed && Date.now() < this.failed.until) throw new Error(this.failed.message);
-    if (this.idle) clearTimeout(this.idle);
-    this.idle = setTimeout(() => this.dispose(), this.o.idleMs ?? 600_000);
-    this.idle.unref?.();
-    // While the model loads (seconds; longer from a slow disk), sentences go to the fallback
-    // instead of queueing up behind the load.
-    if (!this.isLoaded) {
-      this.warmUp();
-      throw new LocalAiLoadingError();
-    }
+    this.armIdle();
+    // Accuracy first: a sentence that comes while the model loads waits for it (the meeting
+    // normally starts with the model loaded; this is a reload after a crash). One that ends up too
+    // late is shown and not spoken — the pipeline's rule — rather than replaced by a rough guess.
+    if (!this.isLoaded) await this.start();
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const id = ++this.seq;
     const cancel = () => this.worker?.postMessage({ t: 'cancel', id } satisfies AiRequest);
     return new Promise<string>((resolve, reject) => {
@@ -117,7 +135,12 @@ export class LocalAiClient implements LocalAiEngine {
         reject(new DOMException('Aborted', 'AbortError'));
       });
       const req: AiRequest = { t: 'complete', id, prompt, maxTokens: maxTokens ?? Math.min(512, 64 + prompt.length * 3), lane };
-      this.worker!.postMessage(req);
+      if (!this.worker) {
+        this.pending.delete(id);
+        clearTimeout(timer);
+        return reject(new Error('本机 AI 翻译进程退出了'));
+      }
+      this.worker.postMessage(req);
     });
   }
 
@@ -130,12 +153,5 @@ export class LocalAiClient implements LocalAiEngine {
     this.worker = null;
     this.loaded = null;
     this.isLoaded = false;
-  }
-}
-
-/** The model is still loading: use the fallback translation for this sentence. */
-export class LocalAiLoadingError extends Error {
-  constructor() {
-    super('本机 AI 翻译模型正在加载');
   }
 }

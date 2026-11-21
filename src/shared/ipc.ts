@@ -348,9 +348,9 @@ export interface UninstallResult {
 export interface ReadinessItem {
   id: string;
   text: string;
-  /** The settings tab that fixes it. */
-  fix: 'providers' | 'devices';
-  /** It resolves by itself (a download in progress). */
+  /** The settings tab that fixes it (none: it resolves by itself, e.g. a model loading). */
+  fix?: 'providers' | 'devices';
+  /** It resolves by itself (a download in progress, a model loading): checked again shortly. */
   downloading?: boolean;
 }
 

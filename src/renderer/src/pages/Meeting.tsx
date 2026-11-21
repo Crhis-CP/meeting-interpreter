@@ -70,7 +70,12 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
 
   const active = !!state?.active && state.mode === 'meeting';
   const roomActive = !!state?.active && state.mode === 'room';
-  const ptt = settings.interpretation.outMode === 'push-to-talk';
+  // A new meeting (started here, from the tray or a shortcut): the last one's "ended" card goes,
+  // so it cannot show up while this one is still being saved.
+  useEffect(() => {
+    if (active) setLastMeeting(null);
+  }, [active]);
+  const ptt =settings.interpretation.outMode === 'push-to-talk';
   const short = (code: string) => ({ zh: '中文', es: '西语', en: '英语' })[lang(code).base];
   const selfName = short(settings.languages.self);
   const remoteName = short(settings.languages.remote);
@@ -100,8 +105,8 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
       clearTimeout(timer);
     };
   }, [active, settings]);
-  const problems: { text: string; fix: () => void; downloading?: boolean }[] = [
-    ...(ready ?? []).map((r) => ({ text: r.text, fix: () => openSettings(r.fix), downloading: r.downloading })),
+  const problems: { text: string; fix?: () => void; downloading?: boolean }[] = [
+    ...(ready ?? []).map((r) => ({ text: r.text, fix: r.fix ? () => openSettings(r.fix!) : undefined, downloading: r.downloading })),
     ...(!settings.devices.virtualMic ? [{ text: `对方听不到${remoteName}译音：没选虚拟麦克风`, fix: () => openSettings('devices') }] : []),
     ...(settings.devices.meetingSource === 'device' && !settings.devices.meetingDevice ? [{ text: '听不到对方：没选会议声音', fix: () => openSettings('devices') }] : []),
   ];
@@ -186,7 +191,7 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
           {problems.map((p) => (
             <div key={p.text} className={`callout ${p.downloading ? 'info' : 'warn'} row between`} role={p.downloading ? 'status' : 'alert'} style={{ marginBottom: 10 }}>
               <span>{p.text}</span>
-              <button className="btn sm" onClick={p.fix}>{p.downloading ? '查看' : '去设置'}</button>
+              {p.fix && <button className="btn sm" onClick={p.fix}>{p.downloading ? '查看' : '去设置'}</button>}
             </div>
           ))}
           {/* Can the other side hear me? Checked in the meeting app itself (its microphone level). */}

@@ -1,13 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import type { WorkerHandle } from '../../src/main/providers/local-asr/client';
-import { LocalAiClient, LocalAiLoadingError } from '../../src/main/providers/local-ai/client';
+import { LocalAiClient } from '../../src/main/providers/local-ai/client';
 import { attachAiWorker, type AiReply, type AiRequest } from '../../src/main/providers/local-ai/worker';
 import { LocalAiTranslator } from '@core/providers/local-ai-translator';
 
 /** A worker that answers like the real one, scripted. */
-function fakeWorker(answer: (m: AiRequest) => AiReply | null, onSpawn: () => void = () => {}): () => WorkerHandle {
+function fakeWorker(answer: (m: AiRequest) => AiReply | null, onSpawn: () => void = () => {}, onKill: () => void = () => {}): () => WorkerHandle {
   return () => {
     onSpawn();
     const ev = new EventEmitter();
@@ -17,7 +17,10 @@ function fakeWorker(answer: (m: AiRequest) => AiReply | null, onSpawn: () => voi
         if (r) ev.emit('message', r);
       }),
       on: (e: string, fn: (...a: any[]) => void) => void ev.on(e, fn),
-      kill: () => void ev.emit('exit', 0),
+      kill: () => {
+        onKill();
+        ev.emit('exit', 0);
+      },
     } as WorkerHandle;
   };
 }
@@ -30,9 +33,10 @@ describe('local AI translation client', () => {
       threads: 2,
       spawn: fakeWorker((m) => (m.t === 'load' ? { t: 'loaded', gpu: 'false' } : m.t === 'complete' ? { t: 'result', id: m.id, text: `译:${m.prompt.slice(-2)}` } : null), () => spawns++),
     });
-    await expect(c.complete('...你好')).rejects.toBeInstanceOf(LocalAiLoadingError); // the fallback translates meanwhile
-    await c.ready();
+    expect(c.loadedNow).toBe(false);
+    // A sentence that comes while the model loads waits for it (no rough stand-in).
     expect(await c.complete('...你好')).toBe('译:你好');
+    expect(c.loadedNow).toBe(true);
     expect(await c.complete('...再见')).toBe('译:再见');
     expect(spawns).toBe(1);
   });
@@ -124,9 +128,35 @@ describe('local AI translation client', () => {
     expect(await until(() => replies.some((r) => r.t === 'error' && r.id === 1))).toBe(true);
   });
 
-  it('the Mozilla translation stands in while the model loads', async () => {
-    const t = new LocalAiTranslator({ complete: async () => { throw new LocalAiLoadingError(); } }, { id: 'offline', translate: async () => 'borrador' });
-    expect(await t.translate({ text: '你好', from: 'zh-CN', to: 'es-AR', hits: [], context: [] })).toBe('borrador');
+  it('a failure is reported, never replaced by a rough translation that would be spoken', async () => {
+    const t = new LocalAiTranslator({ complete: async () => { throw new Error('本机 AI 翻译进程退出了'); } });
+    await expect(t.translate({ text: '你好', from: 'zh-CN', to: 'es-AR', hits: [], context: [] })).rejects.toThrow(/本机 AI 翻译：本机 AI 翻译进程退出了/);
+  });
+
+  it('stays loaded while a meeting is on, however long nobody speaks; unloads after it', async () => {
+    vi.useFakeTimers();
+    try {
+      let meeting = true;
+      let kills = 0;
+      const c = new LocalAiClient({
+        modelPath: '/m.gguf',
+        threads: 2,
+        idleMs: 1000,
+        keepLoaded: () => meeting,
+        spawn: fakeWorker((m) => (m.t === 'load' ? { t: 'loaded', gpu: 'false' } : null), undefined, () => kills++),
+      });
+      const ready = c.ready();
+      await vi.advanceTimersByTimeAsync(10);
+      await ready;
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(c.loadedNow).toBe(true);
+      meeting = false;
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(c.loadedNow).toBe(false);
+      expect(kills).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

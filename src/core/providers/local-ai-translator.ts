@@ -45,11 +45,9 @@ function clean(out: string): string {
 
 export class LocalAiTranslator implements Translator {
   readonly id = 'local-ai';
-  /** `fallback` (the Mozilla models) translates while the model loads or if it fails. */
-  constructor(
-    private readonly engine: LocalAiEngine,
-    private readonly fallback?: Translator,
-  ) {}
+  // No rough stand-in when the model fails: the pipeline keeps its instant draft as a marked
+  // subtitle (never spoken), and the failure is reported.
+  constructor(private readonly engine: LocalAiEngine) {}
 
   async translate(req: TranslateRequest): Promise<string> {
     const from = baseOf(req.from);
@@ -61,7 +59,6 @@ export class LocalAiTranslator implements Translator {
       return out;
     } catch (err) {
       if (req.signal?.aborted) throw err;
-      if (this.fallback) return this.fallback.translate(req);
       throw new ProviderError(`本机 AI 翻译：${err instanceof Error ? err.message : String(err)}`, 'local-ai', { retryable: false, cause: err });
     }
   }

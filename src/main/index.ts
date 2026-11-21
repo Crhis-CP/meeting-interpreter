@@ -200,6 +200,7 @@ const localAi = (): LocalAiClient | null => {
             : forkWorker('local-ai-worker.js', 'local-ai'),
         onLoaded: (gpu) => log.info(`local AI translation loaded: ${id} (gpu: ${gpu})`),
         onLoadFailed: (message) => log.warn(`local AI translation failed to load: ${message}`),
+        keepLoaded: () => sessionManager.active || room.active,
       }),
     };
   }
@@ -388,6 +389,7 @@ const handlers: Record<string, Handler> = {
     await requireLocalModels(opts?.mode ?? 'meeting');
     await requireLocalAi();
     await requireOfflineMt();
+    await requireLocalAiLoaded();
     const state = await sessionManager.start(opts ?? {});
     warmUpTranslation();
     updateTray();
@@ -697,6 +699,7 @@ const handlers: Record<string, Handler> = {
     await requireLocalModels('room');
     await requireLocalAi();
     await requireOfflineMt();
+    await requireLocalAiLoaded();
     const st = await room.start();
     syncShortcuts();
     return st;
@@ -1092,6 +1095,19 @@ async function requireLocalAi(): Promise<void> {
   throw new Error(`本机 AI 翻译模型还在下载（${pct}%，还差约 ${Math.max(1, Math.round((total - done) / 1_000_000))} MB）。为了翻得准，下载完再开始。等不及的话，可以在 设置 › 翻译服务 换成云端方案。`);
 }
 
+/**
+ * Accuracy first: the meeting starts once the AI model is loaded, so its first sentences are
+ * translated by the model too (the meeting page loads it ahead; the first load on a Mac prepares
+ * the GPU code and can take half a minute, later ones seconds).
+ */
+async function requireLocalAiLoaded(): Promise<void> {
+  const ai = usesLocalAi() ? localAi() : null;
+  if (!ai || ai.loadedNow) return;
+  await ai.ready().catch((err: unknown) => {
+    throw new Error(`本机 AI 翻译模型没能加载：${err instanceof Error ? err.message : String(err)}。可以重启软件再试；急用的话，在 设置 › 翻译服务 换成云端方案。`);
+  });
+}
+
 async function requireOfflineMt(): Promise<void> {
   // Needed to start only when it is the translator: 'offline', or 'local-ai' before its model is there
   // (with the AI model ready, the Mozilla models are just the instant draft).
@@ -1172,6 +1188,14 @@ async function readiness(): Promise<ReadinessItem[]> {
       void prefetchAi(id);
       const done = aiProgress?.id === id ? aiProgress.received : total - left;
       items.push({ id: 'ai-model', text: `本机 AI 翻译模型还在下载（${Math.max(0, Math.min(99, Math.floor((done / total) * 100)))}%，还差约 ${Math.max(1, Math.round((total - done) / 1_000_000))} MB）`, fix: 'providers', downloading: true });
+    }
+  } else if (usesLocalAi()) {
+    // Loaded ahead of the meeting (the meeting page asks for this list when it opens).
+    const ai = localAi();
+    if (ai?.loadError) items.push({ id: 'ai-load', text: `本机 AI 翻译模型没能加载：${ai.loadError}`, fix: 'providers' });
+    else if (ai && !ai.loadedNow) {
+      ai.warmUp();
+      items.push({ id: 'ai-loading', text: '本机 AI 翻译模型正在加载（第一次可能要半分钟，以后几秒钟）', downloading: true });
     }
   }
   if ([s.out.mt, s.in.mt].includes('offline')) {
