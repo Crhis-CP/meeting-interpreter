@@ -348,12 +348,8 @@ const handlers: Record<string, Handler> = {
     // The meeting app is noted in the record without asking (the first one found running).
     if (!opts?.platform) opts = { ...opts, platform: (await detectMeetingApps().catch(() => []))[0] };
     await requireLocalModels(opts?.mode ?? 'meeting');
+    await requireLocalAi();
     await requireOfflineMt();
-    // Until the AI model is downloaded, the Mozilla models translate; fetch it in the background.
-    if (usesLocalAi() && !aiModelInUse() && !aiPrefetch) {
-      void prefetchAi();
-      broadcast('toast', { level: 'info', message: '正在后台下载本机 AI 翻译模型：这场先用离线翻译，下载好以后更准。' });
-    }
     const state = await sessionManager.start(opts ?? {});
     warmUpTranslation();
     updateTray();
@@ -620,6 +616,7 @@ const handlers: Record<string, Handler> = {
 
   'room.start': async () => {
     await requireLocalModels('room');
+    await requireLocalAi();
     await requireOfflineMt();
     const st = await room.start();
     syncShortcuts();
@@ -773,13 +770,18 @@ function usesLocalAi(): boolean {
 }
 
 let aiPrefetch: { id: AiModelId; job: Promise<void> } | null = null;
+/** How far the AI model's download is (for "still downloading, N%"). */
+let aiProgress: { id: string; received: number; total: number } | null = null;
 /** Downloads a local AI translation model in the background, once. */
 function prefetchAi(id: AiModelId = settings.get().local.aiModel): Promise<void> {
   if (aiPrefetch?.id === id) return aiPrefetch.job;
   // Another model is downloading: this one follows it (never silently drop the request).
   if (aiPrefetch) return aiPrefetch.job.finally(() => prefetchAi(id));
   const job = aiModels
-    .ensure([id], (p) => broadcast('model-progress', p))
+    .ensure([id], (p) => {
+      aiProgress = p;
+      broadcast('model-progress', p);
+    })
     .then(() => broadcast('toast', { level: 'info', message: '本机 AI 翻译模型已下载完成。' }))
     .catch((err) => broadcast('toast', { level: 'warn', message: `本机 AI 翻译模型下载失败：${err instanceof Error ? err.message : String(err)}` }))
     .finally(() => (aiPrefetch = null));
@@ -799,6 +801,26 @@ function prefetchOfflineMt(): Promise<void> {
 }
 
 /** Before a meeting with offline translation, make sure its models are there. */
+/**
+ * Accuracy first: with the free plan the translation is the local AI model. Until it is downloaded
+ * no meeting starts on the much weaker offline models (a first meeting that translates badly is
+ * the last one); the message says how far the download is and what else can be done.
+ */
+async function requireLocalAi(): Promise<void> {
+  if (!usesLocalAi() || aiModelInUse()) return;
+  const id = settings.get().local.aiModel;
+  // Downloaded by an earlier version: only needs its check.
+  if (aiModels.missingBytes([id]) === 0) {
+    await aiModels.verifyExisting([id]);
+    if (aiModelInUse()) return;
+  }
+  void prefetchAi(id);
+  const total = AI_MODELS[id].files.reduce((n, f) => n + f.size, 0);
+  const done = aiProgress?.id === id ? aiProgress.received : total - aiModels.missingBytes([id]);
+  const pct = Math.max(0, Math.min(99, Math.floor((done / total) * 100)));
+  throw new Error(`本机 AI 翻译模型还在下载（${pct}%，还差约 ${Math.max(1, Math.round((total - done) / 1_000_000))} MB）。为了翻得准，下载完再开始。等不及的话，可以在 设置 › 翻译服务 换成云端方案。`);
+}
+
 async function requireOfflineMt(): Promise<void> {
   // Needed to start only when it is the translator: 'offline', or 'local-ai' before its model is there
   // (with the AI model ready, the Mozilla models are just the instant draft).

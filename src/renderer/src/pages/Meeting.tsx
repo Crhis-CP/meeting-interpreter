@@ -126,6 +126,11 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
       {error && (
         <div className="callout err" role="alert" style={{ marginBottom: 16 }}>
           {error}
+          {/模型还在下载|正在下载.*模型/.test(error) && (
+            <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => go('settings')}>
+              查看下载进度
+            </button>
+          )}
           {window.platform === 'darwin' && /屏幕录制/.test(error) && (
             <button className="btn sm" data-test="external" style={{ marginLeft: 8 }} onClick={() => void api.app.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture')}>
               打开“屏幕录制”权限
