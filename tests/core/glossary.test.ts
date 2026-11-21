@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { glossaryToCsv, parseGlossaryCsv } from '@core/glossary/csv';
+import { glossaryToCsv, parseCsvRows, parseGlossaryCsv } from '@core/glossary/csv';
 import { findHits, hotwordsFor, containsLatinTerm } from '@core/glossary/match';
 import { correctText } from '@core/glossary/correct';
 import type { GlossaryEntry } from '@core/glossary/types';
@@ -89,5 +89,12 @@ describe('glossary correction', () => {
   it('fixes Spanish aliases and accents', () => {
     expect(correctText('usamos la plataforma nevula hoy', 'es', entries, { pinyinFuzzy: false }).text).toBe('usamos la Plataforma Nébula hoy');
     expect(correctText('la plataforma nebula', 'es', entries, { pinyinFuzzy: false }).text).toBe('la Plataforma Nébula');
+  });
+});
+
+describe('CSV / TSV separators', () => {
+  it('a tab file keeps commas inside values; a comma file keeps full-width commas in notes', () => {
+    expect(parseCsvRows('中文\tEspañol\t备注\n报价\tprecio, oferta\t含税\n').map((r) => r.row)).toEqual([['中文', 'Español', '备注'], ['报价', 'precio, oferta', '含税']]);
+    expect(parseCsvRows('中文,Español,备注\n报价,precio,含税，不含运费\n').map((r) => r.row)).toEqual([['中文', 'Español', '备注'], ['报价', 'precio', '含税，不含运费']]);
   });
 });

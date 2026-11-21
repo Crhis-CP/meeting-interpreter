@@ -89,6 +89,16 @@ export class MeetingsStore {
     writeJson(join(this.folderOf(id), 'meeting.json'), meta);
   }
 
+  /**
+   * Changes meeting.json from what is on disk now (never from an older copy in memory: the summary,
+   * the after-meeting review and a rename may all write it around the same time).
+   */
+  patchMeta(id: string, change: (current: MeetingMeta) => MeetingMeta): void {
+    const path = join(this.folderOf(id), 'meeting.json');
+    const current = readJson<MeetingMeta | null>(path, null);
+    if (current) writeJson(path, change(current));
+  }
+
   saveReview(id: string, review: StoredReview): void {
     writeJson(join(this.folderOf(id), 'review.json'), review);
   }

@@ -79,7 +79,13 @@ export class DesktopBridgeAsr implements StreamingAsr {
   ) {}
 
   start(opts: AsrStartOptions): Promise<AsrSession> {
-    const url = `ws://${this.base}/asr?lang=${encodeURIComponent(opts.lang)}&hw=${encodeURIComponent(JSON.stringify(opts.hotwords.slice(0, 200)))}`;
+    // Hotwords ride in the URL: keep it far below the 16 KB header limit (long terms would be refused).
+    const hw: string[] = [];
+    for (const w of opts.hotwords) {
+      if (encodeURIComponent(JSON.stringify([...hw, w])).length > 4000) break;
+      hw.push(w);
+    }
+    const url = `ws://${this.base}/asr?lang=${encodeURIComponent(opts.lang)}&hw=${encodeURIComponent(JSON.stringify(hw))}`;
     const ws = this.ctx.openWebSocket(url);
     const events = new Emitter<AsrEvents>();
     let ready = false;

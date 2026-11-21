@@ -7,6 +7,10 @@ export interface CsvParseResult {
 
 /** Splits CSV text into rows of fields (RFC 4180: quotes, escaped quotes, embedded newlines). */
 export function parseCsvRows(text: string): { row: string[]; line: number }[] {
+  // One separator per file, taken from the header line: a tab file (pasted from Excel/WPS) keeps
+  // commas inside its values, a comma file keeps full-width commas in its notes.
+  const header = text.split(/\r?\n/, 1)[0] ?? '';
+  const sep = header.includes('\t') ? '\t' : header.includes(',') ? ',' : header.includes('，') ? '，' : ',';
   const rows: { row: string[]; line: number }[] = [];
   let field = '';
   let row: string[] = [];
@@ -28,8 +32,7 @@ export function parseCsvRows(text: string): { row: string[]; line: number }[] {
       continue;
     }
     if (c === '"' && field === '') inQuotes = true;
-    else if (c === ',' || c === '\t' || c === '，') {
-      // Tabs and full-width commas come from pasting out of Excel/WPS or typing on a Chinese IME.
+    else if (c === sep) {
       row.push(field);
       field = '';
     } else if (c === '\r') {

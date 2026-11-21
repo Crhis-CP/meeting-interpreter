@@ -47,6 +47,7 @@
     "e2e/extension.spec.ts",
     "e2e/mobile.spec.ts",
     "tests/core/offline-translator.test.ts",
-    "tests/browser-ordered-player.test.ts"
+    "tests/browser-ordered-player.test.ts",
+    "tests/accelerator.test.ts"
   ]
 }

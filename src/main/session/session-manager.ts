@@ -14,7 +14,7 @@ import { summarize, summaryToMarkdown, type MeetingSummary, type SummaryTemplate
 import { Transcript, toMarkdown, toSrt } from '../../core/session/transcript';
 import type { Direction, MeetingMeta, TranscriptSegment } from '../../core/types';
 import type { AudioConfig, DirectionState, FromAudio, MeetingState, RendererEvents, ToAudio } from '../../shared/ipc';
-import { writeJson } from '../stores/json-file';
+import { readJson, writeJson } from '../stores/json-file';
 import { ChunkFileWriter, WavFileWriter } from './wav-writer';
 
 /** The other side's language (`es` or `en`) of a meeting. */
@@ -159,7 +159,16 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     }, 100);
   }
 
-  async start(opts: { title?: string; platform?: string; mode?: 'meeting' | 'room' } = {}): Promise<MeetingState> {
+  private starting: Promise<MeetingState> | null = null;
+
+  /** Starts a meeting; a second call while one is starting gets the same meeting (never two sets of pipelines). */
+  start(opts: { title?: string; platform?: string; mode?: 'meeting' | 'room' } = {}): Promise<MeetingState> {
+    if (this.starting) return this.starting;
+    this.starting = this.doStart(opts).finally(() => (this.starting = null));
+    return this.starting;
+  }
+
+  private async doStart(opts: { title?: string; platform?: string; mode?: 'meeting' | 'room' }): Promise<MeetingState> {
     if (this.s.active) return this.s;
     if (this.stopping) await this.stopping;
     const settings = this.d.settings();
@@ -438,7 +447,14 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
 
   /** Starts the audio window again for the running meeting (after it crashed and was recreated). */
   restartAudio(): void {
-    if (this.s.active && this.s.mode) this.d.toAudio({ type: 'start', config: audioConfig(this.d.settings(), this.s.mode) });
+    if (!this.s.active || !this.s.mode) return;
+    // The crashed window's recorders are gone without a "stopped": close their files, so the new
+    // recorders write new files (a second container header appended to the old file won't play).
+    for (const [kind, w] of Object.entries(this.rec)) {
+      w?.close();
+      delete this.rec[kind as keyof typeof this.rec];
+    }
+    this.d.toAudio({ type: 'start', config: audioConfig(this.d.settings(), this.s.mode) });
   }
 
   /** Re-sends device/volume settings to the audio window during a meeting. */
@@ -528,8 +544,13 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     meta.files.summary = 'summary.json';
     meta.files.summaryZh = 'summary.zh.md';
     meta.files.summaryForeign = `summary.${f}.md`;
-    if (summary.title.zh && /^(会议|现场会议) \d/.test(meta.title)) meta.title = summary.title.zh;
-    writeJson(join(folder, 'meeting.json'), meta);
+    // From what is on disk now: the user may have renamed the meeting meanwhile (keep their title).
+    const path = join(folder, 'meeting.json');
+    const current = readJson<MeetingMeta | null>(path, null) ?? meta;
+    const next: MeetingMeta = { ...current, files: { ...current.files, ...meta.files } };
+    if (summary.title.zh && /^(会议|现场会议) \d/.test(current.title)) next.title = summary.title.zh;
+    meta.title = next.title;
+    writeJson(path, next);
     this.d.broadcast('summary-progress', { id: meta.id, done: 1, total: 1 });
     return summary;
   }

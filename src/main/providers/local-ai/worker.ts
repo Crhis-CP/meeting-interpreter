@@ -10,7 +10,9 @@ export type AiReply = { t: 'loaded'; gpu: string } | { t: 'result'; id: number; 
 type Lib = typeof import('node-llama-cpp');
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib> = () => import('node-llama-cpp')): void {
+/** Wires the worker to its port; returns a function that frees the model (for the in-process worker). */
+export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib> = () => import('node-llama-cpp')): () => Promise<void> {
+  let loaded: { model: { dispose(): Promise<void> }; ctx: { dispose(): Promise<void> } } | null = null;
   let ready: Promise<{ lib: Lib; seq: import('node-llama-cpp').LlamaContextSequence }> | null = null;
   let chain: Promise<void> = Promise.resolve();
   /** Sentences the app gave up on (timed out) before their turn: skipped, never translated late. */
@@ -31,6 +33,7 @@ export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib>
         const llama = await lib.getLlama({ gpu: 'auto', build: 'never' });
         const model = await llama.loadModel({ modelPath: m.modelPath });
         const ctx = await model.createContext({ contextSize: 2048, threads: m.threads });
+        loaded = { model, ctx };
         return { lib, seq: ctx.getSequence(), gpu: String(llama.gpu) };
       })();
       ready.then(
@@ -67,6 +70,14 @@ export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib>
       });
     }
   });
+  return async () => {
+    await ready?.catch(() => undefined);
+    const l = loaded;
+    loaded = null;
+    ready = null;
+    await l?.ctx.dispose().catch(() => undefined);
+    await l?.model.dispose().catch(() => undefined);
+  };
 }
 
 /**
@@ -76,11 +87,16 @@ export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib>
 export function createInProcessAiWorker(): import('../local-asr/client').WorkerHandle {
   const toWorker: ((e: { data: unknown }) => void)[] = [];
   const toMain: ((m: unknown) => void)[] = [];
-  attachAiWorker({ on: (_e, fn) => void toWorker.push(fn), postMessage: (m) => void setImmediate(() => toMain.forEach((f) => f(m))) });
+  const onExit: ((code: number) => void)[] = [];
+  const unload = attachAiWorker({ on: (_e, fn) => void toWorker.push(fn), postMessage: (m) => void setImmediate(() => toMain.forEach((f) => f(m))) });
   return {
     postMessage: (m: unknown) => void setImmediate(() => toWorker.forEach((f) => f({ data: m }))),
-    on: (ev: string, fn: (m: any) => void) => void (ev === 'message' && toMain.push(fn)),
-    kill: () => undefined,
+    on: (ev: string, fn: (m: any) => void) => void (ev === 'message' ? toMain.push(fn) : ev === 'exit' && onExit.push(fn)),
+    // No process to end: free the model and its context instead (the idle unload must give memory back).
+    kill: () => {
+      toWorker.length = 0;
+      void unload().finally(() => onExit.forEach((f) => f(0)));
+    },
   } as import('../local-asr/client').WorkerHandle;
 }
 

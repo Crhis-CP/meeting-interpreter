@@ -693,7 +693,7 @@ async function editSegment(id: string, segId: string, srcText: string, opts: { l
   const segs = detail.segments.map((s) => (s.id === segId ? segment : s));
   try {
     writeTranscriptFiles(detail.folder, detail.meta, segs);
-    meetings.saveMeta(id, detail.meta);
+    meetings.patchMeta(id, (m) => ({ ...m, files: { ...m.files, ...detail.meta.files } }));
   } catch (err) {
     log.warn('could not rewrite transcript files', err instanceof Error ? err.message : String(err));
   }
@@ -951,6 +951,17 @@ function trayIcon(): Electron.NativeImage {
   return img;
 }
 
+/** 西 or 英, for the tray's labels. */
+function foreignShort(): string {
+  return baseOf(settings.get().languages.remote) === 'en' ? '英' : '西';
+}
+
+/** A tray action that failed: shown in the main window (the tray itself cannot show it). */
+function trayFailed(err: unknown): void {
+  showMain();
+  broadcast('toast', { level: 'error', message: err instanceof Error ? err.message : String(err) });
+}
+
 function updateTray(): void {
   if (!tray) return;
   const st = sessionManager.state;
@@ -958,10 +969,10 @@ function updateTray(): void {
     { label: '打开主窗口', click: showMain },
     { type: 'separator' },
     st.active
-      ? { label: '结束会议', click: () => void handlers['meeting.stop']!() }
-      : { label: '开始会议同传', click: () => void (handlers['meeting.start'] as (o: object) => Promise<unknown>)({}) },
-    { label: '翻译我的发言（中→西）', type: 'checkbox', checked: st.out.enabled, enabled: st.active, click: (i) => sessionManager.setOut(i.checked) },
-    { label: '翻译会议声音（西→中）', type: 'checkbox', checked: st.in.enabled, enabled: st.active && st.mode === 'meeting', click: (i) => sessionManager.setIn(i.checked) },
+      ? { label: '结束会议', click: () => void Promise.resolve(handlers['meeting.stop']!()).catch(trayFailed) }
+      : { label: '开始会议同传', click: () => void (handlers['meeting.start'] as (o: object) => Promise<unknown>)({}).catch(trayFailed) },
+    { label: `翻译我的发言（中→${foreignShort()}）`, type: 'checkbox', checked: st.out.enabled, enabled: st.active, click: (i) => sessionManager.setOut(i.checked) },
+    { label: `翻译会议声音（${foreignShort()}→中）`, type: 'checkbox', checked: st.in.enabled, enabled: st.active && st.mode === 'meeting', click: (i) => sessionManager.setIn(i.checked) },
     { label: '显示/隐藏字幕', click: toggleOverlay },
     { type: 'separator' },
     { label: '退出', click: () => { quitting = true; app.quit(); } },

@@ -26,3 +26,21 @@ test('术语表: aliases are typed key by key — separators and multi-word Span
     .toEqual({ zh: ['报价', '包价单'], es: ['plazo de entrega', 'cotizacion'] });
   await app.close();
 });
+
+test('术语表: edits are kept when leaving the page without pressing 保存', async () => {
+  const { app, dataDir } = await launchApp();
+  const win = await mainWindow(app);
+  await win.waitForLoadState('domcontentloaded');
+  const nav = (name: string) => win.getByRole('navigation').getByRole('button', { name, exact: true });
+  await nav('术语表').click();
+  await win.getByRole('button', { name: '+ 添加术语' }).click();
+  await win.getByLabel('中文', { exact: true }).last().fill('交货期');
+  await win.getByLabel('Español', { exact: true }).last().fill('plazo de entrega');
+  await nav('会议同传').click();
+  await expect
+    .poll(() => readFileSync(join(dataDir, 'glossaries.json'), 'utf8').includes('plazo de entrega'))
+    .toBe(true);
+  await nav('术语表').click();
+  await expect(win.getByLabel('Español', { exact: true }).last()).toHaveValue('plazo de entrega');
+  await app.close();
+});

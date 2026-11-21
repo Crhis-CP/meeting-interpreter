@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { newEntryId, type Glossary, type GlossaryEntry } from '@core/glossary/types';
 import { api, errMsg, useSettings } from '../api';
 import { glossaryToCsv } from '@core/glossary/csv';
@@ -43,6 +43,17 @@ export function GlossaryPage() {
   const [dirty, setDirty] = useState(false);
   const [msg, setMsg] = useState('');
   const [filter, setFilter] = useState('');
+  // Edits are never lost: switching glossaries, importing or leaving the page saves them first.
+  const pending = useRef<Glossary | null>(null);
+  pending.current = dirty ? draft : null;
+  useEffect(() => () => void (pending.current && api.glossary.save(pending.current)), []);
+  const flush = async () => {
+    const g = pending.current;
+    if (!g) return;
+    pending.current = null;
+    setList(await api.glossary.save(g));
+    setDirty(false);
+  };
 
   useEffect(() => {
     void api.glossary.list().then((l) => {
@@ -54,8 +65,9 @@ export function GlossaryPage() {
     });
   }, []);
 
-  const select = (id: string) => {
-    const g = list.find((x) => x.id === id);
+  const select = async (id: string) => {
+    await flush();
+    const g = (await api.glossary.list()).find((x) => x.id === id);
     if (!g) return;
     setSelected(id);
     setDraft(structuredClone(g));
@@ -86,6 +98,7 @@ export function GlossaryPage() {
     });
 
   const addGlossary = async () => {
+    await flush();
     const g: Glossary = { id: `g${Date.now().toString(36)}`, name: '新术语表', enabled: true, entries: [] };
     const l = await api.glossary.save(g);
     setList(l);
@@ -95,6 +108,7 @@ export function GlossaryPage() {
 
   const importCsv = async () => {
     try {
+      await flush();
       const res = await api.glossary.importCsv(draft?.id ?? null);
       if (!res) return;
       setList(res.glossaries);
@@ -111,6 +125,9 @@ export function GlossaryPage() {
 
   const removeGlossary = async () => {
     if (!draft || !confirm(`删除术语表“${draft.name}”？`)) return;
+    // Its unsaved edits go with it (never saved back after the delete).
+    pending.current = null;
+    setDirty(false);
     const l = await api.glossary.remove(draft.id);
     setList(l);
     if (l[0]) select(l[0].id);

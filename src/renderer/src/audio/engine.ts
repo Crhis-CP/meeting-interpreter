@@ -265,6 +265,7 @@ export class AudioEngine {
       prev.headphones !== cfg.headphones ||
       prev.echoCancellation !== cfg.echoCancellation ||
       prev.noiseSuppression !== cfg.noiseSuppression ||
+      prev.autoGainControl !== cfg.autoGainControl ||
       prev.playOriginalIn !== cfg.playOriginalIn;
     if (devicesChanged) {
       // Recording continues in a new file only if restarted; keep it simple: restart capture & output.

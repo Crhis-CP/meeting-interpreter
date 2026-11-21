@@ -8,6 +8,7 @@ import type { AiStatus, AppInfo, LocalModelStatus, ProviderTestStep } from '@sha
 import { api, errMsg, useDevices, useEvent, useSettings } from '../api';
 import { ExternalLink, Field, Toggle, FlashButton } from '../components/ui';
 import { ScreenPicker } from '../components/ScreenPicker';
+import { acceleratorOf } from '../lib/accelerator';
 import { DRIVER_GUIDES, guessMeetingDevice, guessVirtualMic } from '../content/guides';
 import { recordVoiceSample, SAMPLE_SCRIPT, SAMPLE_SECONDS } from '../../../browser/voice-sample';
 import { DriverInstaller } from '../components/DriverInstaller';
@@ -811,21 +812,54 @@ function OverlayTab({ s, update }: TabProps) {
 
 // ------------------------------------------------------------------ shortcuts
 
+function shortcutLabel(accel: string): string {
+  const mac = window.platform === 'darwin';
+  return accel
+    .replace('CommandOrControl', mac ? '⌘' : 'Ctrl')
+    .replace('Alt', mac ? '⌥' : 'Alt')
+    .replace('Shift', mac ? '⇧' : 'Shift')
+    .replace('Space', '空格');
+}
+
+/** Press the combination to record it; Backspace clears (no shortcut). */
+function ShortcutInput({ value, label, onChange }: { value: string; label: string; onChange: (v: string) => void }) {
+  const [hint, setHint] = useState('');
+  return (
+    <Field label={label}>
+      <input
+        type="text"
+        readOnly
+        aria-label={label}
+        value={value ? shortcutLabel(value) : '（无）'}
+        onKeyDown={(e) => {
+          if (e.key === 'Tab') return;
+          e.preventDefault();
+          if ((e.key === 'Backspace' || e.key === 'Delete') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+            setHint('');
+            return onChange('');
+          }
+          const a = acceleratorOf(e);
+          if (a === null) return setHint('请同时按住 Cmd/Ctrl、Alt 或 Shift 再按一个键');
+          if (a) {
+            setHint('');
+            onChange(a);
+          }
+        }}
+      />
+      {hint && <span className="muted small" role="status">{hint}</span>}
+    </Field>
+  );
+}
+
 function ShortcutsTab({ s, update }: TabProps) {
   const set = (k: string, v: string) => void update({ shortcuts: { [k]: v } });
   return (
     <div className="card">
-      <h3>全局快捷键</h3>
+      <h3>全局快捷键（只在开会时生效）</h3>
       <div className="stack">
-        <Field label="开关“翻译我的发言”">
-          <input type="text" value={s.shortcuts.toggleOut} onChange={(e) => set('toggleOut', e.target.value)} />
-        </Field>
-        <Field label="按键说话">
-          <input type="text" value={s.shortcuts.pushToTalk} onChange={(e) => set('pushToTalk', e.target.value)} />
-        </Field>
-        <Field label="显示/隐藏字幕窗">
-          <input type="text" value={s.shortcuts.toggleOverlay} onChange={(e) => set('toggleOverlay', e.target.value)} />
-        </Field>
+        <ShortcutInput label="开关“翻译我的发言”" value={s.shortcuts.toggleOut} onChange={(v) => set('toggleOut', v)} />
+        <ShortcutInput label="按键说话" value={s.shortcuts.pushToTalk} onChange={(v) => set('pushToTalk', v)} />
+        <ShortcutInput label="显示/隐藏字幕窗" value={s.shortcuts.toggleOverlay} onChange={(v) => set('toggleOverlay', v)} />
       </div>
     </div>
   );

@@ -94,6 +94,18 @@ describe('DirectionPipeline', () => {
     expect(done).toEqual(['out-2', 'out-1']); // text shows as soon as ready
   });
 
+  it('a sentence still being translated when the meeting ends is marked failed, never left "translating"', async () => {
+    const { p, asr, translator, segments } = make();
+    translator.delays['最后一句话。'] = 5000;
+    await p.start();
+    asr.last.final('最后一句话。');
+    await waitFor(() => segments.some((s) => s.status === 'translating'));
+    await p.stop(50);
+    const last = segments.filter((s) => s.id === 'out-1').pop()!;
+    expect(last.status).toBe('failed');
+    expect(last.error).toMatch(/没翻译完/);
+  });
+
   it('never speaks an invalid translation', async () => {
     const { p, asr, translator, tts, segments } = make();
     translator.results['你好。'] = '你好。'; // untranslated

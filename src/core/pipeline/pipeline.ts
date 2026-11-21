@@ -463,6 +463,15 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
     await Promise.race([Promise.allSettled(this.queue.map((j) => j.translation)), sleep(waitMs)]);
     await Promise.race([this.speaking, sleep(waitMs)]);
     this.abort.abort();
+    // A sentence still being translated gets a final state, so the record never says "翻译中…"
+    // forever: its draft if there is one, otherwise "failed".
+    for (const job of this.queue) {
+      if (job.seg.status !== 'translating') continue;
+      job.seg = job.seg.draft && job.seg.dstText
+        ? { ...job.seg, status: 'done' }
+        : { ...job.seg, status: 'failed', error: '会议结束时还没翻译完' };
+      this.emit('segment', job.seg);
+    }
     this.setState('stopped');
   }
 }

@@ -81,9 +81,14 @@ export class TunnelManager {
   }
 
   /** Starts the tunnel to `localUrl` and resolves with the public https URL. */
+  /** Bumped by stop(): a start that was still downloading must not launch the tunnel afterwards. */
+  private generation = 0;
+
   async start(localUrl: string): Promise<string> {
     this.stop();
+    const gen = this.generation;
     const bin = await this.ensureBinary();
+    if (gen !== this.generation) throw new Error('公网链接已关闭');
     return new Promise((resolve, reject) => {
       const child = spawn(bin, ['tunnel', '--no-autoupdate', '--url', localUrl, '--no-tls-verify'], { windowsHide: true });
       this.child = child;
@@ -124,6 +129,7 @@ export class TunnelManager {
   }
 
   stop(): void {
+    this.generation++;
     if (this.child) {
       this.child.kill();
       this.child = null;
