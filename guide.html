@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>会议同传助手 · 新手上手</title>
+<link rel="icon" href="favicon.png">
+<style>
+  :root { --blue:#007aff; --text:#1d1d1f; --muted:#6e6e73; --card:#fff; font-family: -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; background: #f5f5f7; }
+  main { max-width: 760px; margin: 0 auto; padding: 36px 18px 64px; }
+  h1 { font-size: 32px; letter-spacing: -0.02em; margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: 16px; }
+  .pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 10px; margin-bottom: 28px; }
+  .pick a { background: var(--card); border-radius: 16px; padding: 14px; text-decoration: none; color: inherit; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .pick b { display: block; font-size: 15px; margin-bottom: 4px; }
+  .pick span { color: var(--muted); font-size: 13px; }
+  section { background: var(--card); border-radius: 18px; padding: 20px 20px 8px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  h2 { font-size: 20px; margin: 0 0 4px; }
+  .need { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
+  ol { padding-left: 22px; margin: 0 0 12px; line-height: 1.75; font-size: 15.5px; }
+  li { margin-bottom: 6px; }
+  .tip { background: #f0f7ff; border-radius: 12px; padding: 10px 14px; font-size: 14px; line-height: 1.6; margin: 0 0 14px; }
+  .warn { background: #fff8e6; }
+  a { color: var(--blue); }
+  code { background: #f2f2f7; padding: 1px 6px; border-radius: 6px; font-size: 14px; }
+  h3 { font-size: 16px; margin: 18px 0 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>新手上手</h1>
+  <p class="sub">先选你的情况，照着做三四步就能用。对方什么都不用装。</p>
+
+  <div class="pick">
+    <a href="#web"><b>💻 线上开会（推荐）</b><span>用浏览器开 Teams / Zoom / 腾讯会议 / 飞书</span></a>
+    <a href="#app"><b>🖥 线上开会（客户端）</b><span>用会议软件的电脑 App</span></a>
+    <a href="#face"><b>🤝 面对面一对一</b><span>拜访客户、当面聊</span></a>
+    <a href="#room"><b>👥 多人现场开会</b><span>大家用手机扫码听同传</span></a>
+    <a href="#key"><b>🔑 第一次：拿 Key</b><span>两分钟，新用户有免费额度</span></a>
+    <a href="#faq"><b>❓ 常见问题</b><span>听不到、没反应怎么办</span></a>
+  </div>
+
+  <section id="key">
+    <h2>🔑 第一次：拿一个 Key</h2>
+    <p class="need">Key 就像一张“上网卡”，用来连接语音识别和翻译服务。费用由你自己的账号承担，本软件不收任何钱。</p>
+    <h3>推荐：阿里云百炼（最准，新用户有免费额度）</h3>
+    <ol>
+      <li>打开 <a href="https://bailian.console.aliyun.com/?tab=model#/api-key" target="_blank">阿里云百炼</a>，用手机号或支付宝登录，按提示完成实名认证。</li>
+      <li>点 <b>“创建 API Key”</b>，复制那一串以 <code>sk-</code> 开头的字符。</li>
+      <li>粘贴到软件里（软件里每个要填 Key 的地方都有“去获取 ↗”按钮，点了直接跳到这个页面）。</li>
+    </ol>
+    <p class="tip">用完免费额度后按用量计费，一小时会议大约 2–4 元。可以在百炼控制台设置消费提醒。Key 只保存在你自己的设备上，别人看不到。</p>
+    <h3>完全免费：智谱 Key + 桌面版</h3>
+    <ol>
+      <li>打开 <a href="https://bigmodel.cn/usercenter/proj-mgmt/apikeys" target="_blank">智谱开放平台</a>，手机号注册登录。</li>
+      <li>点 <b>“添加新的 API Key”</b>，复制粘贴到软件里，方案选 <b>“免费”</b>。</li>
+      <li>免费方案的识别在你电脑上离线完成，第一次会自动下载约 500MB 的模型。</li>
+    </ol>
+  </section>
+
+  <section id="web">
+    <h2>💻 线上开会（推荐：浏览器 + 插件）</h2>
+    <p class="need">你说中文，对方在会议里听到西语 / 英语；对方说话，你屏幕上出现中文字幕。不用装虚拟声卡。</p>
+    <ol>
+      <li>用电脑上的 <b>Chrome 或 Edge 浏览器</b>，在 <a href="./">下载页</a> 下载 <b>Chrome 插件</b>，双击解压。</li>
+      <li>浏览器地址栏输入 <code>chrome://extensions</code>（Edge 输入 <code>edge://extensions</code>），打开右上角 <b>“开发者模式”</b>，点 <b>“加载已解压的扩展程序”</b>，选刚才解压出来的文件夹。点拼图图标 🧩 把“会议同传”钉在工具栏上。</li>
+      <li>打开会议链接，选 <b>“在浏览器中加入 / 使用网页版”</b>，入会。</li>
+      <li>点工具栏上的插件图标，选对方说的语言和方案，第一次会提示你粘贴 Key，点 <b>“开始同传”</b>。</li>
+    </ol>
+    <p class="tip">建议戴耳机。插件装好前就已经在会议里的话，刷新页面重新入会。结束后点插件里的“会议记录”可以下载双语记录、生成纪要。</p>
+  </section>
+
+  <section id="app">
+    <h2>🖥 线上开会（会议软件的电脑客户端）</h2>
+    <p class="need">需要电脑版的“会议同传助手”，外加一个虚拟麦克风（软件里一键安装）。</p>
+    <ol>
+      <li>在 <a href="./">下载页</a> 下载电脑版并安装。Mac 第一次打开如果提示“无法验证开发者”：系统设置 › 隐私与安全性 › “仍要打开”。Windows 提示时点“更多信息” › “仍要运行”。</li>
+      <li>打开软件，按引导：选对方语言 → 选方案、粘贴 Key → 点 <b>“一键安装虚拟麦克风”</b>（Mac 会让你输入一次电脑密码）。</li>
+      <li>在会议软件（Teams / 飞书 / 腾讯会议 / Zoom）的“音频设置”里，把 <b>麦克风</b> 选成 <b>BlackHole 2ch</b>（Mac）或 <b>CABLE Output</b>（Windows），扬声器不用改。</li>
+      <li>在会议同传助手里点 <b>“开始同传”</b>，戴上耳机开会。</li>
+    </ol>
+    <p class="tip">对方说话时你会在耳机里听到中文译音，同时有悬浮字幕；只想看字幕可以关掉“播放中文译音”。</p>
+  </section>
+
+  <section id="face">
+    <h2>🤝 面对面一对一</h2>
+    <h3>安卓手机：一部手机放中间</h3>
+    <ol>
+      <li>用安卓手机打开 <a href="./">下载页</a>，点 <b>“下载安卓版”</b>，安装（提示“未知来源”时点允许）。</li>
+      <li>打开 App，点右上角 ⚙️，粘贴百炼 Key（有“去获取 Key”按钮）。</li>
+      <li>把手机放在你们中间，点 <b>“开始对话”</b>，谁说都行：说中文它就念外语，说外语它就念中文。周围吵就切到 <b>“按住说话”</b>。</li>
+    </ol>
+    <h3>苹果手机</h3>
+    <p class="tip warn">苹果手机不能从网站安装 App，请用电脑开“现场房间”，手机扫码使用（见下一节），两个人各用自己的手机也可以。</p>
+  </section>
+
+  <section id="room">
+    <h2>👥 多人现场开会（现场房间）</h2>
+    <p class="need">一台电脑开房间，每个人用自己的手机扫码，不用装任何东西，苹果安卓都行。</p>
+    <ol>
+      <li>电脑上打开会议同传助手，点左边 <b>“现场房间”</b> › <b>“开启房间”</b>。大家在同一个 Wi-Fi 就直接扫屏幕上的二维码；不在一起的人，打开 <b>“公网链接”</b> 再扫。</li>
+      <li>每个人用手机相机扫码，填名字，选自己说的语言（中文 / Español / English），点“加入”，<b>戴上耳机</b>。</li>
+      <li>说话时 <b>按住手机上的大按钮</b>，松开就翻译。其他语言的人会在耳机里听到译音，同时看到字幕。</li>
+    </ol>
+    <p class="tip">一个人说完再到下一个人，效果最好。每个房间都有独立的随机密码，不同电脑开的房间互不干扰；手机拿不到你的 Key。</p>
+  </section>
+
+  <section id="faq">
+    <h2>❓ 常见问题</h2>
+    <h3>对方听不到我的翻译</h3>
+    <ol>
+      <li>插件：确认点了“开始同传”，并且是在装插件之后才入的会（不然刷新页面重新入会）。</li>
+      <li>客户端：确认会议软件里的麦克风选的是 BlackHole 2ch / CABLE Output，并且没有在会议里静音。</li>
+    </ol>
+    <h3>没反应 / 提示 Key 不对</h3>
+    <ol>
+      <li>在设置里点 <b>“测试一下”</b>，按提示改。Key 前后不要多空格；百炼 Key 的地域（中国 / 国际）要和你注册的一致。</li>
+    </ol>
+    <h3>专有名词翻错了</h3>
+    <ol>
+      <li>在 <b>术语表</b> 里加上：中文、外文的固定叫法，以及常被听错的写法（别名）。</li>
+    </ol>
+    <h3>会不会把我的原声传过去？</h3>
+    <p class="tip">不会。同传时会议里只有翻译后的声音，你的原声不会传过去。想自己直接说外语时，打开“原声直通”。</p>
+  </section>
+
+  <p style="text-align:center;color:#6e6e73;font-size:13px"><a href="./">← 返回下载页</a> · 免费开源</p>
+</main>
+</body>
+</html>
