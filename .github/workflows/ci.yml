@@ -46,7 +46,7 @@ jobs:
       - name: Android app compiles
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: e2e-screenshots
@@ -109,7 +109,7 @@ jobs:
           bash scripts/test-packaged.sh
           # The installer itself (with its uninstall question) must compile, not only at release time.
           if [ "$RUNNER_OS" = Windows ]; then npx electron-builder --win nsis --x64 --prepackaged release/win-unpacked --publish never; fi
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: e2e-${{ matrix.os }}
