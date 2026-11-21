@@ -73,6 +73,7 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
   const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const [parts, setParts] = useState<{ kind: 'mix' | 'screen'; n: number; url: string }[]>([]);
   const [title, setTitle] = useState('');
 
   const load = async () => {
@@ -86,6 +87,13 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
         if (rel) u[key] = await api.meetings.fileUrl(id, rel);
       }
       setUrls(u);
+      // Recording switched off and on (or a device change) continues in parts: mix, mix2, mix3…
+      const list: { kind: 'mix' | 'screen'; n: number; url: string }[] = [];
+      for (const [key, rel] of Object.entries(detail.meta.files)) {
+        const m = /^(mix|screen)(\d*)$/.exec(key);
+        if (m && typeof rel === 'string') list.push({ kind: m[1] as 'mix' | 'screen', n: Number(m[2] || 1), url: await api.meetings.fileUrl(id, rel) });
+      }
+      setParts(list.sort((a, b) => a.n - b.n));
     }
   };
   useEffect(() => {
@@ -202,18 +210,18 @@ function MeetingDetailView({ id, onBack }: { id: string; onBack: () => void }) {
 
       {tab === 'media' && (
         <div className="card">
-          {urls.screen && (
-            <div className="stack" style={{ marginBottom: 16 }}>
-              <b>录屏</b>
-              <video src={urls.screen} controls style={{ width: '100%', borderRadius: 10, background: '#000' }} />
-            </div>
-          )}
-          {urls.mix && (
-            <div className="stack" style={{ marginBottom: 16 }}>
-              <b>全程混音</b>
-              <audio src={urls.mix} controls style={{ width: '100%' }} />
-            </div>
-          )}
+          {(['screen', 'mix'] as const).map((kind) => {
+            const ps = parts.filter((p) => p.kind === kind);
+            return ps.map((p) => (
+              <div key={`${kind}${p.n}`} className="stack" style={{ marginBottom: 16 }}>
+                <b>
+                  {kind === 'screen' ? '录屏' : '全程混音'}
+                  {ps.length > 1 ? `（第 ${p.n} 段）` : ''}
+                </b>
+                {kind === 'screen' ? <video src={p.url} controls style={{ width: '100%', borderRadius: 10, background: '#000' }} /> : <audio src={p.url} controls style={{ width: '100%' }} />}
+              </div>
+            ));
+          })}
           {urls.mic && (
             <div className="stack" style={{ marginBottom: 16 }}>
               <b>我方原声</b>

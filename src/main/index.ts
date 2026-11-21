@@ -397,8 +397,13 @@ const handlers: Record<string, Handler> = {
   'meeting.setPassthrough': (on: boolean) => sessionManager.setPassthrough(on),
   'meeting.pushToTalk': (down: boolean) => sessionManager.pushToTalk(down),
   'meeting.skip': (dir: Direction) => sessionManager.skip(dir),
-  'meeting.setRecording': (opts: { audio?: boolean; screen?: boolean; screenSourceId?: string }) => {
+  /** Recording on/off: the default for meetings, and (mid-meeting) for the one running now. */
+  'meeting.setRecording': async (opts: { audio?: boolean; screen?: boolean; screenSourceId?: string }) => {
     settings.set({ recording: opts });
+    if (!sessionManager.active || sessionManager.state.mode !== 'meeting') return;
+    if (opts.screen) await prepareScreenRecording();
+    const r = settings.get().recording;
+    sessionManager.setRecording({ audio: r.audio, screen: r.screen, screenSourceId: r.screenSourceId });
   },
 
   'meetings.list': () => meetings.list(),

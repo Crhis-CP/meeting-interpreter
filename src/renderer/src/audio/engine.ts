@@ -55,6 +55,12 @@ export class AudioEngine {
   private levels = { mic: 0, meeting: 0 };
   private timer: ReturnType<typeof setInterval> | null = null;
   private recorders: { kind: 'mix' | 'screen'; rec: MediaRecorder }[] = [];
+  /** Starting and stopping recorders one after another (a quick off/on must not overlap). */
+  private recOps: Promise<void> = Promise.resolve();
+  private queueRec(op: () => Promise<void>): Promise<void> {
+    this.recOps = this.recOps.then(op, op);
+    return this.recOps;
+  }
   private recCtx: AudioContext | null = null;
   private screenStream: MediaStream | null = null;
   private passthrough = false;
@@ -83,9 +89,9 @@ export class AudioEngine {
       case 'micGate':
         return;
       case 'startRecording':
-        return this.startRecording(msg.audio, msg.screen, msg.screenSourceId);
+        return this.queueRec(() => this.startRecording(msg.audio, msg.screen, msg.screenSourceId));
       case 'stopRecording':
-        return this.stopRecording();
+        return this.queueRec(() => this.stopRecording());
       case 'testTone':
         return this.testTone(msg.target, msg.config);
     }
@@ -199,7 +205,7 @@ export class AudioEngine {
 
     this.timer = setInterval(() => this.tick(), 250);
     this.send({ type: 'started', loopbackExcludesSelf, warnings });
-    if (cfg.record.audio || cfg.record.screen) void this.startRecording(cfg.record.audio, cfg.record.screen, cfg.record.screenSourceId);
+    if (cfg.record.audio || cfg.record.screen) void this.queueRec(() => this.startRecording(cfg.record.audio, cfg.record.screen, cfg.record.screenSourceId));
   }
 
   private async makeSink(sinkId: string): Promise<SinkCtx> {
@@ -383,7 +389,7 @@ export class AudioEngine {
     this.running = false;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    await this.stopRecording();
+    await this.queueRec(() => this.stopRecording());
     this.flush('out');
     this.flush('in');
     for (const s of [this.micStream, this.meetingStream]) s?.getTracks().forEach((t) => t.stop());

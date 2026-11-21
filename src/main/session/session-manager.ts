@@ -409,6 +409,20 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     }
   }
 
+  /**
+   * Recording switched on or off mid-meeting: the recorders restart with the new choice; what
+   * continues goes on in a new file (mix-2, screen-2, …), listed in the meeting's record.
+   */
+  setRecording(want: { audio: boolean; screen: boolean; screenSourceId: string }): void {
+    if (!this.s.active || this.s.mode !== 'meeting') return;
+    const cur = this.s.recording;
+    if (cur.audio === want.audio && cur.screen === want.screen && !cur.screenError) return;
+    this.s.recording = { audio: want.audio, screen: want.screen };
+    this.d.toAudio({ type: 'stopRecording' });
+    if (want.audio || want.screen) this.d.toAudio({ type: 'startRecording', audio: want.audio, screen: want.screen, screenSourceId: want.screenSourceId });
+    this.publish();
+  }
+
   setOut(enabled: boolean): void {
     this.s.out.enabled = enabled;
     this.applyOutGate();

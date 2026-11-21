@@ -112,3 +112,33 @@ test('准备情况: what is missing before a meeting is listed, each fix opens t
   await expect(win.getByRole('tab', { name: '音频设备' })).toHaveAttribute('aria-selected', 'true');
   await app.close();
 });
+
+test('录音 switched off and on mid-meeting: the recording goes on in a second part, both listed in the record', async () => {
+  const { app, recordsDir } = await launchApp();
+  const win = await mainWindow(app);
+  await win.getByRole('button', { name: '开始同传' }).click();
+  await expect(win.getByText('大家好，欢迎参加今天的会议。')).toBeVisible({ timeout: 30_000 });
+  const rec = win.getByLabel('双语记录').locator('label.toggle', { hasText: '录音' });
+  await expect(rec.locator('input')).toBeChecked();
+  await rec.click();
+  await expect(rec.locator('input')).not.toBeChecked();
+  await win.waitForTimeout(1500);
+  await rec.click();
+  await expect(rec.locator('input')).toBeChecked();
+  await win.waitForTimeout(2500);
+  await win.getByRole('button', { name: '结束会议' }).click();
+  await expect(win.getByText('会议已结束')).toBeVisible({ timeout: 20_000 });
+
+  const folder = join(recordsDir, readdirSync(recordsDir)[0]!);
+  const meta = JSON.parse(readFileSync(join(folder, 'meeting.json'), 'utf8')) as { files: Record<string, string> };
+  expect(meta.files.mix, JSON.stringify(meta.files)).toBeTruthy();
+  expect(meta.files.mix2, JSON.stringify(meta.files)).toBeTruthy();
+  expect(existsSync(join(folder, meta.files.mix2!))).toBe(true);
+
+  await win.getByRole('button', { name: '查看会议记录' }).click();
+  await win.locator('.list-item').first().click();
+  await win.getByRole('tab', { name: '录音录屏' }).click();
+  await expect(win.getByText('全程混音（第 1 段）')).toBeVisible();
+  await expect(win.getByText('全程混音（第 2 段）')).toBeVisible();
+  await app.close();
+});

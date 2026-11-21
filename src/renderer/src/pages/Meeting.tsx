@@ -318,10 +318,12 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
       <section className="card" style={{ marginTop: 16 }} aria-labelledby="live-title">
         <div className="row between">
           <h3 id="live-title">双语记录</h3>
+          {/* Switched mid-meeting, recording goes on in a new part (listed in the meeting record). */}
           {active && state?.recording && (
             <div className="row">
-              {state.recording.audio && <span className="badge live">录音</span>}
-              {state.recording.screen && !state.recording.screenError && <span className="badge live">录屏</span>}
+              <Toggle checked={state.recording.audio} onChange={(v) => void api.meeting.setRecording({ audio: v }).catch((e) => setError(errMsg(e)))} label="录音" />
+              <Toggle checked={state.recording.screen && !state.recording.screenError} onChange={(v) => void api.meeting.setRecording({ screen: v }).catch((e) => setError(errMsg(e)))} label="录屏" />
+              {state.recording.screenError && <span className="badge err" title={state.recording.screenError}>录屏失败</span>}
             </div>
           )}
         </div>
