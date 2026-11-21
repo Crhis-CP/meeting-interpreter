@@ -1,7 +1,8 @@
 /**
  * After a meeting (only with the user's own LLM key): the LLM reads what *I* said and points out
- * words the recogniser most likely mis-heard. Suggestions are only kept when the word is really in
- * that sentence and sounds like the replacement; the user confirms each one before it is learned.
+ * words the recogniser most likely mis-heard; and what the *other side* said, for their names and
+ * terms the recogniser spelled by ear. Suggestions are only kept when the word is really in that
+ * sentence and sounds like the replacement.
  */
 import { baseOf, type LangBase } from '../lang/languages';
 import type { Llm } from '../providers/types';
@@ -27,9 +28,51 @@ export async function reviewTranscript(llm: Llm, segs: TranscriptSegment[], opts
   return (await review(llm, segs, { ...opts, withTerms: null })).suggestions;
 }
 
-/** The full after-meeting pass: likely mis-hearings in my sentences, and terms worth keeping. */
-export function reviewMeeting(llm: Llm, segs: TranscriptSegment[], opts: { terms: string[]; foreign: 'es' | 'en'; signal?: AbortSignal; max?: number }): Promise<{ suggestions: ReviewSuggestion[]; terms: LearnedTerm[] }> {
-  return review(llm, segs, { ...opts, withTerms: opts.foreign });
+/**
+ * The full after-meeting pass: likely mis-hearings in my sentences, terms worth keeping, and the
+ * other side's names / terms the recogniser mis-heard (`theirs`: corrected, and remembered as what
+ * that term "is often heard as").
+ */
+export async function reviewMeeting(
+  llm: Llm,
+  segs: TranscriptSegment[],
+  opts: { terms: string[]; foreign: 'es' | 'en'; signal?: AbortSignal; max?: number },
+): Promise<{ suggestions: ReviewSuggestion[]; terms: LearnedTerm[]; theirs: ReviewSuggestion[] }> {
+  const mine = await review(llm, segs, { ...opts, withTerms: opts.foreign });
+  const theirs = await reviewTheirs(llm, segs, opts).catch(() => []);
+  return { ...mine, theirs };
+}
+
+/** The other side's sentences: names and terms the recogniser spelled by ear (Sárate → Zárate). */
+async function reviewTheirs(llm: Llm, segs: TranscriptSegment[], opts: { terms: string[]; foreign: 'es' | 'en'; signal?: AbortSignal }): Promise<ReviewSuggestion[]> {
+  const theirs = segs.filter((s) => s.dir === 'in' && s.srcText.trim() && baseOf(s.srcLang) === opts.foreign);
+  if (!theirs.length) return [];
+  const known = opts.terms.filter((t) => t && !/\p{Script=Han}/u.test(t)).slice(0, 80);
+  const system = [
+    `You check a speech-recognition transcript of the OTHER side of a business meeting, who speaks ${FOREIGN_NAME[opts.foreign]}.`,
+    'Find only NAMES and TERMS the recogniser most likely mis-heard: people, companies, brands, products, places, technical words written the way they sound (e.g. "Sárate" for "Zárate", "Kilmes" for "Quilmes").',
+    'Only flag one when it is clearly wrong AND sounds like the replacement. Do not fix grammar, style, everyday words, numbers or punctuation.',
+    known.length ? `Names and terms used in this company's meetings (likely meant when something sounds like them): ${known.join(', ')}` : '',
+    'Reply with JSON only: {"items":[{"line":<line number>,"heard":"<exact text as it appears in that line>","meant":"<the right spelling>"}]}. Use an empty list when there is nothing.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const part = theirs.slice(0, 200);
+  const user = part.map((s, i) => `${i + 1}. ${s.srcText.trim()}`).join('\n').slice(0, MAX_CHARS);
+  const reply = await llm.complete({ system, user, json: true, maxTokens: 1500, temperature: 0.1, signal: opts.signal });
+  const out: ReviewSuggestion[] = [];
+  for (const it of parseList(reply, 'items')) {
+    const seg = part[(typeof it.line === 'number' ? it.line : Number(it.line)) - 1];
+    const heard = typeof it.heard === 'string' ? it.heard.trim() : '';
+    const meant = typeof it.meant === 'string' ? it.meant.trim() : '';
+    if (!seg || !heard || !meant || heard === meant || heard.length > 40 || meant.length > 40) continue;
+    if (!learnableFix(heard, meant, opts.foreign) || !seg.srcText.includes(heard)) continue;
+    if (!soundsAlike(tokens(heard, opts.foreign), tokens(meant, opts.foreign), opts.foreign)) continue;
+    if (out.some((o) => o.segId === seg.id && o.heard === heard)) continue;
+    out.push({ segId: seg.id, heard, meant, reason: '对方的名字或术语被听错了' });
+    if (out.length >= 20) break;
+  }
+  return out;
 }
 
 const FOREIGN_NAME = { es: 'Spanish', en: 'English' } as const;

@@ -120,6 +120,31 @@ export class GlossaryStore {
       g.entries.push({ id: newEntryId(), zh: t.zh, es: foreign === 'es' ? t.foreign : '', en: foreign === 'en' ? t.foreign : '', aliasesZh: [], aliasesEs: [], aliasesEn: [], note: '会后自动学到', enabled: true });
       added.push(t);
     }
+    // A bounded list: every term is a chance to "correct" a word that was right, and the oldest
+    // ones are the least likely to come up again.
+    if (g.entries.length > MAX_AUTO_TERMS) g.entries.splice(0, g.entries.length - MAX_AUTO_TERMS);
+    if (added.length) this.persist();
+    return added;
+  }
+
+  /**
+   * The other side's terms the recogniser mis-heard: remembered on the automatic glossary's entry
+   * for the term (its "often heard as"), so later meetings correct them right away. Only automatic
+   * entries are changed (the user's own glossaries are theirs); at most 5 per term.
+   */
+  addAutoAliases(fixes: { heard: string; meant: string }[], foreign: 'es' | 'en'): { heard: string; meant: string }[] {
+    const g = this.items.find((x) => x.id === AUTO_GLOSSARY_ID);
+    if (!g) return [];
+    const fold = (v: string) => v.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+    const added: { heard: string; meant: string }[] = [];
+    for (const f of fixes) {
+      const e = g.entries.find((x) => fold((foreign === 'en' ? x.en : x.es) ?? '') === fold(f.meant));
+      if (!e) continue;
+      const list = foreign === 'en' ? (e.aliasesEn ??= []) : e.aliasesEs;
+      if (list.length >= 5 || list.some((a) => fold(a) === fold(f.heard))) continue;
+      list.push(f.heard);
+      added.push(f);
+    }
     if (added.length) this.persist();
     return added;
   }
@@ -135,3 +160,5 @@ export class GlossaryStore {
 }
 
 export const AUTO_GLOSSARY_ID = 'auto-terms';
+/** At most this many automatically learned terms; the oldest go first. */
+export const MAX_AUTO_TERMS = 300;

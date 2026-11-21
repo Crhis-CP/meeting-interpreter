@@ -71,5 +71,6 @@ describe('LlmTranslator', () => {
     expect(p.system).toContain('"next week, no, next month" → "next month"');
     expect(p.system).toContain('Argentine (Rioplatense)');
     expect(buildTranslationPrompt({ text: 'x', from: 'zh-CN', to: 'es-MX', hits: [], context: [] }).system).not.toContain('Argentine');
+    expect(buildTranslationPrompt({ text: 'x', from: 'en-US', to: 'zh-CN', hits: [], context: [] }).system).toContain('non-native speaker');
   });
 });

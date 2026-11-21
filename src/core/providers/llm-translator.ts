@@ -20,6 +20,9 @@ export function buildTranslationPrompt(req: TranslateRequest): { system: string;
     'It is spoken language: leave out hesitations, repeated words and anything the speaker corrected themselves on; translate only what they finally mean (e.g. "next week, no, next month" → "next month").',
     'Keep names, numbers, amounts, dates and units exact.',
   ];
+  if (lang(req.from).base === 'en') {
+    lines.push('The English may come from a non-native speaker (for example a Latin American, Indian or Southeast Asian accent); recognition errors then follow their accent — translate what they mean.');
+  }
   if (req.from === 'es-AR' || req.to === 'es-AR') {
     lines.push('The Spanish here is Argentine (Rioplatense): voseo (vos sabés, podés), and words like che (hey), dale (OK / sure), quilombo (a mess), laburo (work), plata (money). Into Spanish, write natural Latin American Spanish with usted/ustedes that an Argentine reads easily.');
   }

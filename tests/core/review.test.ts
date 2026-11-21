@@ -104,3 +104,19 @@ describe('single-character fixes are never learned', () => {
     expect(applyCorrections('我的河同', rules, 'zh').text).toBe('我的合同');
   });
 });
+
+describe('the other side’s names and terms', () => {
+  it('are checked too: sound-alike fixes that are really in their sentence are kept, everyday words are not', async () => {
+    const segs = [seg('out-1', 'out', '我们和萨拉特先生谈过了。'), seg('in-1', 'in', 'Habló con el señor Sárate ayer.'), seg('in-2', 'in', 'La planta de Kilmes está lejos.')];
+    const replies = [
+      JSON.stringify({ items: [], terms: [] }),
+      JSON.stringify({ items: [{ line: 1, heard: 'Sárate', meant: 'Zárate' }, { line: 2, heard: 'Kilmes', meant: 'Quilmes' }, { line: 2, heard: 'lejos', meant: 'cerca' }, { line: 1, heard: 'Pérez', meant: 'Peres' }] }),
+    ];
+    const llm: Llm & { requests: LlmRequest[] } = { id: 'fake', requests: [], async complete(req) { this.requests.push(req); return replies.shift()!; } };
+    const r = await reviewMeeting(llm, segs, { terms: ['Zárate'], foreign: 'es' });
+    expect(r.theirs.map((s) => `${s.segId}:${s.heard}→${s.meant}`)).toEqual(['in-1:Sárate→Zárate', 'in-2:Kilmes→Quilmes']);
+    expect(llm.requests[1]!.system).toContain('OTHER side');
+    expect(llm.requests[1]!.system).toContain('Zárate');
+    expect(llm.requests[1]!.user).toBe('1. Habló con el señor Sárate ayer.\n2. La planta de Kilmes está lejos.');
+  });
+});

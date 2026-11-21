@@ -857,6 +857,20 @@ async function reviewMeeting(id: string): Promise<StoredReview> {
     sg.auto = true;
   }
   review.terms = glossaries.addAutoTerms(r.terms, foreign);
+  // The other side's mis-heard names and terms: corrected in this record (re-translated), and
+  // remembered on the automatic glossary's term so later meetings get them right.
+  for (const fix of r.theirs) {
+    const sg: StoredReview['suggestions'][number] = { ...fix };
+    const seg = meetings.get(id)?.segments.find((s) => s.id === sg.segId);
+    if (!seg || !seg.srcText.includes(sg.heard)) continue;
+    sg.before = seg.srcText;
+    sg.after = seg.srcText.replace(sg.heard, sg.meant);
+    await editSegment(id, sg.segId, sg.after, { learn: false }).catch((err) => log.warn('auto correction failed', err instanceof Error ? err.message : String(err)));
+    sg.decision = 'accepted';
+    sg.auto = true;
+    review.suggestions.push(sg);
+  }
+  glossaries.addAutoAliases(r.theirs, foreign);
   meetings.saveReview(id, review);
   return review;
 }
