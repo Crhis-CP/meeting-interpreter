@@ -132,7 +132,8 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           </div>
           {Object.values(keys).some(Boolean) && (
             <div style={{ marginTop: 14 }}>
-              <TestPanel scope="llm" label="测试" beforeRun={storeKeys} />
+              {/* The plan just chosen, end to end (recognition → translation → voice), with the keys just typed. */}
+              <TestPanel scope="out" label="测试一下：用这个方案翻译一句话" beforeRun={storeKeys} />
             </div>
           )}
         </div>
