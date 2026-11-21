@@ -146,6 +146,15 @@ describe('LocalRecognizer (fake sherpa-onnx)', () => {
     expect(new LocalRecognizer({ sherpa: fakeSherpa, lang: 'es-ES', models: allReady, esModel: 'whisper-small', onFinal: () => undefined }).model).toBe('whisper-small');
   });
 
+  it('Whisper gets 6 s stretches and the threads asked for; SenseVoice keeps 10 s and at most 2 threads', () => {
+    new LocalRecognizer({ sherpa: fakeSherpa, lang: 'es-AR', models: allReady, numThreads: 4, onFinal: () => undefined });
+    expect(fake.vadConfigs.at(-1)!.sileroVad).toMatchObject({ maxSpeechDuration: 6 });
+    expect(fake.asrConfigs.at(-1)!.modelConfig).toMatchObject({ numThreads: 4 });
+    new LocalRecognizer({ sherpa: fakeSherpa, lang: 'zh-CN', models: allReady, numThreads: 4, onFinal: () => undefined });
+    expect(fake.vadConfigs.at(-1)!.sileroVad).toMatchObject({ maxSpeechDuration: 10 });
+    expect(fake.asrConfigs.at(-1)!.modelConfig).toMatchObject({ numThreads: 2 });
+  });
+
   it('cleans results and drops Whisper’s inventions on silence', () => {
     expect(cleanText('  Hola   a todos ', 'es')).toBe('Hola a todos');
     expect(cleanText('Subtítulos realizados por la comunidad de Amara.org', 'es')).toBe('');

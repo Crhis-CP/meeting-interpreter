@@ -7,7 +7,7 @@ import type { GlossaryEntry } from '../../core/glossary/types';
 import { baseOf, otherLanguage, type LangBase } from '../../core/lang/languages';
 import type { CorrectionRule } from '../../core/profile/profile';
 import type { Logger } from '../../core/log';
-import type { DirectionPipeline } from '../../core/pipeline/pipeline';
+import { slowTranslationNotice, type DirectionPipeline } from '../../core/pipeline/pipeline';
 import { createDirection } from '../../core/pipeline/direction';
 import type { Llm, StreamingAsr, Translator, Tts } from '../../core/providers/types';
 import { summarize, summaryToMarkdown, type MeetingSummary, type SummaryTemplate } from '../../core/session/summary';
@@ -101,6 +101,8 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
   private stopping: Promise<MeetingMeta | null> | null = null;
   /** The audio window has started this meeting's audio (and with it the recorders). */
   private audioStarted = false;
+  /** "Translation is slow here", once said in this meeting. */
+  private slowNote: string | null = null;
   private stateTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(deps: SessionDeps) {
@@ -286,6 +288,13 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
           this.emit('ttsEnd', { dir, segmentId });
         });
         p.on('audioFlush', () => this.d.toAudio({ type: 'flush', dir }));
+        p.on('slow', ({ translator, typicalMs }) => {
+          // Once per meeting (either direction): it stays in the meeting's notes at the top.
+          if (this.slowNote) return;
+          this.slowNote = slowTranslationNotice(translator, typicalMs);
+          this.s.warnings = [...this.s.warnings, this.slowNote];
+          this.publish();
+        });
         return p;
       };
 
@@ -304,6 +313,7 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
     if (gen !== this.startGen || !this.s.active || !this.meta) return this.s;
 
     this.audioStarted = false;
+    this.slowNote = null;
     this.d.toAudio({ type: 'start', config: audioConfig(settings, mode) });
     this.publish(true);
     this.d.log.info(`meeting started: ${this.meta.id}`);
@@ -362,7 +372,7 @@ export class SessionManager extends Emitter<{ segment: TranscriptSegment; ended:
       case 'started':
         this.audioStarted = true;
         this.s.loopbackExcludesSelf = msg.loopbackExcludesSelf;
-        this.s.warnings = msg.warnings;
+        this.s.warnings = [...msg.warnings, ...(this.slowNote ? [this.slowNote] : [])];
         // System loopback that also captures our own Chinese speech would feed it back into the
         // Spanish recogniser: switch the voice off (subtitles stay) rather than loop.
         if (msg.loopbackExcludesSelf === false && this.s.meetingSource === 'loopback' && this.s.in.speak) {

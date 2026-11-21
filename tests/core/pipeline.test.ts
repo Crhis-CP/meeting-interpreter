@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Emitter } from '@core/events';
-import { DirectionPipeline, rateForBacklog } from '@core/pipeline/pipeline';
+import { DirectionPipeline, rateForBacklog, slowTranslationNotice } from '@core/pipeline/pipeline';
 import type { AsrEvents, AsrSession, StreamingAsr, Translator, Tts, TranslateRequest, TtsRequest } from '@core/providers/types';
 import type { TranscriptSegment } from '@core/types';
 import { waitFor } from '../helpers/fakes';
@@ -233,6 +233,25 @@ describe('DirectionPipeline', () => {
     asr.last.final('下一句。');
     await waitFor(() => ends.includes('out-2'), 3000);
     expect(segments.find((s) => s.id === 'out-1' && s.status === 'failed')?.error).toMatch(/超时/);
+  });
+
+  it('says once, with what would be faster, when translation keeps coming late; never for a fast one', async () => {
+    const { p, asr, translator, ends } = make({ translateTimeoutMs: 30 });
+    const slow: { translator: string; typicalMs: number }[] = [];
+    p.on('slow', (x) => slow.push(x));
+    await p.start();
+    for (let i = 1; i <= 3; i++) asr.last.final(`第${i}句。`);
+    await waitFor(() => ends.includes('out-3'), 3000);
+    expect(slow).toEqual([]); // quick ones
+    for (let i = 4; i <= 12; i++) {
+      translator.delays[`第${i}句。`] = 10_000;
+      asr.last.final(`第${i}句。`);
+    }
+    await waitFor(() => slow.length > 0, 5000);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(slow).toEqual([{ translator: 'fake', typicalMs: 30 }]); // once; typical = "did not come" → the timeout
+    expect(slowTranslationNotice('local-ai', 6400)).toMatch(/本机 AI 翻译在这台电脑上比较慢（每句约 6\.4 秒）.*只显示字幕、不念.*设置 › 翻译服务/);
+    expect(slowTranslationNotice('llm', 12000)).toMatch(/翻译服务回得比较慢（每句约 12 秒）.*检查网络/);
   });
 });
 

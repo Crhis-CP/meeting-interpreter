@@ -81,7 +81,35 @@ export type PipelineEvents = {
   /** Drop whatever audio is queued for playback (after skipToLatest). */
   audioFlush: Record<string, never>;
   status: { state: PipelineState; message?: string };
+  /**
+   * Translation keeps coming late on this computer / connection (most of the last few sentences
+   * took over SLOW_TRANSLATION_MS or did not come): said once per meeting, so the person knows why
+   * the other side hears it late and what would be faster — never a silent change of service.
+   */
+  slow: { translator: string; typicalMs: number };
 };
+
+class TimeoutError extends Error {
+  readonly retryable = true;
+  constructor() {
+    super('翻译超时');
+  }
+}
+
+/** A translation slower than this keeps the other side waiting noticeably. */
+export const SLOW_TRANSLATION_MS = 4000;
+/** What to tell the person when translation keeps coming late (see the `slow` event). */
+export function slowTranslationNotice(translator: string, typicalMs: number): string {
+  const secs = `每句约 ${(typicalMs / 1000).toFixed(typicalMs < 10_000 ? 1 : 0)} 秒`;
+  const late = '对方会晚一些听到，太晚的句子只显示字幕、不念';
+  if (translator === 'local-ai') return `本机 AI 翻译在这台电脑上比较慢（${secs}），${late}。想更快：设置 › 翻译服务 换成云端方案（智谱 GLM 有免费额度），或开会时关掉其他占电脑的软件。`;
+  if (translator === 'offline') return `离线翻译比较慢（${secs}），${late}。`;
+  return `翻译服务回得比较慢（${secs}），${late}。请检查网络；一直这样可以在 设置 › 翻译服务 换一家。`;
+}
+
+/** How many recent sentences are looked at, and how many of them must be slow. */
+const SLOW_WINDOW = 6;
+const SLOW_COUNT = 4;
 
 interface Job {
   seg: TranscriptSegment;
@@ -114,6 +142,9 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
   private queue: Job[] = [];
   private speaking: Promise<void> = Promise.resolve();
   private context: { src: string; dst: string }[] = [];
+  /** How long the last few translations took (Infinity: did not come). */
+  private recentMs: number[] = [];
+  private toldSlow = false;
   private sentenceStart: number | null = null;
   private abort = new AbortController();
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -350,6 +381,8 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
       return true;
     };
     let lastError = '';
+    let timedOut = false;
+    const began = Date.now();
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         // With a draft to fall back on, do not wait long for a slow service.
@@ -361,6 +394,7 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
           break;
         }
         final = true;
+        this.noteTime(Date.now() - began);
         job.seg = { ...job.seg, dstText: out, draft: undefined, status: job.skipped ? 'skipped' : 'done' };
         this.context.push({ src: job.seg.srcText, dst: out });
         if (this.context.length > 6) this.context.shift();
@@ -369,16 +403,30 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
       } catch (err) {
         if (isAbortError(err) && this.abort.signal.aborted) return null;
         lastError = err instanceof Error ? err.message : String(err);
+        if (err instanceof TimeoutError) timedOut = true;
         const retryable = (err as { retryable?: boolean }).retryable ?? true;
         if (this.o.draft || !retryable || attempt === 1) break;
         await sleep(400, this.abort.signal).catch(() => undefined);
       }
     }
+    if (timedOut && !this.stopping) this.noteTime(Infinity);
     if (this.o.draft && (await keepDraft(lastError))) return null;
     job.seg = { ...job.seg, status: 'failed', error: lastError };
     this.log.warn('translation failed', lastError);
     this.emit('segment', job.seg);
     return null;
+  }
+
+  private noteTime(ms: number): void {
+    this.recentMs.push(ms);
+    if (this.recentMs.length > SLOW_WINDOW) this.recentMs.shift();
+    if (this.toldSlow || this.recentMs.filter((x) => x > SLOW_TRANSLATION_MS).length < SLOW_COUNT) return;
+    this.toldSlow = true;
+    const sorted = [...this.recentMs].sort((x, y) => x - y);
+    const typical = sorted[Math.floor(sorted.length / 2)]!;
+    const typicalMs = Number.isFinite(typical) ? Math.round(typical) : (this.o.translateTimeoutMs ?? 12000);
+    this.log.warn(`translation is slow here: typically ${typicalMs} ms (${this.o.translator.id})`);
+    this.emit('slow', { translator: this.o.translator.id, typicalMs });
   }
 
   private async speak(job: Job): Promise<void> {
@@ -431,7 +479,7 @@ export class DirectionPipeline extends Emitter<PipelineEvents> {
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         ac.abort();
-        reject(Object.assign(new Error('翻译超时'), { retryable: true }));
+        reject(new TimeoutError());
       }, ms);
     });
     try {

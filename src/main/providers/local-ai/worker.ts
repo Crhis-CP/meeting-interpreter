@@ -39,7 +39,10 @@ export function attachAiWorker(port: ParentPortLike, loadLib: () => Promise<Lib>
         const model = await llama.loadModel({ modelPath: m.modelPath });
         // A sequence per direction: each keeps its instruction evaluated, so a new sentence only
         // costs its own words (the library reuses the matching start of the previous prompt).
-        const ctx = await model.createContext({ contextSize: 2048, threads: m.threads, sequences: LANES });
+        // threads 0: every core that is good for math (performance cores, not hyper-threads), at
+        // most 8. The process runs at a lower priority, so the meeting app still comes first.
+        const threads = m.threads > 0 ? m.threads : Math.max(2, Math.min(8, llama.cpuMathCores));
+        const ctx = await model.createContext({ contextSize: 2048, threads, sequences: LANES });
         loaded = { model, ctx };
         const meta = (model as { fileInfo?: { metadata?: { tokenizer?: { chat_template?: unknown } } } }).fileInfo?.metadata;
         const template = String(meta?.tokenizer?.chat_template ?? '');

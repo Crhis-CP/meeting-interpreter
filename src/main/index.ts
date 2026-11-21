@@ -1,7 +1,7 @@
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, protocol, safeStorage, session, shell, systemPreferences, Tray, utilityProcess } from 'electron';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
-import { constants as osConstants, cpus, homedir, release, setPriority, tmpdir, totalmem } from 'node:os';
+import { availableParallelism, constants as osConstants, homedir, release, setPriority, tmpdir, totalmem } from 'node:os';
 import { execFile, spawn } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -191,7 +191,9 @@ const localAi = (): LocalAiClient | null => {
       id,
       client: new LocalAiClient({
         modelPath: aiModels.pathOf(id, aiModelFile(id)),
-        threads: Math.max(2, Math.min(6, Math.floor(cpus().length / 2))),
+        // All math cores (measured on 4 cores: 0.7 s a sentence instead of 1.3 s with 2 threads;
+        // recognition and translation mostly take turns, so sharing costs little).
+        threads: 0,
         // Its own process on macOS / Windows; in the main process on Linux, where node-llama-cpp
         // checks its binaries with a helper process that only the main process may start.
         spawn: () =>
@@ -244,6 +246,8 @@ const localAsr = (dir: Direction) => {
   return new LocalAsr({
     modelsDir,
     esModel: s.local.esModel,
+    // Whisper: 4 threads where there is room (6 s of Spanish: ~1.7 s instead of ~2.2 s).
+    numThreads: availableParallelism() >= 6 ? 4 : 2,
     spawn: () => forkWorker('local-asr-worker.js', 'local-asr'),
   });
 };

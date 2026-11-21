@@ -104,6 +104,8 @@ export interface VadTuning {
 }
 
 export const DEFAULT_VAD: VadTuning = { threshold: 0.5, minSilenceDuration: 0.5, minSpeechDuration: 0.25, maxSpeechDuration: 10 };
+/** Longest stretch Whisper gets before it is cut at a pause (see the constructor). */
+export const WHISPER_MAX_SPEECH = 6;
 
 export interface LocalRecognizerOptions {
   sherpa: SherpaOnnxModule;
@@ -120,7 +122,7 @@ export interface LocalRecognizerOptions {
   partialEverySec?: number;
   /** Whisper model for Spanish. Default whisper-small; falls back to the other Whisper model when only that one is downloaded. */
   esModel?: WhisperModelId;
-  /** Threads for the recogniser. Default 2. */
+  /** Threads for the Whisper recogniser (SenseVoice uses at most 2). Default 2. */
   numThreads?: number;
   vad?: Partial<VadTuning>;
 }
@@ -179,11 +181,16 @@ export class LocalRecognizer {
     if (missing.length) {
       throw new ProviderError(`本机离线识别模型还没有下载：${missing.map((id) => MODELS[id].label).join('、')}。请先下载模型再开始。`, 'local');
     }
-    this.tuning = { ...DEFAULT_VAD, ...opts.vad };
+    // Whisper (Spanish, English): a long stretch of speech is cut at its next short pause after
+    // 6 s (Silero then raises its threshold), so the first part is recognised and translated while
+    // the speaker goes on. One Whisper decode of 6 s takes ~2 s on a 4-core computer, which is
+    // also why there are no partial results for these languages.
+    this.tuning = { ...DEFAULT_VAD, ...(this.model === 'sensevoice' ? {} : { maxSpeechDuration: WHISPER_MAX_SPEECH }), ...opts.vad };
     // A segment can start up to maxSpeechDuration (+ the silence that ends it) before the newest sample.
     this.history = new Float32Array(Math.ceil((this.tuning.maxSpeechDuration + 5) * ASR_RATE));
     const path = (id: ModelId, role: Parameters<typeof modelFile>[1]) => opts.models.pathOf(id, modelFile(id, role).name);
-    const numThreads = opts.numThreads ?? 2;
+    // SenseVoice is light (and decodes partial results while Chinese is spoken): two threads.
+    const numThreads = this.model === 'sensevoice' ? Math.min(2, opts.numThreads ?? 2) : (opts.numThreads ?? 2);
 
     this.vad = new opts.sherpa.Vad(
       {

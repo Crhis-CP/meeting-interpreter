@@ -7,7 +7,7 @@
  */
 import { base64ToBytes, bytesToBase64, bytesToInt16, floatToInt16, int16ToBytes, int16ToFloat, resampleLinear } from '@core/audio/pcm';
 import { otherLanguage } from '@core/lang/languages';
-import type { DirectionPipeline } from '@core/pipeline/pipeline';
+import { slowTranslationNotice, type DirectionPipeline } from '@core/pipeline/pipeline';
 import { createDirection } from '@core/pipeline/direction';
 import { Transcript } from '@core/session/transcript';
 import type { Direction, MeetingMeta, TranscriptSegment } from '@core/types';
@@ -195,6 +195,8 @@ async function start(msg: Extract<ToOffscreen, { type: 'start' }>) {
       p.on('segment', (seg) => onSegment(s, seg));
       p.on('partial', ({ text }) => sendPage({ t: 'partial', dir, text }, (x) => x.top));
       p.on('status', ({ state, message }) => status({ [dir]: { state, message } }));
+      // Translation keeps coming late: said on the meeting's subtitles, once per direction.
+      p.on('slow', ({ translator, typicalMs }) => sendPage({ t: 'notice', text: slowTranslationNotice(translator, typicalMs) }, (x) => x.top));
       p.on('audio', ({ segmentId, samples, sampleRate }) => (dir === 'out' ? sendOutAudio(s, segmentId, samples, sampleRate) : s.inPlayer.push(segmentId, samples, sampleRate)));
       if (dir === 'out') p.on('audioEnd', ({ segmentId }) => sendPage({ t: 'ttsEnd', id: segmentId }, (x) => x.mic));
       if (dir === 'in') {
