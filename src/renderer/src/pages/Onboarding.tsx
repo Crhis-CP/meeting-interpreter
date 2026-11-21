@@ -12,8 +12,9 @@ import { DriverInstaller } from '../components/DriverInstaller';
 const KEY_INFO: Record<SecretName, { label: string; url: string; placeholder: string }> = {
   llm: { label: '智谱 GLM API Key', url: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys', placeholder: '' },
   dashscope: { label: '阿里云百炼 API Key', url: 'https://bailian.console.aliyun.com/?tab=model#/api-key', placeholder: 'sk-…' },
-  azure: { label: 'Azure 语音服务 Key（F0 免费层）', url: 'https://portal.azure.com', placeholder: '' },
-  azureTranslator: { label: 'Azure 翻译 Key（F0 免费层）', url: 'https://portal.azure.com', placeholder: '' },
+  // F0 (free tier) recognises one stream at a time: both directions at once need S0.
+  azure: { label: 'Azure 语音服务 Key（双向同传需要标准层 S0，免费层 F0 只能翻一个方向）', url: 'https://portal.azure.com', placeholder: '' },
+  azureTranslator: { label: 'Azure 翻译 Key（免费层 F0 即可）', url: 'https://portal.azure.com', placeholder: '' },
   deepl: { label: 'DeepL Key', url: 'https://www.deepl.com/pro-api', placeholder: '' },
 };
 

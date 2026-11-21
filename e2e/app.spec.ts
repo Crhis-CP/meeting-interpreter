@@ -77,3 +77,17 @@ test('English meeting: Chinese becomes English, files are named for English', as
   await expect(win.getByRole('tab', { name: 'English minutes' })).toBeVisible();
   await app.close();
 });
+
+test('without an LLM key, the end of a meeting says that minutes and learning did not run (and where to fix it)', async () => {
+  // Not the demo: the minutes and after-meeting learning would need the (missing) LLM key.
+  const { app } = await launchApp({ preset: 'custom', summary: { autoAtEnd: true } });
+  const win = await mainWindow(app);
+  await win.getByRole('button', { name: '开始同传' }).click();
+  await expect(win.getByText('大家好，欢迎参加今天的会议。')).toBeVisible({ timeout: 30_000 });
+  await win.getByRole('button', { name: '结束会议' }).click();
+  await expect(win.getByText('会议已结束')).toBeVisible({ timeout: 20_000 });
+  await expect(win.getByText(/没有生成纪要，也没有做会后自动学习/)).toBeVisible();
+  await win.getByRole('button', { name: '去填 Key' }).click();
+  await expect(win.getByRole('tab', { name: '翻译服务' })).toHaveAttribute('aria-selected', 'true');
+  await app.close();
+});

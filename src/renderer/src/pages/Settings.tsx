@@ -5,7 +5,7 @@ import { accentsOf, lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/lang
 import { LLM_PRESETS, llmPreset } from '@core/providers/openai-compatible';
 import type { VoiceInfo } from '@core/providers/types';
 import type { AiStatus, AppInfo, LocalModelStatus, ProviderTestStep } from '@shared/ipc';
-import { api, errMsg, useDevices, useEvent, useSettings } from '../api';
+import { api, errMsg, useDevices, useEvent, useLlmReady, useSettings } from '../api';
 import { ExternalLink, Field, Toggle, FlashButton } from '../components/ui';
 import { ScreenPicker } from '../components/ScreenPicker';
 import { acceleratorOf } from '../lib/accelerator';
@@ -50,7 +50,7 @@ export function SettingsPage() {
       {tab === 'providers' && <ProvidersTab s={s} update={update} />}
       {tab === 'devices' && <DevicesTab s={s} update={update} />}
       {tab === 'interp' && <InterpTab s={s} update={update} go={setTab} />}
-      {tab === 'record' && <RecordTab s={s} update={update} />}
+      {tab === 'record' && <RecordTab s={s} update={update} go={setTab} />}
       {tab === 'overlay' && <OverlayTab s={s} update={update} />}
       {tab === 'shortcuts' && <ShortcutsTab s={s} update={update} />}
       {tab === 'about' && <AboutTab />}
@@ -764,7 +764,8 @@ function InterpTab({ s, update, go }: TabProps) {
 
 // ------------------------------------------------------------------ recording
 
-function RecordTab({ s, update }: TabProps) {
+function RecordTab({ s, update, go }: TabProps) {
+  const llmReady = useLlmReady(s);
   const [info, setInfo] = useState<AppInfo | null>(null);
   useEffect(() => void api.app.info().then(setInfo), [s.recording.dir]);
   return (
@@ -790,6 +791,12 @@ function RecordTab({ s, update }: TabProps) {
         <h3>会议纪要</h3>
         <div className="stack">
           <Toggle checked={s.summary.autoAtEnd} onChange={(v) => void update({ summary: { autoAtEnd: v } })} label="会后自动生成纪要" />
+          {s.summary.autoAtEnd && llmReady === false && s.preset !== 'demo' && (
+            <div className="muted small">
+              还不会生成：纪要要用大模型 Key（智谱有免费的）。
+              <button className="btn sm" style={{ marginLeft: 6 }} onClick={() => go?.('providers')}>去填 Key</button>
+            </div>
+          )}
           <Field label="默认模板">
             <select value={s.summary.template} onChange={(e) => void update({ summary: { template: e.target.value } })}>
               <option value="general">通用会议</option>

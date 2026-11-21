@@ -45,7 +45,9 @@ interface MobileSettings {
   useMyVoice: boolean;
 }
 
-const DEFAULTS: MobileSettings = { remote: 'es-MX', mode: 'hands-free', provider: 'dashscope', mt: 'offline', llmPreset: 'zhipu-free', voiceForeign: '', voiceChinese: '', fontSize: 22, myVoiceId: '', useMyVoice: false };
+// Translation defaults to 百炼's (the app needs a 百炼 key for recognition and voice anyway):
+// accuracy first. Offline translation stays available for no network.
+const DEFAULTS: MobileSettings = { remote: 'es-MX', mode: 'hands-free', provider: 'dashscope', mt: 'qwen-mt', llmPreset: 'zhipu-free', voiceForeign: '', voiceChinese: '', fontSize: 22, myVoiceId: '', useMyVoice: false };
 const load = <T>(k: string, d: T): T => {
   try {
     return { ...d, ...(JSON.parse(localStorage.getItem(k) ?? 'null') ?? {}) } as T;
@@ -94,7 +96,19 @@ const offline = new OfflineMt({
   },
 });
 let offlineMissing = 0;
-void offline.missingBytes().then((n) => (offlineMissing = n)).catch(() => undefined);
+void offline
+  .missingBytes()
+  .then((n) => {
+    offlineMissing = n;
+    // Earlier versions defaulted to offline translation. Whoever never downloaded it never
+    // translated with it either: move them to the accurate default (once, nothing else changes).
+    if (n > 0 && settings.mt === 'offline' && !localStorage.getItem('mi-mt-chosen')) {
+      settings.mt = 'qwen-mt';
+      save();
+      render();
+    }
+  })
+  .catch(() => undefined);
 
 /** What still stops the conversation from starting (a missing key), or null. */
 function problem(): string | null {
@@ -546,8 +560,9 @@ function openSettings(hint?: string) {
         h('div', { class: 'row-head' }, h('label', { htmlFor: 'key-dashscope' }, '阿里云百炼 Key'), h('button', { class: 'link', onclick: () => openExternal(KEY_URL) }, '去获取 Key ↗')),
         keyInput('dashscope'),
       ),
-      row('翻译', select(settings.mt, [['offline', '离线翻译（免费）'], ['qwen-mt', '百炼翻译'], ['llm', '大模型']], (v) => {
+      row('翻译', select(settings.mt, [['qwen-mt', '百炼翻译（推荐）'], ['llm', '大模型'], ['offline', '离线翻译（没网时用，准确度较低）']], (v) => {
         settings.mt = v as MobileSettings['mt'];
+        localStorage.setItem('mi-mt-chosen', '1');
         reopen();
       })),
       settings.mt === 'offline' ? offlineRow() : null,

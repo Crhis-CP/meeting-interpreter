@@ -1,8 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppSettings } from '@core/config/schema';
+import { llmPreset } from '@core/providers/openai-compatible';
 import type { MeetingState, RendererEvents } from '@shared/ipc';
 
 export const api = window.api;
+
+/**
+ * Whether the chosen LLM (minutes, after-meeting learning) can be used: its key is saved, or it
+ * needs none. null until known.
+ */
+export function useLlmReady(s: AppSettings | null): boolean | null {
+  const [keys, setKeys] = useState<Record<string, boolean> | null>(null);
+  useEffect(() => void api.secrets.status().then(setKeys, () => setKeys({})), [s?.llm.preset]);
+  if (!s || !keys) return null;
+  const lp = llmPreset(s.llm.preset);
+  return !!(lp?.noKey || keys.llm || (lp?.usesDashscopeKey && keys.dashscope));
+}
 
 export function useEvent<K extends keyof RendererEvents>(event: K, fn: (p: RendererEvents[K]) => void): void {
   const ref = useRef(fn);

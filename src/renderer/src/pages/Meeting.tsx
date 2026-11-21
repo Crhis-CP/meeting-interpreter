@@ -3,7 +3,7 @@ import type { AppSettings } from '@core/config/schema';
 import { lang, REMOTE_CHOICES, withRemoteBase } from '@core/lang/languages';
 import type { TranscriptSegment } from '@core/types';
 import type { MeetingState } from '@shared/ipc';
-import { api, errMsg, useEvent } from '../api';
+import { api, errMsg, useEvent, useLlmReady } from '../api';
 import { Field, Level, SegmentView, StateBadge, Toggle } from '../components/ui';
 import { ScreenPicker } from '../components/ScreenPicker';
 import { DeviceCheck } from '../components/DeviceCheck';
@@ -52,6 +52,7 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
   const [lastMeeting, setLastMeeting] = useState<string | null>(null);
   const [, setTick] = useState(0);
   const segs = useLiveSegments(!!state?.active && state.mode === 'meeting');
+  const llmReady = useLlmReady(settings);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEvent('levels', setLevels);
@@ -255,6 +256,16 @@ export function MeetingPage({ settings, state, go }: { settings: AppSettings; st
           <button className="btn sm" onClick={() => go('history')}>
             查看会议记录
           </button>
+        </div>
+      )}
+      {/* Minutes and after-meeting learning need an LLM: say so instead of silently doing nothing. */}
+      {lastMeeting && !active && llmReady === false && settings.preset !== 'demo' && (settings.summary.autoAtEnd || settings.interpretation.autoReview) && !settings.ui.dismissed.includes('llm-key') && (
+        <div className="callout row between" role="note" style={{ margin: '0 0 12px' }}>
+          <span>这场会没有生成纪要，也没有做会后自动学习：它们需要一个大模型 Key（智谱有免费的，1 分钟拿到）。</span>
+          <div className="row">
+            <button className="btn sm primary" onClick={() => go('settings')}>去填 Key</button>
+            <button className="btn sm ghost" onClick={() => void api.settings.set({ ui: { dismissed: [...settings.ui.dismissed, 'llm-key'] } })}>不需要</button>
+          </div>
         </div>
       )}
       {/* The meeting app now listens to the virtual mic: without this app running, nobody hears me. */}
