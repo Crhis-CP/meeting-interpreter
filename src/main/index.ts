@@ -635,8 +635,8 @@ const handlers: Record<string, Handler> = {
     osVersion: release(),
   }),
   'app.openExternal': (url: string) => {
-    // Web links, and the OS privacy/sound settings pages we point people to.
-    if (/^https?:\/\//.test(url) || /^x-apple\.systempreferences:/.test(url) || /^ms-settings:/.test(url)) return shell.openExternal(url);
+    // Web links, and the OS privacy/sound/firewall settings pages we point people to.
+    if (/^https?:\/\//.test(url) || /^x-apple\.systempreferences:/.test(url) || /^ms-settings:/.test(url) || url === 'windowsdefender://network/') return shell.openExternal(url);
     throw new Error('不能打开这个链接');
   },
   'app.detectMeetingApps': () => detectMeetingApps(),

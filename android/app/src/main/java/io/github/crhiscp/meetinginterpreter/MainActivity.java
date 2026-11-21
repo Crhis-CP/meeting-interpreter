@@ -133,6 +133,23 @@ public class MainActivity extends Activity {
         else super.onBackPressed();
     }
 
+    /**
+     * The page learns it went to the background (visibilitychange) and pauses the conversation:
+     * Android lets a background app record only silence, and cloud recognition would keep
+     * billing for it, keep the phone in call mode and the microphone indicator on.
+     */
+    @Override
+    protected void onPause() {
+        web.onPause();
+        super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        web.onResume();
+    }
+
     @Override
     protected void onDestroy() {
         bridge.shutdown();

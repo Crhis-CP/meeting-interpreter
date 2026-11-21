@@ -86,6 +86,23 @@ export function RoomPage({ settings, state, go }: { settings: AppSettings; state
             {shown && room.qr[shown] && <img className="qr" src={room.qr[shown]} alt={`加入房间的二维码：${shown}`} style={{ width: 240, height: 240 }} />}
             <div className="url" style={{ marginTop: 10 }}>{shown}</div>
             {shown && shown !== room.publicUrl && <p className="muted small">手机提示“连接不安全”时，点“继续访问”</p>}
+            {shown && shown !== room.publicUrl && (
+              <details className="small" style={{ textAlign: 'left', marginTop: 6 }}>
+                <summary>手机打不开？</summary>
+                <ol className="steps">
+                  <li>手机和电脑要连同一个 Wi-Fi。酒店、访客 Wi-Fi 常常不让设备互连：改用手机热点，或打开下面的“公网链接”。</li>
+                  {window.platform === 'win32' && (
+                    <li>
+                      第一次开房间时 Windows 会问“是否允许”：要点“允许”。点过“取消”的话，在“防火墙 › 允许应用通过防火墙”里勾选 MeetingInterpreter（专用和公用都勾）。
+                      <button data-test="safe" className="btn sm" style={{ marginLeft: 6 }} onClick={() => void api.app.openExternal('windowsdefender://network/')}>
+                        打开防火墙设置
+                      </button>
+                    </li>
+                  )}
+                  {window.platform === 'darwin' && <li>如果开了 Mac 的防火墙：系统设置 › 网络 › 防火墙 › 选项，允许“MeetingInterpreter”接收连接。</li>}
+                </ol>
+              </details>
+            )}
             {urls.length > 1 && (
               <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}>
                 {urls.map((u) => (

@@ -129,9 +129,16 @@ export function RoomClient() {
   }, [segs, partial]);
 
   // iOS suspends audio when the screen locks or the page is hidden: resume when it comes back,
-  // and keep the connection alive with a ping.
+  // and keep the connection alive with a ping. A phone that goes to the background stops talking
+  // (it would only send silence, and keep a recogniser busy on the host).
   useEffect(() => {
-    const resume = () => void ctx.current?.resume().catch(() => undefined);
+    const resume = () => {
+      if (document.visibilityState === 'hidden' && talkingRef.current) {
+        setContinuous(false);
+        void setTalkRef.current(false);
+      }
+      void ctx.current?.resume().catch(() => undefined);
+    };
     document.addEventListener('visibilitychange', resume);
     window.addEventListener('pointerdown', resume);
     const ping = setInterval(() => {
@@ -294,6 +301,7 @@ export function RoomClient() {
 
   const pressSeq = useRef(0);
 
+  const setTalkRef = useRef<(on: boolean) => Promise<void>>(async () => undefined);
   const setTalk = async (on: boolean) => {
     if (releaseTimer.current) clearTimeout(releaseTimer.current);
     // A release that happens while the microphone is still opening wins over the press.
@@ -305,6 +313,8 @@ export function RoomClient() {
     if (ws.current?.readyState === 1) ws.current.send(JSON.stringify({ t: 'talk', on }));
     if (!on) releaseMicSoon();
   };
+
+  setTalkRef.current = setTalk;
 
   const leave = () => {
     leaving.current = true;

@@ -44,6 +44,21 @@ test('phone app: hands-free conversation translates what is said and speaks it',
   await page.getByRole('button', { name: '暂停' }).click();
   await expect(page.getByRole('button', { name: '开始' })).toBeVisible();
 
+  // Going to the background pauses (Android would record only silence, cloud recognition would bill for it).
+  await page.getByRole('button', { name: '开始' }).click();
+  await expect(page.getByRole('button', { name: '暂停' })).toBeVisible({ timeout: 15_000 });
+  await page.evaluate(() => {
+    const d = (globalThis as unknown as { document: { dispatchEvent(e: unknown): void } }).document;
+    Object.defineProperty(d, 'visibilityState', { value: 'hidden', configurable: true });
+    d.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(page.getByRole('button', { name: '开始' })).toBeVisible();
+  await expect(page.getByText('切到后台，已暂停')).toBeVisible();
+  await page.evaluate(() => {
+    const d = (globalThis as unknown as { document: object }).document;
+    Object.defineProperty(d, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
   // Push-to-talk mode and the settings sheet.
   await page.getByRole('radio', { name: '按住说话' }).check();
   await expect(page.locator('.mic .cap')).toHaveText('按住说话');

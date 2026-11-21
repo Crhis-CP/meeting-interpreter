@@ -234,10 +234,21 @@ async function start() {
   render();
 }
 
+// In the background Android records only silence, and the recogniser would keep its (possibly
+// billed) connection and the phone its call-mode audio: pause; the conversation stays on screen.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'hidden' || !engine) return;
+  void stop().then(() => {
+    statusText = '切到后台，已暂停。点“开始”继续。';
+    render();
+  });
+});
+
 async function stop() {
   const e = engine;
   engine = null;
   held = false;
+  statusText = '';
   keepAwake(false);
   if (!e) {
     status = 'idle';
@@ -283,7 +294,7 @@ let statusEl: HTMLDivElement;
 function statusLine(): string {
   if (status === 'error') return statusText;
   if (status === 'starting') return '正在连接…';
-  if (!engine) return '';
+  if (!engine) return statusText;
   if (status === 'speaking') return '正在播放翻译…';
   return settings.mode === 'ptt' && !held ? '' : '正在听…';
 }
