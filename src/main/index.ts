@@ -1,5 +1,5 @@
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, net, protocol, safeStorage, session, shell, systemPreferences, Tray, utilityProcess } from 'electron';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import { constants as osConstants, cpus, homedir, release, setPriority, tmpdir, totalmem } from 'node:os';
 import { execFile, spawn } from 'node:child_process';
@@ -55,7 +55,8 @@ import { createInProcessAiWorker } from './providers/local-ai/worker';
 import { SecretStore } from './stores/secret-store';
 import { SettingsStore } from './stores/settings-store';
 import { createAudioWindow, createMainWindow, createOverlayWindow } from './windows';
-import { checkForUpdate } from './update-check';
+import { checkForUpdate, type UpdateInfo } from './update-check';
+import { downloadUpdate } from './updater';
 import { TRAY_IDLE, TRAY_LIVE, TRAY_TEMPLATE } from './assets/tray-icons';
 import { APP_SCHEME, appFilePath, contentTypeOf, isAppUrl } from './app-protocol';
 import { devRendererUrl } from './dev-url';
@@ -643,6 +644,24 @@ const handlers: Record<string, Handler> = {
     if (aiPrefetch?.id === id) aiPrefetch.abort.abort();
   },
   'storage.openFolder': (which: 'data' | 'records') => openPathOrThrow(which === 'records' ? recordsDir() : dataDir),
+  'update.state': () => (latestUpdate ? { version: latestUpdate.version, notes: latestUpdate.notes } : null),
+  'update.install': () => installUpdate(),
+  'update.whatsNew': () => {
+    const f = join(dataDir, 'whats-new.json');
+    if (!existsSync(f)) return null;
+    try {
+      const w = JSON.parse(readFileSync(f, 'utf8')) as { version?: string; notes?: string };
+      // Shown once, by the version it describes.
+      rmSync(f, { force: true });
+      return w.version === app.getVersion() ? { version: w.version, notes: w.notes ?? '' } : null;
+    } catch {
+      return null;
+    }
+  },
+  'app.quit': () => {
+    quitting = true;
+    app.quit();
+  },
   'uninstall.plan': () => uninstallPlan(),
   'uninstall.run': (opts: { records: boolean; driver: boolean; dryRun?: boolean }) => runUninstall(opts),
   'ai.status': async () => {
@@ -890,6 +909,66 @@ async function downloadStored(id: string): Promise<void> {
   } else if (aiModels.ids().includes(id)) await (handlers['ai.download'] as (id: AiModelId) => Promise<void>)(id as AiModelId);
   else if (id === 'offline-mt') await prefetchOfflineMt();
   else throw new Error('这一项不需要下载');
+}
+
+/**
+ * Mac: opened from Downloads or straight from the disk image, the app offers to move itself to
+ * Applications (replacing an older copy there) — one copy on the computer, and permissions that
+ * stay put. "不再提示" is remembered.
+ */
+function offerMoveToApplications(): void {
+  if (process.platform !== 'darwin' || !app.isPackaged || process.env['MI_USER_DATA'] || app.isInApplicationsFolder()) return;
+  if (settings.get().ui.dismissed.includes('move-to-applications') || !mainWindow) return;
+  void dialog
+    .showMessageBox(mainWindow, {
+      type: 'question',
+      message: '把会议同传助手移到“应用程序”文件夹？',
+      detail: '直接从“下载”或安装盘里打开时，电脑上容易留下好几个版本，麦克风、录屏权限也容易失效。移过去后会自动重新打开，设置和记录都在。',
+      buttons: ['移过去', '以后再说', '不再提示'],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    .then(({ response }) => {
+      if (response === 2) settings.set({ ui: { dismissed: [...settings.get().ui.dismissed, 'move-to-applications'] } });
+      if (response !== 0) return;
+      try {
+        // An older copy in Applications is replaced; the app relaunches from there.
+        app.moveToApplicationsFolder({ conflictHandler: () => true });
+      } catch (err) {
+        broadcast('toast', { level: 'warn', message: `没能移到“应用程序”：${err instanceof Error ? err.message : String(err)}。可以手动把它拖进“应用程序”文件夹。` });
+      }
+    });
+}
+
+let latestUpdate: UpdateInfo | null = null;
+
+/**
+ * One click: this computer's installer from the latest release, checked against its SHA256SUMS,
+ * then opened (Mac: the disk image to drag into Applications; Windows: the installer, and the app
+ * quits so its files can be replaced). Everything the user has stays where it is.
+ */
+async function installUpdate(): Promise<'mac-drag' | 'installing' | 'opened'> {
+  const u = latestUpdate;
+  if (!u) throw new Error('没有找到新版本');
+  if (sessionManager.active || room.active) throw new Error('会议进行中不能更新，请先结束会议');
+  if (process.platform !== 'darwin' && process.platform !== 'win32') {
+    await shell.openExternal(u.url);
+    return 'opened';
+  }
+  const file = await downloadUpdate({ info: u, platform: process.platform, arch: process.arch, dir: join(app.getPath('temp'), `mi-update-${u.version}`), fetch: proxiedFetch, onProgress: (p) => broadcast('update-progress', p) });
+  writeFileSync(join(dataDir, 'whats-new.json'), JSON.stringify({ version: u.version, notes: u.notes }));
+  log.info(`update ${u.version} downloaded and checked: ${file}`);
+  if (process.platform === 'darwin') {
+    const err = await shell.openPath(file);
+    if (err) throw new Error(`打不开安装盘：${err}`);
+    return 'mac-drag';
+  }
+  spawn(file, [], { detached: true, stdio: 'ignore' }).unref();
+  setTimeout(() => {
+    quitting = true;
+    app.quit();
+  }, 1000);
+  return 'installing';
 }
 
 /** The app on disk: the .app bundle (Mac) or the folder with its uninstaller (Windows); null when run from source. */
@@ -1378,10 +1457,13 @@ app.whenReady().then(() => {
     if (r.removed.length) log.info(`cleaned up ${r.removed.length} leftover file(s), ${Math.round(r.bytes / 1_000_000)} MB`);
   }, 20_000);
   void desktopBridge.start().catch((err) => log.warn('desktop bridge unavailable', err instanceof Error ? err.message : String(err)));
+  setTimeout(offerMoveToApplications, 3000);
   // A quiet check for a newer release on GitHub (no auto-install: unsigned builds).
   setTimeout(() => {
     void checkForUpdate(app.getVersion(), log, proxiedFetch).then((u) => {
-      if (u) broadcast('toast', { level: 'info', message: `有新版本 ${u.version}：到 crhis-cp.github.io/meeting-interpreter 下载安装（覆盖旧版即可，设置和记录都会保留）` });
+      if (!u) return;
+      latestUpdate = u;
+      broadcast('update-available', { version: u.version, notes: u.notes });
     });
   }, 8000);
 });

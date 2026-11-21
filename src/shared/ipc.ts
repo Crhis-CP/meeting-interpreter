@@ -179,6 +179,14 @@ export interface RendererApi {
     cancel(id: string): Promise<void>;
     openFolder(which: 'data' | 'records'): Promise<void>;
   };
+  update: {
+    /** The newer version found at start-up, if any. */
+    state(): Promise<{ version: string; notes: string } | null>;
+    /** Downloads, checks and opens the installer: 'mac-drag' (drag into Applications), 'installing' (Windows, the app quits), 'opened' (release page). */
+    install(): Promise<'mac-drag' | 'installing' | 'opened'>;
+    /** After an update, once: the version and what changed. */
+    whatsNew(): Promise<{ version: string; notes: string } | null>;
+  };
   uninstall: {
     plan(): Promise<UninstallPlan>;
     /** dryRun: only the backup, and what would be removed. */
@@ -254,6 +262,8 @@ export interface RendererApi {
   };
   app: {
     info(): Promise<AppInfo>;
+    /** Quits the app (e.g. to replace it with a new version). */
+    quit(): Promise<void>;
     openExternal(url: string): Promise<void>;
     detectMeetingApps(): Promise<string[]>;
     screenSources(): Promise<ScreenSource[]>;
@@ -282,6 +292,8 @@ export interface RendererEvents {
   'review-ready': { id: string; count: number; terms: number };
   room: RoomState;
   toast: { level: 'info' | 'warn' | 'error'; message: string };
+  'update-available': { version: string; notes: string };
+  'update-progress': { received: number; total: number };
   settings: AppSettings;
   navigate: { page: string };
 }

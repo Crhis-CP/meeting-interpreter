@@ -13,16 +13,49 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+export interface ReleaseAsset {
+  name: string;
+  url: string;
+  size: number;
+}
+
+export interface UpdateInfo {
+  version: string;
+  /** The release page. */
+  url: string;
+  /** What changed (the release notes). */
+  notes: string;
+  assets: ReleaseAsset[];
+}
+
 /** Looks up the latest GitHub release; resolves null when there is nothing newer or offline. */
-export async function checkForUpdate(current: string, log: Logger, fetchImpl: typeof fetch = fetch): Promise<{ version: string; url: string } | null> {
+export async function checkForUpdate(current: string, log: Logger, fetchImpl: typeof fetch = fetch): Promise<UpdateInfo | null> {
   try {
     const res = await fetchImpl(LATEST, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'meeting-interpreter' }, signal: AbortSignal.timeout(10000) });
     if (!res.ok) return null;
-    const data = (await res.json()) as { tag_name?: string; html_url?: string; draft?: boolean; prerelease?: boolean };
+    const data = (await res.json()) as { tag_name?: string; html_url?: string; draft?: boolean; prerelease?: boolean; body?: string; assets?: { name?: string; browser_download_url?: string; size?: number }[] };
     if (!data.tag_name || data.draft || data.prerelease) return null;
-    return compareVersions(data.tag_name, current) > 0 ? { version: data.tag_name.replace(/^v/, ''), url: data.html_url ?? 'https://github.com/Crhis-CP/meeting-interpreter/releases/latest' } : null;
+    if (compareVersions(data.tag_name, current) <= 0) return null;
+    const assets = (data.assets ?? []).filter((a) => a.name && a.browser_download_url?.startsWith('https://github.com/')).map((a) => ({ name: a.name!, url: a.browser_download_url!, size: a.size ?? 0 }));
+    return { version: data.tag_name.replace(/^v/, ''), url: data.html_url ?? 'https://github.com/Crhis-CP/meeting-interpreter/releases/latest', notes: data.body ?? '', assets };
   } catch (err) {
     log.debug('update check failed', err instanceof Error ? err.message : String(err));
     return null;
   }
+}
+
+/** The installer for this computer, or null (Linux: the release page). */
+export function pickAsset(assets: readonly ReleaseAsset[], platform: NodeJS.Platform, arch: string): ReleaseAsset | null {
+  const want = platform === 'darwin' ? (arch === 'arm64' ? /-mac-arm64\.dmg$/ : /-mac-x64\.dmg$/) : platform === 'win32' ? /-windows-x64-setup\.exe$/ : null;
+  return (want && assets.find((a) => want.test(a.name))) || null;
+}
+
+/** `sha256sum` output: "<hash>  <name>" per line. */
+export function parseSums(text: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^([0-9a-f]{64})\s+\*?(.+)$/i.exec(line.trim());
+    if (m) out.set(m[2]!.trim(), m[1]!.toLowerCase());
+  }
+  return out;
 }

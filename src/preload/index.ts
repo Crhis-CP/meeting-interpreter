@@ -18,6 +18,7 @@ const api: RendererApi = {
   glossary: ns('glossary', ['list', 'save', 'remove', 'importCsv', 'exportCsv']),
   meeting: ns('meeting', ['start', 'stop', 'state', 'segments', 'readiness', 'setOut', 'setIn', 'setInSpeak', 'setPassthrough', 'pushToTalk', 'skip', 'setRecording']),
   storage: ns('storage', ['info', 'remove', 'download', 'cancel', 'openFolder']),
+  update: ns('update', ['state', 'install', 'whatsNew']),
   uninstall: ns('uninstall', ['plan', 'run']),
   meetings: ns('meetings', ['list', 'get', 'summarize', 'rename', 'remove', 'openFolder', 'openFile', 'fileUrl', 'editSegment', 'review', 'decide', 'undo', 'forgetTerm']),
   profile: ns('profile', ['get', 'script', 'calibrate', 'addCorrection', 'removeCorrection', 'exportFile', 'importFile', 'reset', 'openFolder']),
@@ -28,7 +29,7 @@ const api: RendererApi = {
   local: ns('local', ['status', 'download']),
   audio: ns('audio', ['testTone', 'installDriver', 'canRestoreSystemDefaults', 'restoreSystemDefaults']),
   room: ns('room', ['start', 'stop', 'state', 'setPublic']),
-  app: ns('app', ['info', 'openExternal', 'detectMeetingApps', 'screenSources', 'chooseRecordsDir', 'openRecordsDir', 'showWindow', 'setOverlayClickThrough', 'overlayPointer', 'hideOverlay']),
+  app: ns('app', ['info', 'quit', 'openExternal', 'detectMeetingApps', 'screenSources', 'chooseRecordsDir', 'openRecordsDir', 'showWindow', 'setOverlayClickThrough', 'overlayPointer', 'hideOverlay']),
   on<K extends keyof RendererEvents>(event: K, fn: (payload: RendererEvents[K]) => void) {
     const listener = (_e: unknown, msg: { event: string; payload: unknown }) => {
       if (msg.event === event) fn(msg.payload as RendererEvents[K]);

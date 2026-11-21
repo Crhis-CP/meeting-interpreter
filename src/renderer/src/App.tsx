@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import logoUrl from './assets/logo.png';
 import { Icon } from './components/icons';
 import { errMsg, isCancellation, useEvent, useMeetingState, useSettings } from './api';
+import { UpdateBanner } from './components/UpdateBanner';
 import { GlossaryPage } from './pages/Glossary';
 import { HistoryPage } from './pages/History';
 import { MeetingPage } from './pages/Meeting';
@@ -106,6 +107,7 @@ export function App() {
         })}
       </nav>
       <main className="main">
+        <UpdateBanner />
         {download && (
           <div className="download-bar" role="status">
             <span>下载模型</span>

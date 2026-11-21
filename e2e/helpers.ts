@@ -63,7 +63,7 @@ export async function attachAppLogs(info: TestInfo): Promise<void> {
   }
 }
 
-export async function launchApp(settings: object = {}, opts: { realProfile?: boolean } = {}): Promise<{ app: ElectronApplication; dataDir: string; recordsDir: string }> {
+export async function launchApp(settings: object = {}, opts: { realProfile?: boolean; files?: Record<string, string> } = {}): Promise<{ app: ElectronApplication; dataDir: string; recordsDir: string }> {
   const dataDir = mkdtempSync(join(tmpdir(), 'mi-e2e-data-'));
   launchedDataDirs.push(dataDir);
   const recordsDir = mkdtempSync(join(tmpdir(), 'mi-e2e-rec-'));
@@ -81,6 +81,8 @@ export async function launchApp(settings: object = {}, opts: { realProfile?: boo
       ...settings,
     }),
   );
+  // Files the app finds in its data folder at start (e.g. left by an earlier version).
+  for (const [name, text] of Object.entries(opts.files ?? {})) writeFileSync(join(dataDir, name), text);
   const wav = speechWav(dataDir);
   // MI_APP_EXECUTABLE runs a packaged build (e.g. the released AppImage, extracted) instead of the source.
   const packaged = process.env.MI_APP_EXECUTABLE;
