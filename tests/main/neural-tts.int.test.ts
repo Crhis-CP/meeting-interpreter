@@ -2,7 +2,7 @@
  * The natural voices with the real model (opt-in: MI_MODELS_DIR=/path; CI runs it on Mac and
  * Windows): every chosen voice speaks fast enough, at the chosen pace, and is recognised back.
  */
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { performance } from 'node:perf_hooks';
 import { resampleInt16 } from '@core/audio/pcm';
 import { spanishForSpeech } from '@core/speech-text/es-read';
@@ -75,6 +75,14 @@ describe.skipIf(!MODELS_DIR)('natural voices with the real model', () => {
     // Loaded ahead, as the app does when a meeting starts: the timings below are speech only.
     for await (const _ of tts.synthesize({ text: '好。', lang: 'zh-CN', rate: 1 })) void _;
   }, 30 * 60_000);
+
+  // Each voice measured on its own: the app's "too slow, step aside" count starts again (CI
+  // machines, busy with the other real-model tests, can be slower than speech for a while).
+  afterEach(() => tts.dispose());
+  // Loaded again before each (not part of the timing; a short word does not count for speed).
+  beforeEach(async () => {
+    for await (const _ of tts.synthesize({ text: '好。', lang: 'zh-CN', rate: 1 })) void _;
+  }, 120_000);
 
   for (const lang of ['zh', 'es'] as const) {
     for (const gender of ['female', 'male'] as const) {
