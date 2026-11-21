@@ -1007,7 +1007,8 @@ async function runUninstall(opts: { records: boolean; driver: boolean; dryRun?: 
   if (process.platform === 'darwin') await new Promise((r) => execFile('security', ['delete-generic-password', '-s', `${app.getName()} Safe Storage`], () => r(null)));
   if (target && process.platform === 'darwin') await shell.trashItem(target.path).catch((err) => notes.push(`软件没能移到废纸篓，请手动删除：${err instanceof Error ? err.message : String(err)}`));
   // The data folder (and the Windows uninstaller) once this process has quit.
-  const { cmd, args } = afterExitCommand(process.platform, process.pid, dataDir, target?.uninstaller ?? null);
+  // (Tests keep a trace of the clean-up beside the test data folder.)
+  const { cmd, args } = afterExitCommand(process.platform, process.pid, dataDir, target?.uninstaller ?? null, process.env['MI_USER_DATA'] ? `${dataDir}-uninstall.log` : undefined);
   spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
   setTimeout(() => {
     quitting = true;

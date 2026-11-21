@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { attachAppLogs, launchApp, mainWindow } from './helpers';
@@ -59,7 +59,13 @@ test('彻底卸载 for real (a test data folder): the app quits and its data fol
   const closed = new Promise<void>((r) => app.once('close', () => r()));
   await win.evaluate("window.api.uninstall.run({ records: false, driver: false })").catch(() => undefined);
   await closed; // the app quits by itself
-  await expect.poll(() => existsSync(dataDir), { timeout: 30_000 }).toBe(false);
+  await expect
+    .poll(() => existsSync(dataDir), { timeout: 60_000 })
+    .toBe(false)
+    .catch((err: unknown) => {
+      const trace = existsSync(`${dataDir}-uninstall.log`) ? readFileSync(`${dataDir}-uninstall.log`, 'utf8') : '(no trace)';
+      throw new Error(`${String(err)}\nclean-up trace:\n${trace}`);
+    });
   expect(existsSync(`${dataDir}-downloads`)).toBe(true); // the backup stays
 });
 

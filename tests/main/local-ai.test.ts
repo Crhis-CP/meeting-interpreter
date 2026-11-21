@@ -104,7 +104,9 @@ describe('local AI translation client', () => {
 
 // With the real model (MI_AI_MODEL=/path/to/Hy-MT2-1.8B-Q4_K_M.gguf): the worker runs llama.cpp in-process.
 const MODEL = process.env.MI_AI_MODEL;
-describe.skipIf(!MODEL || !existsSync(MODEL))('local AI translation with the real model', () => {
+// (Not on CI's Mac: there the GPU is virtual and Metal in the test process stalls at random; the
+// e2e and packaged tests run the real worker process on Mac, the Windows run checks the quality.)
+describe.skipIf(!MODEL || !existsSync(MODEL) || (process.platform === 'darwin' && !!process.env.CI))('local AI translation with the real model', () => {
   it('translates Chinese, Spanish and English with the user’s terms', async () => {
     const toWorker = new EventEmitter();
     const toMain = new EventEmitter();

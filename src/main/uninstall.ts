@@ -62,13 +62,17 @@ export function safeToDelete(dir: string, home: string): boolean {
  * The command that finishes the job once the app has quit: waits for the process to end, deletes
  * the data folder, and (Windows) runs the uninstaller quietly.
  */
-export function afterExitCommand(platform: NodeJS.Platform, pid: number, dataDir: string, uninstaller: string | null): { cmd: string; args: string[] } {
+export function afterExitCommand(platform: NodeJS.Platform, pid: number, dataDir: string, uninstaller: string | null, trace?: string): { cmd: string; args: string[] } {
   if (platform === 'win32') {
     const q = (s: string) => `'${s.replace(/'/g, "''")}'`;
+    const note = (what: string) => (trace ? [`Add-Content -LiteralPath ${q(trace)} -Value ((Get-Date -Format o) + ' ${what}')`] : []);
     const script = [
+      ...note('waiting for the app to quit'),
       `Wait-Process -Id ${pid} -ErrorAction SilentlyContinue`,
-      'Start-Sleep -Seconds 1',
-      `Remove-Item -LiteralPath ${q(dataDir)} -Recurse -Force -ErrorAction SilentlyContinue`,
+      ...note('the app has quit'),
+      // The app's helper processes can hold files for a moment after it quits: retry for half a minute.
+      `for ($i = 0; ($i -lt 30) -and (Test-Path -LiteralPath ${q(dataDir)}); $i++) { Start-Sleep -Seconds 1; Remove-Item -LiteralPath ${q(dataDir)} -Recurse -Force -ErrorAction SilentlyContinue }`,
+      ...note(`data folder still there: ' + (Test-Path -LiteralPath ${q(dataDir)}) + '`),
       ...(uninstaller ? [`Start-Process -FilePath ${q(uninstaller)} -ArgumentList '/S' -Wait`] : []),
     ].join('; ');
     return { cmd: 'powershell.exe', args: ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', script] };
