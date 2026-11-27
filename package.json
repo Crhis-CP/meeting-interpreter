@@ -39,7 +39,7 @@
     "zod": "^4.6.7"
   },
   "optionalDependencies": {
-    "sherpa-onnx-node": "^2.0.2"
+    "sherpa-onnx-node": "^2.0.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",
